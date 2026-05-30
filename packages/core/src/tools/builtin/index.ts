@@ -1,6 +1,8 @@
 import { ToolRegistry } from "../registry.js";
 import { editFileTool } from "./edit-file.js";
 import { execTool } from "./exec.js";
+import { globTool } from "./glob.js";
+import { grepTool } from "./grep.js";
 import { httpFetchTool } from "./http-fetch.js";
 import { listDirTool } from "./list-dir.js";
 import { readFileTool } from "./read-file.js";
@@ -14,6 +16,8 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(editFileTool)
     .register(execTool)
     .register(listDirTool)
+    .register(globTool)
+    .register(grepTool)
     .register(httpFetchTool);
 }
 
@@ -23,5 +27,7 @@ export {
   writeFileTool,
   editFileTool,
   listDirTool,
+  globTool,
+  grepTool,
   httpFetchTool,
 };

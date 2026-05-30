@@ -24,6 +24,8 @@ export {
   writeFileTool,
   editFileTool,
   listDirTool,
+  globTool,
+  grepTool,
   httpFetchTool,
 } from "./tools/builtin/index.js";
 
