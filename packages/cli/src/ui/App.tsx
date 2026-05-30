@@ -2,15 +2,17 @@ import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
+  PROVIDER_CATALOG,
   type Agent,
   type AgentEvent,
+  type ProviderId,
   type TokenUsage,
   loadStoredConfig,
   saveStoredConfig,
 } from "@luckycli/core";
 
 interface AppMeta {
-  provider: string;
+  provider: ProviderId;
   model: string;
 }
 
@@ -33,6 +35,7 @@ interface AppProps {
   approvalRequest: ApprovalRequest | null;
   setApprovalRequest: (req: ApprovalRequest | null) => void;
   onTriggerSetup: () => void;
+  onChangeModel: (model: string) => void;
 }
 
 interface Theme {
@@ -56,6 +59,7 @@ const THEMES: Theme[] = [
 
 const ALL_SLASH_COMMANDS = [
   { name: "/help", desc: "Show all available slash commands" },
+  { name: "/model", desc: "Switch model for the active provider" },
   { name: "/setup", desc: "Switch model provider or change settings" },
   { name: "/config", desc: "Show active provider and model info" },
   { name: "/theme", desc: "Cycle between terminal UI color themes" },
@@ -68,6 +72,7 @@ export function App({
   approvalRequest,
   setApprovalRequest,
   onTriggerSetup,
+  onChangeModel,
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
@@ -159,6 +164,12 @@ export function App({
   const filteredCommands = ALL_SLASH_COMMANDS.filter((cmd) =>
     cmd.name.startsWith(input)
   );
+  const modelPicker = getModelPickerState(input, meta.provider, meta.model);
+  const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+
+  useEffect(() => {
+    setSelectedModelIndex(0);
+  }, [modelPicker.query, meta.provider]);
 
   // Ctrl+C exits when idle. Support autocomplete and tool approval.
   useInput((_in, key) => {
@@ -180,15 +191,34 @@ export function App({
       return;
     }
 
-    // 2. Interactive Slash Commands menu navigation
-    if (showSlashMenu && filteredCommands.length > 0) {
+    // 2. Interactive model picker navigation
+    if (modelPicker.open && modelPicker.items.length > 0) {
+      if (key.downArrow) {
+        setSelectedModelIndex((prev) => (prev + 1) % modelPicker.items.length);
+        return;
+      }
+      if (key.upArrow) {
+        setSelectedModelIndex(
+          (prev) => (prev - 1 + modelPicker.items.length) % modelPicker.items.length,
+        );
+        return;
+      }
+      if (key.return) {
+        const selected = modelPicker.items[selectedModelIndex];
+        if (selected) selectModel(selected);
+        return;
+      }
+    }
+
+    // 3. Interactive Slash Commands menu navigation
+    if (!modelPicker.open && showSlashMenu && filteredCommands.length > 0) {
       if (key.downArrow) {
         setSelectedCommandIndex((prev) => (prev + 1) % filteredCommands.length);
         return;
       }
       if (key.upArrow) {
         setSelectedCommandIndex(
-          (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length
+          (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length,
         );
         return;
       }
@@ -202,13 +232,42 @@ export function App({
       }
     }
 
-    // 3. Regular Ctrl+C exit
+    // 4. Regular Ctrl+C exit
     if (key.ctrl && _in === "c" && busy) {
       abortControllerRef.current?.abort();
       return;
     }
     if (key.ctrl && _in === "c" && !busy) exit();
   });
+
+  const selectModel = useCallback(
+    (model: string) => {
+      const validation = validateModel(meta.provider, model);
+      if (!validation.ok) {
+        setItems((prev) => [...prev, { kind: "error", text: validation.message }]);
+        setInput("");
+        return;
+      }
+
+      try {
+        onChangeModel(model);
+        setItems((prev) => [
+          ...prev,
+          { kind: "assistant", text: `Model changed to ${meta.provider} / ${model}` },
+        ]);
+      } catch (error) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: error instanceof Error ? error.message : "failed to change model",
+          },
+        ]);
+      }
+      setInput("");
+    },
+    [meta.provider, onChangeModel],
+  );
 
   const submit = useCallback(
     async (value: string) => {
@@ -229,12 +288,30 @@ export function App({
         setInput("");
         return;
       }
+      if (text === "/model" || text.startsWith("/model ")) {
+        const requestedModel = text.slice("/model".length).trim();
+        if (requestedModel) {
+          selectModel(requestedModel);
+          return;
+        }
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "assistant",
+            text: `Available ${meta.provider} models:\n${getAvailableModels(meta.provider)
+              .map((model) => `${model === meta.model ? "*" : "-"} ${model}`)
+              .join("\n")}`,
+          },
+        ]);
+        setInput("");
+        return;
+      }
       if (text === "/help") {
         setItems((prev) => [
           ...prev,
           {
             kind: "assistant",
-            text: "/help | /setup | /config | /theme | /exit",
+            text: "/help | /model | /setup | /config | /theme | /exit",
           },
         ]);
         setInput("");
@@ -322,7 +399,7 @@ export function App({
         setStartedAt(null);
       }
     },
-    [agent, busy, meta, exit, cycleTheme, onTriggerSetup],
+    [agent, busy, meta, exit, cycleTheme, onTriggerSetup, selectModel],
   );
 
   const transcriptHeight = Math.max(6, terminalSize.height - 10);
@@ -393,7 +470,41 @@ export function App({
         </Box>
       ) : null}
 
-      {showSlashMenu && filteredCommands.length > 0 ? (
+      {modelPicker.open ? (
+        <Box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor={activeTheme.accent}
+          paddingX={1}
+          paddingY={0.5}
+          marginBottom={0.5}
+          width="100%"
+        >
+          <Text bold color={activeTheme.accent}>
+            Models for {PROVIDER_CATALOG[meta.provider].displayName}
+          </Text>
+          {modelPicker.items.length > 0 ? (
+            modelPicker.items.map((model, idx) => (
+              <Box key={model} flexDirection="row">
+                <Text color={idx === selectedModelIndex ? activeTheme.accent : "gray"}>
+                  {idx === selectedModelIndex ? "› " : "  "}
+                </Text>
+                <Text bold={model === meta.model} color={idx === selectedModelIndex ? activeTheme.accent : "white"}>
+                  {model === meta.model ? "* " : "  "}
+                  {model}
+                </Text>
+              </Box>
+            ))
+          ) : (
+            <Text color={activeTheme.muted}>No matching model. Type /model {"<model-id>"}.</Text>
+          )}
+          <Box marginTop={0.5}>
+            <Text color={activeTheme.muted}>
+              up/down navigate | enter switch | type to filter
+            </Text>
+          </Box>
+        </Box>
+      ) : showSlashMenu && filteredCommands.length > 0 ? (
         <Box
           flexDirection="column"
           borderStyle="single"
@@ -551,6 +662,49 @@ function patchLastTool(
     }
   }
   return items;
+}
+
+function getModelPickerState(
+  input: string,
+  provider: ProviderId,
+  activeModel: string,
+): { open: boolean; query: string; items: string[] } {
+  if (input !== "/model" && !input.startsWith("/model ")) {
+    return { open: false, query: "", items: [] };
+  }
+
+  const query = input.slice("/model".length).trim().toLowerCase();
+  const models = getAvailableModels(provider, activeModel);
+  const items = query
+    ? models.filter((model) => model.toLowerCase().includes(query))
+    : models;
+  return { open: true, query, items };
+}
+
+function getAvailableModels(provider: ProviderId, activeModel?: string): string[] {
+  const models = [...PROVIDER_CATALOG[provider].availableModels];
+  if (activeModel && !models.includes(activeModel)) {
+    models.unshift(activeModel);
+  }
+  return models;
+}
+
+function validateModel(
+  provider: ProviderId,
+  model: string,
+): { ok: true } | { ok: false; message: string } {
+  if (!model) return { ok: false, message: "model id cannot be empty" };
+  const knownModels = getAvailableModels(provider);
+  if (knownModels.includes(model)) return { ok: true };
+
+  if (provider === "ollama") {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    message: `unknown ${provider} model: ${model}. Use /model to pick one of: ${knownModels.join(", ")}`,
+  };
 }
 
 function preview(value: unknown, max = 120): string {

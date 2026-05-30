@@ -1,7 +1,11 @@
 import React, { useState } from "react";
 import {
+  loadStoredConfig,
   saveProviderSetup,
+  saveStoredConfig,
   type Agent,
+  type ProviderCredentials,
+  type ProviderId,
   type ResolvedConfig,
 } from "@luckycli/core";
 import { buildAgent } from "../runtime.js";
@@ -15,8 +19,9 @@ interface RootProps {
 
 interface ActiveRuntime {
   agent: Agent;
-  provider: string;
+  provider: ProviderId;
   model: string;
+  credentials: ProviderCredentials;
 }
 
 /**
@@ -51,6 +56,7 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
       }),
       provider: config.provider,
       model: config.model,
+      credentials: config.credentials,
     };
   });
 
@@ -72,6 +78,35 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
       }),
       provider: result.provider,
       model: result.model,
+      credentials: result.credentials,
+    });
+  }
+
+  function onChangeModel(model: string) {
+    if (!runtime) return;
+    const cfg = loadStoredConfig();
+    saveStoredConfig({
+      ...cfg,
+      provider: runtime.provider,
+      model,
+    });
+    setRuntime({
+      agent: buildAgent({
+        provider: runtime.provider,
+        model,
+        credentials: runtime.credentials,
+        system: config.system,
+        approveTool,
+        ...(config.temperature !== undefined
+          ? { temperature: config.temperature }
+          : {}),
+        ...(config.maxTokens !== undefined
+          ? { maxTokens: config.maxTokens }
+          : {}),
+      }),
+      provider: runtime.provider,
+      model,
+      credentials: runtime.credentials,
     });
   }
 
@@ -84,6 +119,7 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
       approvalRequest={approvalRequest}
       setApprovalRequest={setApprovalRequest}
       onTriggerSetup={() => setRuntime(null)}
+      onChangeModel={onChangeModel}
     />
   );
 }
