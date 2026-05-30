@@ -61,6 +61,24 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
       },
     ],
   },
+  "openai-oauth": {
+    id: "openai-oauth",
+    displayName: "ChatGPT",
+    company: "OpenAI",
+    availableModels: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-4o"],
+    defaultModel: "gpt-5.5",
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsTools: true,
+    authMethods: [
+      {
+        id: "oauth",
+        displayName: "ChatGPT Browser Login",
+        kind: "oauth",
+        hint: "Use your ChatGPT Plus/Pro account in the browser",
+      },
+    ],
+  },
   gemini: {
     id: "gemini",
     displayName: "Google Gemini",
@@ -129,4 +147,3 @@ export function providerInfo(id: ProviderId): ProviderInfo {
 export function listProviders(): ProviderCatalogEntry[] {
   return Object.values(PROVIDER_CATALOG);
 }
-

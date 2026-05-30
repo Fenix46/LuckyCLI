@@ -14,7 +14,7 @@ On first run, lucky asks you to pick a provider and enter its key, then
 remembers your choice in ~/.luckycli/config.json. No .env required.
 
 Options:
-  -p, --provider  claude | openai | gemini | ollama
+  -p, --provider  claude | openai | openai-oauth | gemini | ollama
   -m, --model     model id (provider-specific)
       --setup     force the provider setup dialog
   -h, --help      show this help

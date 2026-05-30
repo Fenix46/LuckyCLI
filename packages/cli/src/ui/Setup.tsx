@@ -5,8 +5,10 @@ import React, { useState, useEffect } from "react";
 import {
   PROVIDER_CATALOG,
   listProviders,
+  runOpenAiBrowserOAuthFlow,
   startOAuthFlow,
   openBrowser,
+  type OpenAiOAuthTokens,
   type ProviderCredentials,
   type ProviderId,
   type AuthMethod,
@@ -50,6 +52,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthTokens, setOauthTokens] = useState<{ accessToken: string; refreshToken?: string } | null>(null);
+  const [openAiOAuthTokens, setOpenAiOAuthTokens] = useState<OpenAiOAuthTokens | null>(null);
 
   // 1. Clear terminal screen on mount to ensure clean, viewport-aligned rendering
   useEffect(() => {
@@ -59,9 +62,30 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   // 2. Initialize dynamic Google OAuth loopback flow asynchronously
   useEffect(() => {
     let activeSession: any = null;
-    if (selectedAuthMethod?.kind === "oauth" && step === "credential" && !oauthUrl) {
+    if (
+      selectedAuthMethod?.kind === "oauth" &&
+      step === "credential" &&
+      !oauthUrl &&
+      !oauthLoading &&
+      !oauthError
+    ) {
       setOauthLoading(true);
       setOauthError(null);
+
+      if (selectedProviderId === "openai-oauth") {
+        runOpenAiBrowserOAuthFlow()
+          .then(({ tokens }) => {
+            setOpenAiOAuthTokens(tokens);
+            setOauthLoading(false);
+            setStep("model");
+          })
+          .catch((err) => {
+            setOauthLoading(false);
+            setOauthError(`Authentication failed: ${err instanceof Error ? err.message : String(err)}`);
+          });
+        return;
+      }
+
       startOAuthFlow()
         .then((session) => {
           activeSession = session;
@@ -88,24 +112,29 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         activeSession.stop();
       }
     };
-  }, [selectedAuthMethod?.id, step]);
+  }, [selectedAuthMethod?.id, selectedProviderId, step, oauthUrl, oauthLoading, oauthError]);
 
-  // Unique list of companies from PROVIDER_CATALOG
-  const companyItems = Array.from(
-    new Set(listProviders().map((p) => p.company))
-  ).map((c) => ({
-    key: c,
-    label: c === "Google" ? "Google Gemini" : c,
-    value: c,
+  const companyItems = listProviders().map((provider) => ({
+    key: provider.id,
+    label:
+      provider.id === "openai-oauth"
+        ? "ChatGPT Plus/Pro"
+        : provider.company === "Google"
+        ? "Google Gemini"
+        : provider.displayName,
+    value: provider.id,
   }));
 
-  function onSelectCompany(item: { value: string }) {
-    setSelectedCompany(item.value);
-    const provider = listProviders().find((p) => p.company === item.value);
-    if (provider) {
-      setSelectedProviderId(provider.id);
-    }
+  function onSelectCompany(item: { value: ProviderId }) {
+    const provider = PROVIDER_CATALOG[item.value];
+    setSelectedCompany(provider.displayName);
+    setSelectedProviderId(provider.id);
     setStep("authMethod");
+    setSelectedAuthMethod(null);
+    setOauthUrl(null);
+    setOauthError(null);
+    setOauthTokens(null);
+    setOpenAiOAuthTokens(null);
   }
 
   function onSelectAuthMethod(item: { value: AuthMethod }) {
@@ -144,6 +173,14 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
       credentials = { type: "claude", apiKey: secret.trim() };
     } else if (selectedProviderId === "openai") {
       credentials = { type: "openai", apiKey: secret.trim() };
+    } else if (selectedProviderId === "openai-oauth") {
+      if (!openAiOAuthTokens) {
+        setOauthError("Authentication is incomplete. Please restart setup and try again.");
+        setStep("credential");
+        setCredSubStep("oauth_code");
+        return;
+      }
+      credentials = { type: "openai-oauth", ...openAiOAuthTokens };
     } else if (selectedProviderId === "ollama") {
       credentials = { type: "ollama", baseUrl: secret.trim() };
     } else {
@@ -259,10 +296,16 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
                   <Text color="yellow">⏳ Starting secure loopback callback server...</Text>
                 ) : (
                   <Box flexDirection="column">
-                    <Text color="gray">› Please open the authorization URL in your browser to log in:</Text>
-                    <Box marginY={0.5} paddingX={1}>
-                      <Text bold color="cyan" underline>{oauthUrl || "Generating authorization link..."}</Text>
-                    </Box>
+                    {selectedProviderId === "openai-oauth" ? (
+                      <Text color="gray">› Browser opened on auth.openai.com. Complete ChatGPT login.</Text>
+                    ) : (
+                      <>
+                        <Text color="gray">› Please open the authorization URL in your browser to log in:</Text>
+                        <Box marginY={0.5} paddingX={1}>
+                          <Text bold color="cyan" underline>{oauthUrl || "Generating authorization link..."}</Text>
+                        </Box>
+                      </>
+                    )}
                     <Box marginTop={0.5}>
                       <Text bold color="yellow">⏳ Waiting for browser callback... (Automatic login)</Text>
                     </Box>

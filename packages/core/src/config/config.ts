@@ -43,7 +43,7 @@ export function resolveConfig(
   if (providerRaw) {
     if (!isProviderId(providerRaw)) {
       throw new Error(
-        `Unknown provider "${providerRaw}". Valid: claude, openai, gemini, ollama.`,
+        `Unknown provider "${providerRaw}". Valid: claude, openai, openai-oauth, gemini, ollama.`,
       );
     }
     provider = providerRaw;
@@ -105,6 +105,8 @@ export function credentialsFromEnv(
         apiKey: requireEnv(env, "OPENAI_API_KEY"),
         ...(env.OPENAI_BASE_URL ? { baseUrl: env.OPENAI_BASE_URL } : {}),
       };
+    case "openai-oauth":
+      throw new Error("OpenAI OAuth requires browser login via setup.");
     case "gemini":
       if (env.GEMINI_API_KEY) {
         return { type: "gemini", authMethod: "api_key", apiKey: env.GEMINI_API_KEY };

@@ -114,11 +114,12 @@ export interface StreamChunk {
 
 // ─── Provider identity & capabilities ────────────────────────────────────────
 
-export type ProviderId = "claude" | "openai" | "gemini" | "ollama";
+export type ProviderId = "claude" | "openai" | "openai-oauth" | "gemini" | "ollama";
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   "claude",
   "openai",
+  "openai-oauth",
   "gemini",
   "ollama",
 ];
@@ -146,6 +147,14 @@ export interface OpenAiCredentials {
   baseUrl?: string;
 }
 
+export interface OpenAiOAuthCredentials {
+  type: "openai-oauth";
+  access: string;
+  refresh: string;
+  expires: number;
+  accountId?: string;
+}
+
 export interface GeminiCredentials {
   type: "gemini";
   authMethod?: "api_key" | "oauth" | "vertex";
@@ -164,6 +173,7 @@ export interface OllamaCredentials {
 export type ProviderCredentials =
   | ClaudeCredentials
   | OpenAiCredentials
+  | OpenAiOAuthCredentials
   | GeminiCredentials
   | OllamaCredentials;
 

@@ -6,13 +6,16 @@
 import { ClaudeProvider } from "./impl/claude/ClaudeProvider.js";
 import { GeminiProvider } from "./impl/gemini/GeminiProvider.js";
 import { OllamaProvider } from "./impl/ollama/OllamaProvider.js";
+import { OpenAiOAuthProvider } from "./impl/openai-oauth/OpenAiOAuthProvider.js";
 import { OpenAiProvider } from "./impl/openai/OpenAiProvider.js";
 import { registerProviderFactory } from "./registry.js";
+import { loadStoredConfig, saveStoredConfig } from "../config/store.js";
 import type {
   ClaudeCredentials,
   GeminiCredentials,
   OllamaCredentials,
   OpenAiCredentials,
+  OpenAiOAuthCredentials,
 } from "./types.js";
 
 let registered = false;
@@ -27,6 +30,16 @@ export function registerBuiltinProviders(): void {
   );
   registerProviderFactory("openai", (c) =>
     new OpenAiProvider(c as OpenAiCredentials),
+  );
+  registerProviderFactory("openai-oauth", (c) =>
+    new OpenAiOAuthProvider(c as OpenAiOAuthCredentials, (tokens) => {
+      const cfg = loadStoredConfig();
+      cfg.credentials = {
+        ...cfg.credentials,
+        "openai-oauth": { type: "openai-oauth", ...tokens },
+      };
+      saveStoredConfig(cfg);
+    }),
   );
   registerProviderFactory("gemini", (c) =>
     new GeminiProvider(c as GeminiCredentials),
@@ -47,6 +60,8 @@ export {
   providerInfo,
 } from "./catalog.js";
 export type { AuthMethod, ProviderCatalogEntry } from "./catalog.js";
+export { runOpenAiBrowserOAuthFlow } from "./impl/openai-oauth/oauthFlow.js";
+export type { OpenAiOAuthTokens } from "./impl/openai-oauth/OpenAiOAuthProvider.js";
 export {
   getProvider,
   getRegisteredProviderIds,
