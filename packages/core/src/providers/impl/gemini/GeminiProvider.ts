@@ -52,6 +52,7 @@ export class GeminiProvider implements IProvider {
         httpOptions: {
           headers: {
             Authorization: `Bearer ${this.credentials.accessToken || ""}`,
+            ...(this.credentials.projectId ? { "x-goog-user-project": this.credentials.projectId } : {}),
           },
         },
       });

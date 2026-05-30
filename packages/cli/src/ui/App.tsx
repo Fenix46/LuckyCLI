@@ -278,11 +278,8 @@ export function App({
     [agent, busy, meta, exit, cycleTheme, onTriggerSetup],
   );
 
-  // Sliced to fit terminal viewport comfortably
-  const visibleItems = items.slice(-8);
-
   return (
-    <Box flexDirection="column" width={terminalSize.width} height={terminalSize.height} padding={1}>
+    <Box flexDirection="column" width={terminalSize.width} padding={1}>
       {/* Splash Welcome Logo */}
       <Box flexDirection="column" marginBottom={1}>
         <Text bold color={activeTheme.accent}>{WELCOME_LOGO}</Text>
@@ -290,8 +287,8 @@ export function App({
       </Box>
 
       {/* Main clean scrollback stream */}
-      <Box flexDirection="column" flexGrow={1} marginBottom={1}>
-        {visibleItems.map((item, i) => (
+      <Box flexDirection="column" marginBottom={1}>
+        {items.map((item, i) => (
           <Box key={i} marginY={0.5}>
             <ItemView item={item} theme={activeTheme} />
           </Box>

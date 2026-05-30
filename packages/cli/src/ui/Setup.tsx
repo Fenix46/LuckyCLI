@@ -72,7 +72,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         })
         .then((tokens) => {
           setOauthTokens(tokens);
-          setStep("model");
+          setCredSubStep("project");
         })
         .catch((err) => {
           setOauthLoading(false);
