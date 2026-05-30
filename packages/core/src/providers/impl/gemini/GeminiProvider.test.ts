@@ -131,7 +131,7 @@ describe("GeminiProvider", () => {
     expect(response.content[0]).toEqual({ type: "text", text: "mocked response" });
   });
 
-  it("falls back to stable flash on Code Assist OAuth rate limits", async () => {
+  it("walks the Code Assist OAuth fallback chain on rate limits", async () => {
     const provider = new GeminiProvider({
       type: "gemini",
       authMethod: "oauth",
@@ -141,6 +141,11 @@ describe("GeminiProvider", () => {
       .mockRejectedValueOnce(
         new Error(
           'Code Assist request failed (429): {"status":"RESOURCE_EXHAUSTED"}',
+        ),
+      )
+      .mockRejectedValueOnce(
+        new Error(
+          'Code Assist request failed (429): {"reason":"RATE_LIMIT_EXCEEDED"}',
         ),
       )
       .mockResolvedValueOnce({
@@ -159,6 +164,10 @@ describe("GeminiProvider", () => {
     expect(mocks.codeAssistGenerateContent).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ model: "gemini-2.5-flash" }),
+    );
+    expect(mocks.codeAssistGenerateContent).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ model: "gemini-2.5-pro" }),
     );
     expect(response.content[0]).toEqual({
       type: "text",

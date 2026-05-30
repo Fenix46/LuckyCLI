@@ -37,6 +37,7 @@ const CODE_ASSIST_FALLBACKS: Record<string, string> = {
   "gemini-3.1-pro-preview": GEMINI_2_5_PRO,
   "gemini-3.1-pro-preview-customtools": GEMINI_2_5_PRO,
   "gemini-3-pro-preview": GEMINI_2_5_PRO,
+  [GEMINI_2_5_FLASH]: GEMINI_2_5_PRO,
   [GEMINI_2_5_PRO]: GEMINI_2_5_FLASH,
 };
 
@@ -230,12 +231,24 @@ export class GeminiProvider implements IProvider {
     model: string,
     run: (model: string) => Promise<T>,
   ): Promise<T> {
-    try {
-      return await run(model);
-    } catch (err) {
-      const fallback = codeAssistFallbackModel(model);
-      if (!fallback || !isCodeAssistRateLimit(err)) throw err;
-      return run(fallback);
+    const attempted = new Set<string>();
+    let currentModel = model;
+
+    while (true) {
+      attempted.add(currentModel);
+      try {
+        return await run(currentModel);
+      } catch (err) {
+        const fallback = codeAssistFallbackModel(currentModel);
+        if (
+          !fallback ||
+          attempted.has(fallback) ||
+          !isCodeAssistRateLimit(err)
+        ) {
+          throw err;
+        }
+        currentModel = fallback;
+      }
     }
   }
 
@@ -243,15 +256,28 @@ export class GeminiProvider implements IProvider {
     model: string,
     req: Omit<Parameters<CodeAssistClient["generateContentStream"]>[0], "model">,
   ): AsyncGenerator<GenerateContentResponse> {
-    try {
-      yield* this.codeAssistClient!.generateContentStream({ model, ...req });
-    } catch (err) {
-      const fallback = codeAssistFallbackModel(model);
-      if (!fallback || !isCodeAssistRateLimit(err)) throw err;
-      yield* this.codeAssistClient!.generateContentStream({
-        model: fallback,
-        ...req,
-      });
+    const attempted = new Set<string>();
+    let currentModel = model;
+
+    while (true) {
+      attempted.add(currentModel);
+      try {
+        yield* this.codeAssistClient!.generateContentStream({
+          model: currentModel,
+          ...req,
+        });
+        return;
+      } catch (err) {
+        const fallback = codeAssistFallbackModel(currentModel);
+        if (
+          !fallback ||
+          attempted.has(fallback) ||
+          !isCodeAssistRateLimit(err)
+        ) {
+          throw err;
+        }
+        currentModel = fallback;
+      }
     }
   }
 }
