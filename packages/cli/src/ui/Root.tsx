@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   loadStoredConfig,
+  resolveConfig,
   saveProviderSetup,
   saveStoredConfig,
   type Agent,
@@ -11,12 +12,15 @@ import {
 } from "@luckycli/core";
 import { buildAgent } from "../runtime.js";
 import { App, type ApprovalRequest } from "./App.js";
+import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
 
 interface RootProps {
   config: ResolvedConfig;
   forceSetup: boolean;
   resume?: Session;
+  /** Show the interactive session picker before starting (lucky --resume, no id). */
+  pickResume?: boolean;
 }
 
 interface ActiveRuntime {
@@ -30,8 +34,15 @@ interface ActiveRuntime {
  * Top-level component. Decides between the setup dialog and the chat UI, and
  * rebuilds the agent when setup completes.
  */
-export function Root({ config, forceSetup, resume }: RootProps): React.JSX.Element {
+export function Root({
+  config,
+  forceSetup,
+  resume,
+  pickResume,
+}: RootProps): React.JSX.Element {
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
+  const [resumeSession, setResumeSession] = useState<Session | null>(resume ?? null);
+  const [picking, setPicking] = useState<boolean>(pickResume === true && !resume);
 
   function approveTool(name: string, input: unknown) {
     return new Promise<boolean>((resolve) => {
@@ -78,10 +89,52 @@ export function Root({ config, forceSetup, resume }: RootProps): React.JSX.Eleme
         ...(config.maxTokens !== undefined
           ? { maxTokens: config.maxTokens }
           : {}),
+        ...(resumeSession?.messages?.length
+          ? { messages: resumeSession.messages }
+          : {}),
       }),
       provider: result.provider,
       model: result.model,
       credentials: result.credentials,
+    });
+  }
+
+  /** Resume a session chosen from the interactive picker. */
+  function startSession(session: Session) {
+    setResumeSession(session);
+    setPicking(false);
+    const resolved = resolveConfig({
+      provider: session.provider,
+      model: session.model,
+    });
+    if (
+      resolved.needsSetup ||
+      !resolved.provider ||
+      !resolved.model ||
+      !resolved.credentials
+    ) {
+      // Credentials for that provider are gone — fall into setup, then seed.
+      setRuntime(null);
+      return;
+    }
+    setRuntime({
+      agent: buildAgent({
+        provider: resolved.provider,
+        model: resolved.model,
+        credentials: resolved.credentials,
+        system: config.system,
+        approveTool,
+        ...(config.temperature !== undefined
+          ? { temperature: config.temperature }
+          : {}),
+        ...(config.maxTokens !== undefined
+          ? { maxTokens: config.maxTokens }
+          : {}),
+        ...(session.messages.length ? { messages: session.messages } : {}),
+      }),
+      provider: resolved.provider,
+      model: resolved.model,
+      credentials: resolved.credentials,
     });
   }
 
@@ -117,6 +170,15 @@ export function Root({ config, forceSetup, resume }: RootProps): React.JSX.Eleme
     });
   }
 
+  if (picking) {
+    return (
+      <SessionPicker
+        onSelect={startSession}
+        onCancel={() => setPicking(false)}
+      />
+    );
+  }
+
   if (!runtime) return <Setup onComplete={onSetupComplete} />;
 
   return (
@@ -127,7 +189,7 @@ export function Root({ config, forceSetup, resume }: RootProps): React.JSX.Eleme
       setApprovalRequest={setApprovalRequest}
       onTriggerSetup={() => setRuntime(null)}
       onChangeModel={onChangeModel}
-      {...(resume ? { resumed: resume } : {})}
+      {...(resumeSession ? { resumed: resumeSession } : {})}
     />
   );
 }

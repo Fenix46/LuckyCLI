@@ -23,7 +23,7 @@ Options:
   -p, --provider  claude | openai | openai-oauth | gemini | ollama
   -m, --model     model id (provider-specific)
   -c, --continue  resume the most recent session
-      --resume    resume a specific session by id
+      --resume [id]  resume a session; with no id, pick one interactively
       --sessions  list saved sessions and exit
       --setup     force the provider setup dialog
   -h, --help      show this help
@@ -44,36 +44,13 @@ function printSessions(): void {
   }
 }
 
-function resolveResume(values: {
-  continue?: boolean;
-  resume?: string;
-}): Session | undefined {
-  if (values.resume) {
-    const session = loadSession(values.resume);
-    if (!session) {
-      process.stderr.write(`No session found with id "${values.resume}".\n`);
-      process.exit(1);
-    }
-    return session;
-  }
-  if (values.continue) {
-    const latest = latestSession();
-    if (!latest) {
-      process.stderr.write("No saved sessions to continue.\n");
-      process.exit(1);
-    }
-    return loadSession(latest.id);
-  }
-  return undefined;
-}
-
 function main(): void {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     options: {
       provider: { type: "string", short: "p" },
       model: { type: "string", short: "m" },
       continue: { type: "boolean", short: "c" },
-      resume: { type: "string" },
+      resume: { type: "boolean" },
       sessions: { type: "boolean" },
       setup: { type: "boolean" },
       help: { type: "boolean", short: "h" },
@@ -91,12 +68,38 @@ function main(): void {
     return;
   }
 
-  const resume = resolveResume(values);
+  // Resolve which session (if any) to resume, and whether to show the picker.
+  let resume: Session | undefined;
+  let pickResume = false;
+  const resumeId = positionals[0];
+
+  if (values.resume && resumeId) {
+    const session = loadSession(resumeId);
+    if (!session) {
+      process.stderr.write(`No session found with id "${resumeId}".\n`);
+      process.exit(1);
+    }
+    resume = session;
+  } else if (values.resume) {
+    // --resume with no id: pick interactively in the TUI.
+    if (listSessions().length === 0) {
+      process.stderr.write("No saved sessions to resume.\n");
+      process.exit(1);
+    }
+    pickResume = true;
+  } else if (values.continue) {
+    const latest = latestSession();
+    if (!latest) {
+      process.stderr.write("No saved sessions to continue.\n");
+      process.exit(1);
+    }
+    resume = loadSession(latest.id);
+  }
 
   const config = resolveConfig({
     ...(values.provider ? { provider: values.provider } : {}),
-    // A resumed session pins its own provider/model unless overridden via flags.
     ...(values.model ? { model: values.model } : {}),
+    // A resumed session pins its own provider/model unless overridden via flags.
     ...(!values.provider && resume ? { provider: resume.provider } : {}),
     ...(!values.model && resume ? { model: resume.model } : {}),
   });
@@ -106,6 +109,7 @@ function main(): void {
       config,
       forceSetup: values.setup === true,
       ...(resume ? { resume } : {}),
+      ...(pickResume ? { pickResume: true } : {}),
     }),
   );
 }
