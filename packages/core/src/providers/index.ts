@@ -57,6 +57,7 @@ export type { IProvider } from "./IProvider.js";
 export {
   PROVIDER_CATALOG,
   listProviders,
+  modelInfo,
   providerInfo,
 } from "./catalog.js";
 export type { AuthMethod, ProviderCatalogEntry } from "./catalog.js";

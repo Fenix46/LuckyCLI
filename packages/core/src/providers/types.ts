@@ -128,10 +128,18 @@ export interface ProviderInfo {
   id: ProviderId;
   displayName: string;
   availableModels: string[];
+  models?: Record<string, ModelInfo>;
   defaultModel: string;
   supportsStreaming: boolean;
   supportsVision: boolean;
   supportsTools: boolean;
+}
+
+export interface ModelInfo {
+  id: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  source?: "official" | "provider" | "local" | "unknown";
 }
 
 // ─── Provider credentials (discriminated by provider id) ─────────────────────

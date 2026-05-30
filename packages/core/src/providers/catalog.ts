@@ -6,7 +6,7 @@
  * so model lists live in exactly one place.
  */
 
-import type { ProviderId, ProviderInfo } from "./types.js";
+import type { ModelInfo, ProviderId, ProviderInfo } from "./types.js";
 
 export interface AuthMethod {
   id: string;
@@ -30,6 +30,11 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
       "claude-sonnet-4-6",
       "claude-haiku-4-5-20251001",
     ],
+    models: modelEntries([
+      { id: "claude-opus-4-8", source: "unknown" },
+      { id: "claude-sonnet-4-6", source: "unknown" },
+      { id: "claude-haiku-4-5-20251001", source: "unknown" },
+    ]),
     defaultModel: "claude-sonnet-4-6",
     supportsStreaming: true,
     supportsVision: true,
@@ -48,6 +53,32 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     displayName: "OpenAI",
     company: "OpenAI",
     availableModels: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o4-mini"],
+    models: modelEntries([
+      {
+        id: "gpt-4o",
+        contextWindow: 128_000,
+        maxOutputTokens: 16_384,
+        source: "official",
+      },
+      {
+        id: "gpt-4o-mini",
+        contextWindow: 128_000,
+        maxOutputTokens: 16_384,
+        source: "official",
+      },
+      {
+        id: "gpt-4.1",
+        contextWindow: 1_047_576,
+        maxOutputTokens: 32_768,
+        source: "official",
+      },
+      {
+        id: "o4-mini",
+        contextWindow: 200_000,
+        maxOutputTokens: 100_000,
+        source: "official",
+      },
+    ]),
     defaultModel: "gpt-4o",
     supportsStreaming: true,
     supportsVision: true,
@@ -66,6 +97,18 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     displayName: "ChatGPT",
     company: "OpenAI",
     availableModels: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-4o"],
+    models: modelEntries([
+      { id: "gpt-5.5", source: "unknown" },
+      { id: "gpt-5.4", source: "unknown" },
+      { id: "gpt-5.4-mini", source: "unknown" },
+      { id: "gpt-5.3-codex", source: "unknown" },
+      {
+        id: "gpt-4o",
+        contextWindow: 128_000,
+        maxOutputTokens: 16_384,
+        source: "official",
+      },
+    ]),
     defaultModel: "gpt-5.5",
     supportsStreaming: true,
     supportsVision: true,
@@ -93,6 +136,16 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
       "gemma-4-31b-it",
       "gemma-4-26b-a4b-it",
     ],
+    models: modelEntries([
+      { id: "gemini-3.1-pro-preview", source: "unknown" },
+      { id: "gemini-3.1-flash-lite", source: "unknown" },
+      { id: "gemini-3-pro-preview", source: "unknown" },
+      { id: "gemini-3-flash-preview", source: "unknown" },
+      { id: "gemini-2.5-pro", source: "unknown" },
+      { id: "gemini-2.5-flash", source: "unknown" },
+      { id: "gemma-4-31b-it", source: "unknown" },
+      { id: "gemma-4-26b-a4b-it", source: "unknown" },
+    ]),
     defaultModel: "gemini-2.5-pro",
     supportsStreaming: true,
     supportsVision: true,
@@ -123,6 +176,12 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     displayName: "Ollama (local)",
     company: "Ollama",
     availableModels: ["llama3.1", "qwen2.5", "mistral", "gemma2"],
+    models: modelEntries([
+      { id: "llama3.1", source: "local" },
+      { id: "qwen2.5", source: "local" },
+      { id: "mistral", source: "local" },
+      { id: "gemma2", source: "local" },
+    ]),
     defaultModel: "llama3.1",
     supportsStreaming: true,
     supportsVision: false,
@@ -146,4 +205,17 @@ export function providerInfo(id: ProviderId): ProviderInfo {
 
 export function listProviders(): ProviderCatalogEntry[] {
   return Object.values(PROVIDER_CATALOG);
+}
+
+export function modelInfo(provider: ProviderId, model: string): ModelInfo {
+  return (
+    PROVIDER_CATALOG[provider].models?.[model] ?? {
+      id: model,
+      source: "unknown",
+    }
+  );
+}
+
+function modelEntries(models: ModelInfo[]): Record<string, ModelInfo> {
+  return Object.fromEntries(models.map((model) => [model.id, model]));
 }

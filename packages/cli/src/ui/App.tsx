@@ -5,6 +5,7 @@ import {
   PROVIDER_CATALOG,
   type Agent,
   type AgentEvent,
+  type ContextStatus,
   type ProviderId,
   type TokenUsage,
   loadStoredConfig,
@@ -66,6 +67,8 @@ const THEMES: Theme[] = [
 const ALL_SLASH_COMMANDS = [
   { name: "/help", desc: "Show all available slash commands" },
   { name: "/model", desc: "Switch model for the active provider" },
+  { name: "/context", desc: "Show model context window and usage" },
+  { name: "/compact", desc: "Summarize older chat history now" },
   { name: "/setup", desc: "Switch model provider or change settings" },
   { name: "/provider", desc: "Alias for /setup" },
   { name: "/config", desc: "Show active provider and model info" },
@@ -128,6 +131,7 @@ export function App({
 
   // Real-time metrics
   const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 });
+  const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
   // Terminal resizing support
   const [terminalSize, setTerminalSize] = useState({
@@ -361,6 +365,65 @@ export function App({
         setInput("");
         return;
       }
+      if (text === "/context") {
+        try {
+          const status = await agent.contextStatus();
+          setContextStatus(status);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "Context",
+              rows: contextRows(status),
+            },
+          ]);
+        } catch (error) {
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "error",
+              text: error instanceof Error ? error.message : "failed to read context status",
+            },
+          ]);
+        }
+        setInput("");
+        return;
+      }
+      if (text === "/compact") {
+        try {
+          const result = await agent.compactNow();
+          const status = await agent.contextStatus();
+          setContextStatus(status);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "Compaction",
+              rows: [
+                { label: "removed", value: `${result.removedMessages} messages` },
+                { label: "kept", value: `${result.keptMessages} messages` },
+                {
+                  label: "tokens",
+                  value:
+                    result.beforeTokens !== undefined && result.afterTokens !== undefined
+                      ? `${formatNumber(result.beforeTokens)} -> ${formatNumber(result.afterTokens)}`
+                      : "not available",
+                },
+              ],
+            },
+          ]);
+        } catch (error) {
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "error",
+              text: error instanceof Error ? error.message : "failed to compact context",
+            },
+          ]);
+        }
+        setInput("");
+        return;
+      }
       if (text === "/setup" || text === "/provider") {
         setItems((prev) => [
           ...prev,
@@ -419,6 +482,12 @@ export function App({
             rows: [
               { label: "provider", value: `${providerInfo.displayName} (${meta.provider})` },
               { label: "model", value: meta.model },
+              {
+                label: "context",
+                value: contextStatus?.contextWindow
+                  ? `${formatNumber(contextStatus.contextWindow)} tokens`
+                  : "unknown",
+              },
               { label: "streaming", value: providerInfo.supportsStreaming ? "yes" : "no" },
               { label: "tools", value: providerInfo.supportsTools ? "yes" : "no" },
               { label: "vision", value: providerInfo.supportsVision ? "yes" : "no" },
@@ -482,6 +551,29 @@ export function App({
                 { kind: "error", text: humanizeError(message) },
               ]);
             },
+            onContext: (status) => {
+              setContextStatus(status);
+            },
+            onCompacted: (result) => {
+              setItems((prev) => [
+                ...prev,
+                {
+                  kind: "command",
+                  title: "Auto Compaction",
+                  rows: [
+                    { label: "removed", value: `${result.removedMessages} messages` },
+                    { label: "kept", value: `${result.keptMessages} messages` },
+                    {
+                      label: "tokens",
+                      value:
+                        result.beforeTokens !== undefined && result.afterTokens !== undefined
+                          ? `${formatNumber(result.beforeTokens)} -> ${formatNumber(result.afterTokens)}`
+                          : "not available",
+                    },
+                  ],
+                },
+              ]);
+            },
             onTurnEnd: (usage) => {
               if (usage) {
                 setTokenUsage((prev) => ({
@@ -502,7 +594,7 @@ export function App({
         setStartedAt(null);
       }
     },
-    [agent, busy, meta, exit, activeTheme.id, onTriggerSetup, selectModel, selectTheme],
+    [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, selectModel, selectTheme],
   );
 
   const transcriptHeight = Math.max(6, terminalSize.height - 10);
@@ -680,7 +772,11 @@ export function App({
 
       <Box width="100%" paddingX={1} justifyContent="space-between" marginTop={0.5}>
         <Text color={approvalRequest ? activeTheme.warning : activeTheme.muted}>{status}</Text>
-        <Text color={activeTheme.muted}>tokens {tokenUsage.input + tokenUsage.output} | in {tokenUsage.input} | out {tokenUsage.output}</Text>
+        <Text color={activeTheme.muted}>
+          tokens {tokenUsage.input + tokenUsage.output} | in {tokenUsage.input} | out {tokenUsage.output}
+          {" | "}
+          ctx {formatContextFooter(contextStatus)}
+        </Text>
       </Box>
     </Box>
   );
@@ -767,6 +863,8 @@ interface EventHandlers {
   onToolStart: (name: string, rawInput: unknown) => void;
   onToolEnd: (name: string, output: string, error: boolean) => void;
   onError: (message: string) => void;
+  onContext: (status: ContextStatus) => void;
+  onCompacted: (result: { beforeTokens?: number; afterTokens?: number; removedMessages: number; keptMessages: number }) => void;
   onTurnEnd: (usage?: TokenUsage) => void;
 }
 
@@ -783,6 +881,12 @@ function handleEvent(event: AgentEvent, h: EventHandlers): void {
       break;
     case "error":
       h.onError(event.message);
+      break;
+    case "context":
+      h.onContext(event.status);
+      break;
+    case "context_compacted":
+      h.onCompacted(event.result);
       break;
     case "turn_end":
       h.onTurnEnd(event.usage);
@@ -884,6 +988,43 @@ function formatCommandRows(title: string, rows: CommandRow[]): string {
     title,
     ...rows.map((row) => `${row.label.padEnd(labelWidth)}  ${row.value}`),
   ].join("\n");
+}
+
+function contextRows(status: ContextStatus): CommandRow[] {
+  return [
+    { label: "model", value: status.model },
+    {
+      label: "window",
+      value: status.contextWindow ? `${formatNumber(status.contextWindow)} tokens` : "unknown",
+    },
+    {
+      label: "usable",
+      value: status.usableTokens ? `${formatNumber(status.usableTokens)} tokens` : "unknown",
+    },
+    {
+      label: "used",
+      value: status.usedTokens ? `${formatNumber(status.usedTokens)} tokens` : "not available",
+    },
+    {
+      label: "pressure",
+      value: status.ratio !== undefined ? `${Math.round(status.ratio * 100)}%` : "unknown",
+    },
+    { label: "counter", value: status.tokenCounter },
+    { label: "source", value: status.source ?? "unknown" },
+  ];
+}
+
+function formatContextFooter(status: ContextStatus | null): string {
+  if (!status) return "unknown";
+  if (status.usedTokens !== undefined && status.usableTokens) {
+    return `${formatNumber(status.usedTokens)}/${formatNumber(status.usableTokens)} ${Math.round(status.ratio ?? 0)}%`;
+  }
+  if (status.contextWindow) return `window ${formatNumber(status.contextWindow)} | counter ${status.tokenCounter}`;
+  return "unknown";
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
 }
 
 function preview(value: unknown, max = 120): string {

@@ -2,12 +2,15 @@ import type { IProvider } from "../providers/IProvider.js";
 import type {
   ContentPart,
   FinishReason,
+  ModelInfo,
   Message,
+  TextPart,
   ToolCallPart,
   TokenUsage,
 } from "../providers/types.js";
+import { modelInfo } from "../providers/catalog.js";
 import type { ToolRegistry } from "../tools/registry.js";
-import type { AgentEvent } from "./types.js";
+import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
 export interface AgentConfig {
   provider: IProvider;
@@ -19,8 +22,21 @@ export interface AgentConfig {
   maxTokens?: number;
   /** Safety bound on provider round-trips per user turn. */
   maxSteps?: number;
+  compaction?: {
+    enabled?: boolean;
+    thresholdRatio?: number;
+    keepRecentTurns?: number;
+    reservedOutputTokens?: number;
+  };
   /** Optional callback to approve side-effecting tools before they run. */
   approveTool?: (name: string, input: unknown) => Promise<boolean> | boolean;
+}
+
+interface RequiredCompactionConfig {
+  enabled: boolean;
+  thresholdRatio: number;
+  keepRecentTurns: number;
+  reservedOutputTokens?: number;
 }
 
 /**
@@ -42,6 +58,8 @@ export class Agent {
   private readonly temperature: number | undefined;
   private readonly maxTokens: number | undefined;
   private readonly maxSteps: number;
+  private readonly compaction: RequiredCompactionConfig;
+  private readonly modelInfo: ModelInfo;
   private readonly approveTool: ((name: string, input: unknown) => Promise<boolean> | boolean) | undefined;
   private readonly history: Message[] = [];
 
@@ -54,12 +72,29 @@ export class Agent {
     this.temperature = cfg.temperature;
     this.maxTokens = cfg.maxTokens;
     this.maxSteps = cfg.maxSteps ?? 10;
+    this.compaction = {
+      enabled: cfg.compaction?.enabled ?? true,
+      thresholdRatio: cfg.compaction?.thresholdRatio ?? 0.75,
+      keepRecentTurns: cfg.compaction?.keepRecentTurns ?? 6,
+      ...(cfg.compaction?.reservedOutputTokens !== undefined
+        ? { reservedOutputTokens: cfg.compaction.reservedOutputTokens }
+        : {}),
+    };
+    this.modelInfo = modelInfo(cfg.provider.info.id, cfg.model);
     this.approveTool = cfg.approveTool;
   }
 
   /** The conversation so far. Useful for persistence or inspection. */
   get messages(): readonly Message[] {
     return this.history;
+  }
+
+  async contextStatus(): Promise<ContextStatus> {
+    return this.contextStatusFor(this.history);
+  }
+
+  async compactNow(): Promise<CompactionResult> {
+    return this.compactHistory();
   }
 
   /** Run one user turn to completion, yielding events as work progresses. */
@@ -72,6 +107,14 @@ export class Agent {
       content: [{ type: "text", text: userInput }],
     });
 
+    const beforeStatus = await this.contextStatus();
+    yield { type: "context", status: beforeStatus };
+    if (this.shouldCompact(beforeStatus)) {
+      const result = await this.compactHistory(beforeStatus.usedTokens);
+      yield { type: "context_compacted", result };
+      yield { type: "context", status: await this.contextStatus() };
+    }
+
     for (let step = 0; step < this.maxSteps; step++) {
       let finishReason: FinishReason = "stop";
       let usage: TokenUsage | undefined;
@@ -81,16 +124,7 @@ export class Agent {
       try {
         for await (const chunk of this.provider.generateStream(
           [...this.history],
-          {
-            model: this.model,
-            ...(this.system ? { systemPrompt: this.system } : {}),
-            tools: this.tools.definitions(),
-            ...(this.temperature !== undefined
-              ? { temperature: this.temperature }
-              : {}),
-            ...(this.maxTokens ? { maxTokens: this.maxTokens } : {}),
-            ...(signal ? { abortSignal: signal } : {}),
-          },
+          this.generationConfig(signal),
         )) {
           if (chunk.textDelta) {
             textBuf += chunk.textDelta;
@@ -176,4 +210,158 @@ export class Agent {
       message: `Reached max steps (${this.maxSteps}) without completing.`,
     };
   }
+
+  private generationConfig(signal?: AbortSignal) {
+    return {
+      model: this.model,
+      ...(this.system ? { systemPrompt: this.system } : {}),
+      tools: this.tools.definitions(),
+      ...(this.temperature !== undefined
+        ? { temperature: this.temperature }
+        : {}),
+      ...(this.maxTokens ? { maxTokens: this.maxTokens } : {}),
+      ...(signal ? { abortSignal: signal } : {}),
+    };
+  }
+
+  private async contextStatusFor(messages: Message[]): Promise<ContextStatus> {
+    const contextWindow = this.modelInfo.contextWindow;
+    const maxOutputTokens = this.modelInfo.maxOutputTokens;
+    const base: ContextStatus = {
+      model: this.model,
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+      ...(this.modelInfo.source ? { source: this.modelInfo.source } : {}),
+      tokenCounter: "unavailable",
+    };
+
+    let usage: TokenUsage | undefined;
+    try {
+      usage = await this.provider.countTokens(messages, this.generationConfig());
+    } catch {
+      usage = undefined;
+    }
+
+    if (!usage) return base;
+    const usedTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+    const usableTokens = contextWindow ? this.usableInputTokens(contextWindow) : undefined;
+    return {
+      ...base,
+      tokenCounter: "provider",
+      usedTokens,
+      ...(usableTokens !== undefined ? { usableTokens } : {}),
+      ...(usableTokens ? { ratio: usedTokens / usableTokens } : {}),
+    };
+  }
+
+  private shouldCompact(status: ContextStatus): boolean {
+    if (!this.compaction.enabled) return false;
+    if (!status.contextWindow || !status.usedTokens || !status.usableTokens) return false;
+    if (status.tokenCounter !== "provider") return false;
+    if (this.history.length <= this.compaction.keepRecentTurns * 2) return false;
+    return status.usedTokens >= status.usableTokens * this.compaction.thresholdRatio;
+  }
+
+  private async compactHistory(beforeTokens?: number): Promise<CompactionResult> {
+    const splitIndex = findRecentTurnStart(this.history, this.compaction.keepRecentTurns);
+    if (splitIndex <= 0) {
+      return {
+        beforeTokens,
+        afterTokens: beforeTokens,
+        removedMessages: 0,
+        keptMessages: this.history.length,
+        summary: "Nothing to compact yet.",
+      };
+    }
+
+    const compactable = this.history.slice(0, splitIndex);
+    const tail = this.history.slice(splitIndex);
+    const summary = await this.summarizeMessages(compactable);
+    const summaryMessage: Message = {
+      role: "system",
+      content: [
+        {
+          type: "text",
+          text: `Earlier conversation summary:\n${summary}`,
+        },
+      ],
+    };
+    this.history.splice(0, this.history.length, summaryMessage, ...tail);
+    const after = await this.contextStatus();
+    return {
+      beforeTokens,
+      ...(after.usedTokens !== undefined ? { afterTokens: after.usedTokens } : {}),
+      removedMessages: compactable.length,
+      keptMessages: tail.length,
+      summary,
+    };
+  }
+
+  private async summarizeMessages(messages: Message[]): Promise<string> {
+    const transcript = serializeForSummary(messages);
+    const prompt =
+      "Summarize the earlier conversation for continuing an AI coding session. " +
+      "Preserve user goals, decisions, files changed, commands run, tool results, " +
+      "bugs found, unresolved tasks, and any constraints. Be concise but specific.\n\n" +
+      transcript;
+    const response = await this.provider.generate(
+      [{ role: "user", content: [{ type: "text", text: prompt }] }],
+      {
+        model: this.model,
+        ...(this.system ? { systemPrompt: this.system } : {}),
+        maxTokens: Math.min(2048, this.modelInfo.maxOutputTokens ?? 2048),
+      },
+    );
+    const text = response.content
+      .filter((part): part is TextPart => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    return text || "Earlier conversation was compacted, but the provider returned an empty summary.";
+  }
+
+  private usableInputTokens(contextWindow: number): number {
+    const reserved =
+      this.compaction.reservedOutputTokens ??
+      this.maxTokens ??
+      Math.min(20_000, this.modelInfo.maxOutputTokens ?? Math.floor(contextWindow * 0.1));
+    return Math.max(0, contextWindow - reserved);
+  }
+}
+
+function findRecentTurnStart(messages: Message[], keepRecentTurns: number): number {
+  let seenUsers = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role !== "user") continue;
+    seenUsers += 1;
+    if (seenUsers === keepRecentTurns) return i;
+  }
+  return 0;
+}
+
+function serializeForSummary(messages: Message[]): string {
+  return messages
+    .map((message, index) => {
+      const content = message.content.map(serializePart).filter(Boolean).join("\n");
+      return `#${index + 1} ${message.role}\n${content}`;
+    })
+    .join("\n\n");
+}
+
+function serializePart(part: ContentPart): string {
+  switch (part.type) {
+    case "text":
+      return truncate(part.text, 12_000);
+    case "tool_call":
+      return `tool_call ${part.name} ${truncate(JSON.stringify(part.arguments), 4_000)}`;
+    case "tool_result":
+      return `tool_result ${part.name} ${part.isError ? "(error) " : ""}${truncate(part.content, 8_000)}`;
+    case "image":
+      return `[image ${part.mimeType}, ${part.data.length} base64 chars omitted]`;
+  }
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n[truncated ${text.length - max} chars during compaction]`;
 }

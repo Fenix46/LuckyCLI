@@ -51,6 +51,38 @@ class ScriptedProvider implements IProvider {
   }
 }
 
+class CompactingProvider implements IProvider {
+  readonly info: ProviderInfo = {
+    ...INFO,
+    id: "openai",
+    availableModels: ["gpt-4o"],
+    defaultModel: "gpt-4o",
+  };
+
+  async *generateStream(): AsyncGenerator<StreamChunk> {
+    yield { textDelta: "ok" };
+    yield { finishReason: "stop" };
+  }
+
+  async generate(): Promise<GenerationResponse> {
+    return {
+      content: [{ type: "text", text: "summary of earlier turns" }],
+      finishReason: "stop",
+    };
+  }
+
+  async countTokens(messages: Message[]): Promise<TokenUsage | undefined> {
+    return {
+      inputTokens: messages.length > 2 ? 100_000 : 1_000,
+      outputTokens: 0,
+    };
+  }
+
+  async healthCheck() {
+    return { ok: true };
+  }
+}
+
 const echo = defineTool({
   name: "echo",
   description: "Echo back.",
@@ -127,6 +159,28 @@ describe("Agent loop", () => {
       type: "tool_result",
       toolCallId: "t1",
       name: "echo",
+    });
+  });
+
+  it("compacts old turns before sending when context pressure is high", async () => {
+    const agent = new Agent({
+      provider: new CompactingProvider(),
+      model: "gpt-4o",
+      tools: new ToolRegistry(),
+      compaction: { thresholdRatio: 0.5, keepRecentTurns: 1 },
+    });
+
+    await collect(agent.send("first"));
+    const events = await collect(agent.send("second"));
+
+    expect(events.some((event) => event.type === "context_compacted")).toBe(true);
+    expect(agent.messages[0]).toMatchObject({
+      role: "system",
+      content: [{ type: "text", text: expect.stringContaining("summary of earlier turns") }],
+    });
+    expect(agent.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "ok" }],
     });
   });
 });
