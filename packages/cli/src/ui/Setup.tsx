@@ -71,6 +71,9 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
           return session.tokenPromise;
         })
         .then((tokens) => {
+          if (!tokens.accessToken) {
+            throw new Error("Google did not return an access token.");
+          }
           setOauthTokens(tokens);
           setCredSubStep("project");
         })
@@ -150,10 +153,16 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     } else {
       // Gemini
       if (selectedAuthMethod.kind === "oauth") {
+        if (!oauthTokens?.accessToken) {
+          setOauthError("Authentication is incomplete. Please restart setup and try again.");
+          setStep("credential");
+          setCredSubStep("oauth_code");
+          return;
+        }
         credentials = {
           type: "gemini",
           authMethod: "oauth",
-          accessToken: oauthTokens?.accessToken,
+          accessToken: oauthTokens.accessToken,
           refreshToken: oauthTokens?.refreshToken,
           projectId: gcpProjectId.trim() || undefined,
           location: gcpRegion.trim() || undefined,
