@@ -125,9 +125,12 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   }
 
   function onSubmitProject() {
-    // GCP Project is required for Vertex, optional for OAuth
-    if (selectedAuthMethod?.kind === "vertex" && !gcpProjectId.trim()) return;
-    setCredSubStep("region");
+    if (!gcpProjectId.trim()) return;
+    if (selectedAuthMethod?.kind === "oauth") {
+      setStep("model");
+    } else {
+      setCredSubStep("region");
+    }
   }
 
   function onSubmitRegion() {
@@ -274,7 +277,9 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
               <Box flexDirection="column" marginTop={0.5}>
                 <Box flexDirection="row">
                   <Text bold color="cyan">
-                    GCP Project ID {selectedAuthMethod.kind === "oauth" ? "(optional)" : ""}:{" "}
+                    {selectedAuthMethod.kind === "oauth"
+                      ? "GCP Project ID (required for OAuth attribution): "
+                      : "GCP Project ID: "}
                   </Text>
                   <TextInput
                     value={gcpProjectId}
