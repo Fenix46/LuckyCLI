@@ -1,6 +1,6 @@
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
-import React, { useCallback, useState, useEffect } from "react";
+import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
   type Agent,
   type AgentEvent,
@@ -80,6 +80,7 @@ export function App({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Persistent Theme System
   const [activeTheme, setActiveTheme] = useState<Theme>(() => {
@@ -144,6 +145,12 @@ export function App({
   useInput((_in, key) => {
     // 1. Tool safety approval has highest precedence
     if (approvalRequest) {
+      if (key.ctrl && _in === "c") {
+        approvalRequest.resolve(false);
+        setApprovalRequest(null);
+        abortControllerRef.current?.abort();
+        return;
+      }
       if (_in === "y" || _in === "Y") {
         approvalRequest.resolve(true);
         setApprovalRequest(null);
@@ -177,6 +184,10 @@ export function App({
     }
 
     // 3. Regular Ctrl+C exit
+    if (key.ctrl && _in === "c" && busy) {
+      abortControllerRef.current?.abort();
+      return;
+    }
     if (key.ctrl && _in === "c" && !busy) exit();
   });
 
@@ -237,6 +248,7 @@ export function App({
 
       let assistantBuf = "";
       const controller = new AbortController();
+      abortControllerRef.current = controller;
       try {
         for await (const event of agent.send(text, controller.signal)) {
           handleEvent(event, {
@@ -265,6 +277,9 @@ export function App({
           });
         }
       } finally {
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
         if (assistantBuf) {
           setItems((prev) => [
             ...prev,
