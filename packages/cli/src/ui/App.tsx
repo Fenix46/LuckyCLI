@@ -32,6 +32,7 @@ interface AppProps {
   meta: AppMeta;
   approvalRequest: ApprovalRequest | null;
   setApprovalRequest: (req: ApprovalRequest | null) => void;
+  onTriggerSetup: () => void;
 }
 
 interface Theme {
@@ -61,6 +62,7 @@ const WELCOME_LOGO = `
 
 const ALL_SLASH_COMMANDS = [
   { name: "/help", desc: "Show all available slash commands" },
+  { name: "/setup", desc: "Switch model provider or change settings" },
   { name: "/config", desc: "Show active provider and model info" },
   { name: "/theme", desc: "Cycle between terminal UI color themes" },
   { name: "/exit", desc: "Exit the lucky agent session" },
@@ -71,6 +73,7 @@ export function App({
   meta,
   approvalRequest,
   setApprovalRequest,
+  onTriggerSetup,
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
@@ -191,12 +194,17 @@ export function App({
         setInput("");
         return;
       }
+      if (text === "/setup" || text === "/provider") {
+        onTriggerSetup();
+        setInput("");
+        return;
+      }
       if (text === "/help") {
         setItems((prev) => [
           ...prev,
           {
             kind: "assistant",
-            text: "/help · /config · /theme · /exit — switch provider: relaunch with --setup",
+            text: "/help · /setup · /config · /theme · /exit",
           },
         ]);
         setInput("");
@@ -216,7 +224,7 @@ export function App({
           ...prev,
           {
             kind: "error",
-            text: `unknown command: ${text} (try /help; to switch provider relaunch with --setup)`,
+            text: `unknown command: ${text} (try /help or /setup)`,
           },
         ]);
         setInput("");
@@ -267,7 +275,7 @@ export function App({
         setBusy(false);
       }
     },
-    [agent, busy, meta, exit, cycleTheme],
+    [agent, busy, meta, exit, cycleTheme, onTriggerSetup],
   );
 
   // Sliced to fit terminal viewport comfortably

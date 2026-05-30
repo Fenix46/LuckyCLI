@@ -83,6 +83,7 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
       meta={{ provider: runtime.provider, model: runtime.model }}
       approvalRequest={approvalRequest}
       setApprovalRequest={setApprovalRequest}
+      onTriggerSetup={() => setRuntime(null)}
     />
   );
 }
