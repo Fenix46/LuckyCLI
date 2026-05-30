@@ -21,9 +21,18 @@ interface SetupProps {
 
 type Step = "provider" | "secret" | "model";
 
+const WELCOME_LOGO = `
+  _      _    _  _____ _  ____     __
+ | |    | |  | |/ ____| |/ /\\ \\   / /
+ | |    | |  | | |    | ' /  \\ \\_/ / 
+ | |    | |  | | |    |  <    \\   /  
+ | |____| |__| | |____| . \\    | |   
+ |______|\\____/ \\_____|_|\\_\\   |_|   
+`;
+
 /**
- * First-run (and on-demand) setup dialog: pick a provider, supply its key (or
- * base URL for Ollama), then pick a model. No .env editing required.
+ * First-run (and on-demand) login & setup wizard.
+ * Renders a gorgeous welcome logo and wraps the wizard in a structured login card.
  */
 export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const [step, setStep] = useState<Step>("provider");
@@ -60,52 +69,79 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   }
 
   return (
-    <Box flexDirection="column" paddingY={1}>
+    <Box flexDirection="column" padding={1}>
+      {/* ASCII Splash Logo */}
       <Text bold color="magenta">
-        ✦ Welcome to LuckyCLI
+        {WELCOME_LOGO}
       </Text>
+      <Box marginBottom={1}>
+        <Text color="gray">
+          ✦ Setup your environment to begin collaborating with the agent.
+        </Text>
+      </Box>
 
-      {step === "provider" ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text>Choose a provider:</Text>
-          <SelectInput<ProviderId>
-            items={providerItems}
-            onSelect={onPickProvider}
-          />
+      {/* Login Card Box */}
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor="magenta"
+        paddingX={1}
+        paddingY={0.5}
+        width="100%"
+      >
+        <Box marginBottom={1}>
+          <Text bold color="magenta">🔐 PROVIDER LOGIN</Text>
         </Box>
-      ) : null}
 
-      {step === "secret" && entry ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text color="cyan">{entry.displayName}</Text>
-          <Box>
-            <Text>
-              {entry.auth === "apiKey" ? "API key" : "Base URL"} (
-              {entry.authHint}):{" "}
-            </Text>
-            <TextInput
-              value={secret}
-              onChange={setSecret}
-              onSubmit={onSubmitSecret}
-              {...(entry.auth === "apiKey" ? { mask: "*" } : {})}
-            />
+        {step === "provider" ? (
+          <Box flexDirection="column">
+            <Text color="cyan">Select your model provider:</Text>
+            <Box marginTop={0.5}>
+              <SelectInput<ProviderId>
+                items={providerItems}
+                onSelect={onPickProvider}
+              />
+            </Box>
           </Box>
-        </Box>
-      ) : null}
+        ) : null}
 
-      {step === "model" && entry ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text>Choose a model:</Text>
-          <SelectInput<string>
-            items={entry.availableModels.map((m) => ({
-              key: m,
-              label: m,
-              value: m,
-            }))}
-            onSelect={onPickModel}
-          />
-        </Box>
-      ) : null}
+        {step === "secret" && entry ? (
+          <Box flexDirection="column">
+            <Text color="cyan">Authentication: {entry.displayName}</Text>
+            <Box marginTop={0.5} flexDirection="row">
+              <Text bold>
+                {entry.auth === "apiKey" ? "API Key" : "Base URL"}{" "}
+                <Text color="gray">({entry.authHint})</Text>:{" "}
+              </Text>
+              <TextInput
+                value={secret}
+                onChange={setSecret}
+                onSubmit={onSubmitSecret}
+                {...(entry.auth === "apiKey" ? { mask: "*" } : {})}
+              />
+            </Box>
+            <Box marginTop={1}>
+              <Text dimColor>Press [Enter] to submit credentials</Text>
+            </Box>
+          </Box>
+        ) : null}
+
+        {step === "model" && entry ? (
+          <Box flexDirection="column">
+            <Text color="cyan">Choose a model for {entry.displayName}:</Text>
+            <Box marginTop={0.5}>
+              <SelectInput<string>
+                items={entry.availableModels.map((m) => ({
+                  key: m,
+                  label: m,
+                  value: m,
+                }))}
+                onSelect={onPickModel}
+              />
+            </Box>
+          </Box>
+        ) : null}
+      </Box>
     </Box>
   );
 }

@@ -1,6 +1,6 @@
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import type { Agent, AgentEvent, TokenUsage } from "@luckycli/core";
 
 interface AppMeta {
@@ -28,6 +28,21 @@ interface AppProps {
   setApprovalRequest: (req: ApprovalRequest | null) => void;
 }
 
+const WELCOME_LOGO = `
+  _      _    _  _____ _  ____     __
+ | |    | |  | |/ ____| |/ /\\ \\   / /
+ | |    | |  | | |    | ' /  \\ \\_/ / 
+ | |    | |  | | |    |  <    \\   /  
+ | |____| |__| | |____| . \\    | |   
+ |______|\\____/ \\_____|_|\\_\\   |_|   
+`;
+
+const ALL_SLASH_COMMANDS = [
+  { name: "/help", desc: "Show all available slash commands" },
+  { name: "/config", desc: "Show active provider and model info" },
+  { name: "/exit", desc: "Exit the lucky agent session" },
+];
+
 export function App({
   agent,
   meta,
@@ -40,8 +55,38 @@ export function App({
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
 
-  // Ctrl+C exits when idle. Support y/n for tool approval when active.
+  // Real-time metrics
+  const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 });
+
+  // Terminal resizing support
+  const [terminalSize, setTerminalSize] = useState({
+    width: process.stdout.columns ?? 100,
+    height: process.stdout.rows ?? 30,
+  });
+
+  useEffect(() => {
+    function handleResize() {
+      setTerminalSize({
+        width: process.stdout.columns ?? 100,
+        height: process.stdout.rows ?? 30,
+      });
+    }
+    process.stdout.on("resize", handleResize);
+    return () => {
+      process.stdout.off("resize", handleResize);
+    };
+  }, []);
+
+  // Slash commands navigation
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const showSlashMenu = input.startsWith("/");
+  const filteredCommands = ALL_SLASH_COMMANDS.filter((cmd) =>
+    cmd.name.startsWith(input)
+  );
+
+  // Ctrl+C exits when idle. Support autocomplete and tool approval.
   useInput((_in, key) => {
+    // 1. Tool safety approval has highest precedence
     if (approvalRequest) {
       if (_in === "y" || _in === "Y") {
         approvalRequest.resolve(true);
@@ -52,6 +97,30 @@ export function App({
       }
       return;
     }
+
+    // 2. Interactive Slash Commands menu navigation
+    if (showSlashMenu && filteredCommands.length > 0) {
+      if (key.downArrow) {
+        setSelectedCommandIndex((prev) => (prev + 1) % filteredCommands.length);
+        return;
+      }
+      if (key.upArrow) {
+        setSelectedCommandIndex(
+          (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length
+        );
+        return;
+      }
+      if (key.tab || (key.return && input !== filteredCommands[selectedCommandIndex]?.name)) {
+        const completed = filteredCommands[selectedCommandIndex]?.name;
+        if (completed) {
+          setInput(completed);
+          setSelectedCommandIndex(0);
+        }
+        return;
+      }
+    }
+
+    // 3. Regular Ctrl+C exit
     if (key.ctrl && _in === "c" && !busy) exit();
   });
 
@@ -119,7 +188,14 @@ export function App({
               setItems((prev) => patchLastTool(prev, name, output, error)),
             onError: (message) =>
               setItems((prev) => [...prev, { kind: "error", text: message }]),
-            onTurnEnd: () => {},
+            onTurnEnd: (usage) => {
+              if (usage) {
+                setTokenUsage((prev) => ({
+                  input: prev.input + usage.inputTokens,
+                  output: prev.output + usage.outputTokens,
+                }));
+              }
+            },
           });
         }
       } finally {
@@ -136,17 +212,20 @@ export function App({
     [agent, busy, meta, exit],
   );
 
+  // Sliced to fit terminal viewport comfortably
+  const visibleItems = items.slice(-8);
+
   return (
-    <Box flexDirection="column" padding={1}>
-      {/* Sleek Minimal Header */}
-      <Box marginBottom={1}>
-        <Text bold color="cyan">✦ lucky</Text>
-        <Text color="gray"> · {meta.provider}/{meta.model} · /help /config /exit</Text>
+    <Box flexDirection="column" width={terminalSize.width} height={terminalSize.height} padding={1}>
+      {/* Splash Welcome Logo */}
+      <Box flexDirection="column" marginBottom={1}>
+        <Text bold color="magenta">{WELCOME_LOGO}</Text>
+        <Text color="gray">✦ Welcome! Type your message or enter / to browse commands.</Text>
       </Box>
 
-      {/* Message scrollback */}
-      <Box flexDirection="column">
-        {items.map((item, i) => (
+      {/* Main clean scrollback stream */}
+      <Box flexDirection="column" flexGrow={1} marginBottom={1}>
+        {visibleItems.map((item, i) => (
           <Box key={i} marginY={0.5}>
             <ItemView item={item} />
           </Box>
@@ -158,11 +237,11 @@ export function App({
         ) : null}
       </Box>
 
-      {/* Tool Approval Request */}
+      {/* Tool safety approval dialog (shown inside the stream area) */}
       {approvalRequest ? (
-        <Box flexDirection="column" marginY={1}>
-          <Text bold color="yellow">⚠️  TOOL APPROVAL REQUIRED</Text>
-          <Text color="gray">The agent wants to execute the side-effecting tool <Text bold color="cyan">{approvalRequest.name}</Text>:</Text>
+        <Box flexDirection="column" borderStyle="single" borderColor="yellow" paddingX={1} marginY={1}>
+          <Text bold color="yellow">⚠️ TOOL APPROVAL REQUIRED</Text>
+          <Text>The agent wants to run the side-effecting tool <Text bold color="cyan">{approvalRequest.name}</Text>:</Text>
           <Box marginLeft={2} marginY={0.5}>
             <Text color="gray">{JSON.stringify(approvalRequest.input, null, 2)}</Text>
           </Box>
@@ -170,19 +249,60 @@ export function App({
         </Box>
       ) : null}
 
-      {/* Simple Prompt */}
-      {!busy ? (
-        <Box marginTop={1}>
-          <Text color="cyan">you › </Text>
-          <TextInput value={input} onChange={setInput} onSubmit={submit} />
-        </Box>
-      ) : (
-        !approvalRequest && (
-          <Box marginTop={1}>
-            <Text color="gray">… thinking</Text>
+      {/* Slash Commands Dropdown / Pop-up Menu */}
+      {showSlashMenu && filteredCommands.length > 0 ? (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="magenta"
+          paddingX={1}
+          paddingY={0.5}
+          marginBottom={0.5}
+          width="100%"
+        >
+          <Text bold color="magenta">⌨️ Slash Commands Menu</Text>
+          {filteredCommands.map((cmd, idx) => (
+            <Box key={cmd.name} flexDirection="row">
+              <Text color={idx === selectedCommandIndex ? "magenta" : "gray"}>
+                {idx === selectedCommandIndex ? "› " : "  "}
+              </Text>
+              <Text bold color={idx === selectedCommandIndex ? "magenta" : "white"}>
+                {cmd.name.padEnd(10)}
+              </Text>
+              <Text color="gray"> - {cmd.desc}</Text>
+            </Box>
+          ))}
+          <Box marginTop={0.5}>
+            <Text dimColor>
+              Navigate [Up/Down] · Select [Tab/Enter]
+            </Text>
           </Box>
-        )
-      )}
+        </Box>
+      ) : null}
+
+      {/* Dedicated Writing Input Bar */}
+      <Box
+        flexDirection="row"
+        borderStyle="single"
+        borderColor={busy ? "green" : "cyan"}
+        paddingX={1}
+        width="100%"
+      >
+        <Text bold color={busy ? "green" : "cyan"}>you › </Text>
+        {!busy ? (
+          <TextInput value={input} onChange={setInput} onSubmit={submit} />
+        ) : (
+          !approvalRequest && <Text color="gray">… thinking</Text>
+        )}
+      </Box>
+
+      {/* Bottom Status Bar with chosen config and real-time Token counters */}
+      <Box width="100%" paddingX={1} justifyContent="space-between" marginTop={0.5}>
+        <Text color="gray">🤖 Provider: {meta.provider} · 🧠 Model: {meta.model}</Text>
+        <Text color="yellow">
+          ⚡ Tokens: {tokenUsage.input + tokenUsage.output} (In: {tokenUsage.input} / Out: {tokenUsage.output})
+        </Text>
+      </Box>
     </Box>
   );
 }
