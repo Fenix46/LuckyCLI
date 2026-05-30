@@ -23,6 +23,7 @@ export {
   readFileTool,
   writeFileTool,
   listDirTool,
+  httpFetchTool,
 } from "./tools/builtin/index.js";
 
 // Configuration.

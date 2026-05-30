@@ -20,6 +20,7 @@ import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 export interface StoredConfig {
   provider?: ProviderId;
   model?: string;
+  theme?: string;
   /** Saved credentials per provider, so switching doesn't re-prompt. */
   credentials?: Partial<Record<ProviderId, ProviderCredentials>>;
 }

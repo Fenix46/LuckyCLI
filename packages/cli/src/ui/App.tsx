@@ -1,7 +1,13 @@
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import React, { useCallback, useState, useEffect } from "react";
-import type { Agent, AgentEvent, TokenUsage } from "@luckycli/core";
+import {
+  type Agent,
+  type AgentEvent,
+  type TokenUsage,
+  loadStoredConfig,
+  saveStoredConfig,
+} from "@luckycli/core";
 
 interface AppMeta {
   provider: string;
@@ -28,18 +34,38 @@ interface AppProps {
   setApprovalRequest: (req: ApprovalRequest | null) => void;
 }
 
+interface Theme {
+  id: string;
+  name: string;
+  primary: string;
+  success: string;
+  accent: string;
+  warning: string;
+}
+
+const THEMES: Theme[] = [
+  { id: "neon", name: "Neon Cyan (Default)", primary: "cyan", accent: "magenta", success: "green", warning: "yellow" },
+  { id: "cyberpunk", name: "Cyberpunk", primary: "yellow", accent: "cyan", success: "green", warning: "red" },
+  { id: "dracula", name: "Dracula Purple", primary: "magenta", accent: "red", success: "green", warning: "yellow" },
+  { id: "matrix", name: "Hacker Matrix", primary: "green", accent: "green", success: "green", warning: "yellow" },
+  { id: "minimal", name: "Minimal Monochrome", primary: "white", accent: "gray", success: "white", warning: "white" }
+];
+
 const WELCOME_LOGO = `
-  _      _    _  _____ _  ____     __
- | |    | |  | |/ ____| |/ /\\ \\   / /
- | |    | |  | | |    | ' /  \\ \\_/ / 
- | |    | |  | | |    |  <    \\   /  
- | |____| |__| | |____| . \\    | |   
- |______|\\____/ \\_____|_|\\_\\   |_|   
+ _               _              _____ _      _____ 
+| |             | |            / ____| |    |_   _|
+| |    _   _  __| | ___ _   _ | |    | |      | |  
+| |   | | | |/ _\` |/ __| | | || |    | |      | |  
+| |___| |_| | (_| | (__| |_| || |____| |____ _| |_ 
+|______\\__,_|\\__,_|\\___|\\__, | \\_____|______|_____|
+                        __/ |                     
+                       |___/                      
 `;
 
 const ALL_SLASH_COMMANDS = [
   { name: "/help", desc: "Show all available slash commands" },
   { name: "/config", desc: "Show active provider and model info" },
+  { name: "/theme", desc: "Cycle between terminal UI color themes" },
   { name: "/exit", desc: "Exit the lucky agent session" },
 ];
 
@@ -54,6 +80,36 @@ export function App({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
+
+  // Persistent Theme System
+  const [activeTheme, setActiveTheme] = useState<Theme>(() => {
+    try {
+      const cfg = loadStoredConfig();
+      const storedTheme = THEMES.find((t) => t.id === cfg.theme);
+      return storedTheme ?? (THEMES[0] as Theme);
+    } catch {
+      return THEMES[0] as Theme;
+    }
+  });
+
+  const cycleTheme = useCallback(() => {
+    setActiveTheme((prev) => {
+      const idx = THEMES.findIndex((t) => t.id === prev.id);
+      const nextTheme = THEMES[(idx + 1) % THEMES.length] as Theme;
+      try {
+        const cfg = loadStoredConfig();
+        cfg.theme = nextTheme.id;
+        saveStoredConfig(cfg);
+      } catch {
+        // ignore
+      }
+      setItems((prevItems) => [
+        ...prevItems,
+        { kind: "assistant", text: `Theme changed to: ${nextTheme.name}` },
+      ]);
+      return nextTheme;
+    });
+  }, []);
 
   // Real-time metrics
   const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 });
@@ -133,12 +189,17 @@ export function App({
         exit();
         return;
       }
+      if (text === "/theme") {
+        cycleTheme();
+        setInput("");
+        return;
+      }
       if (text === "/help") {
         setItems((prev) => [
           ...prev,
           {
             kind: "assistant",
-            text: "/help · /config · /exit — switch provider: relaunch with --setup",
+            text: "/help · /config · /theme · /exit — switch provider: relaunch with --setup",
           },
         ]);
         setInput("");
@@ -209,7 +270,7 @@ export function App({
         setBusy(false);
       }
     },
-    [agent, busy, meta, exit],
+    [agent, busy, meta, exit, cycleTheme],
   );
 
   // Sliced to fit terminal viewport comfortably
@@ -219,33 +280,33 @@ export function App({
     <Box flexDirection="column" width={terminalSize.width} height={terminalSize.height} padding={1}>
       {/* Splash Welcome Logo */}
       <Box flexDirection="column" marginBottom={1}>
-        <Text bold color="magenta">{WELCOME_LOGO}</Text>
-        <Text color="gray">✦ Welcome! Type your message or enter / to browse commands.</Text>
+        <Text bold color={activeTheme.accent}>{WELCOME_LOGO}</Text>
+        <Text color="gray">✦ Welcome to LuckyCLI! Type your message or enter / to browse commands.</Text>
       </Box>
 
       {/* Main clean scrollback stream */}
       <Box flexDirection="column" flexGrow={1} marginBottom={1}>
         {visibleItems.map((item, i) => (
           <Box key={i} marginY={0.5}>
-            <ItemView item={item} />
+            <ItemView item={item} theme={activeTheme} />
           </Box>
         ))}
         {streaming ? (
           <Box marginY={0.5}>
-            <Text color="green">lucky › {streaming}</Text>
+            <Text color={activeTheme.success}>lucky › {streaming}</Text>
           </Box>
         ) : null}
       </Box>
 
       {/* Tool safety approval dialog (shown inside the stream area) */}
       {approvalRequest ? (
-        <Box flexDirection="column" borderStyle="single" borderColor="yellow" paddingX={1} marginY={1}>
-          <Text bold color="yellow">⚠️ TOOL APPROVAL REQUIRED</Text>
-          <Text>The agent wants to run the side-effecting tool <Text bold color="cyan">{approvalRequest.name}</Text>:</Text>
+        <Box flexDirection="column" borderStyle="single" borderColor={activeTheme.warning} paddingX={1} marginY={1}>
+          <Text bold color={activeTheme.warning}>⚠️ TOOL APPROVAL REQUIRED</Text>
+          <Text>The agent wants to run the side-effecting tool <Text bold color={activeTheme.primary}>{approvalRequest.name}</Text>:</Text>
           <Box marginLeft={2} marginY={0.5}>
             <Text color="gray">{JSON.stringify(approvalRequest.input, null, 2)}</Text>
           </Box>
-          <Text bold color="yellow">Allow execution? (y: Yes / n: No / esc: Deny)</Text>
+          <Text bold color={activeTheme.warning}>Allow execution? (y: Yes / n: No / esc: Deny)</Text>
         </Box>
       ) : null}
 
@@ -254,19 +315,19 @@ export function App({
         <Box
           flexDirection="column"
           borderStyle="round"
-          borderColor="magenta"
+          borderColor={activeTheme.accent}
           paddingX={1}
           paddingY={0.5}
           marginBottom={0.5}
           width="100%"
         >
-          <Text bold color="magenta">⌨️ Slash Commands Menu</Text>
+          <Text bold color={activeTheme.accent}>⌨️ Slash Commands Menu</Text>
           {filteredCommands.map((cmd, idx) => (
             <Box key={cmd.name} flexDirection="row">
-              <Text color={idx === selectedCommandIndex ? "magenta" : "gray"}>
+              <Text color={idx === selectedCommandIndex ? activeTheme.accent : "gray"}>
                 {idx === selectedCommandIndex ? "› " : "  "}
               </Text>
-              <Text bold color={idx === selectedCommandIndex ? "magenta" : "white"}>
+              <Text bold color={idx === selectedCommandIndex ? activeTheme.accent : "white"}>
                 {cmd.name.padEnd(10)}
               </Text>
               <Text color="gray"> - {cmd.desc}</Text>
@@ -280,15 +341,15 @@ export function App({
         </Box>
       ) : null}
 
-      {/* Dedicated Writing Input Bar */}
+      {/* Dedicated Writing Input Bar (No "you" prefix, just a clean styled arrow) */}
       <Box
         flexDirection="row"
         borderStyle="single"
-        borderColor={busy ? "green" : "cyan"}
+        borderColor={busy ? activeTheme.success : activeTheme.primary}
         paddingX={1}
         width="100%"
       >
-        <Text bold color={busy ? "green" : "cyan"}>you › </Text>
+        <Text bold color={busy ? activeTheme.success : activeTheme.primary}>› </Text>
         {!busy ? (
           <TextInput value={input} onChange={setInput} onSubmit={submit} />
         ) : (
@@ -299,7 +360,7 @@ export function App({
       {/* Bottom Status Bar with chosen config and real-time Token counters */}
       <Box width="100%" paddingX={1} justifyContent="space-between" marginTop={0.5}>
         <Text color="gray">🤖 Provider: {meta.provider} · 🧠 Model: {meta.model}</Text>
-        <Text color="yellow">
+        <Text color={activeTheme.warning}>
           ⚡ Tokens: {tokenUsage.input + tokenUsage.output} (In: {tokenUsage.input} / Out: {tokenUsage.output})
         </Text>
       </Box>
@@ -307,12 +368,12 @@ export function App({
   );
 }
 
-function ItemView({ item }: { item: Item }): React.JSX.Element {
+function ItemView({ item, theme }: { item: Item; theme: Theme }): React.JSX.Element {
   switch (item.kind) {
     case "user":
-      return <Text color="cyan">you › {item.text}</Text>;
+      return <Text color={theme.primary}>› {item.text}</Text>;
     case "assistant":
-      return <Text color="green">lucky › {item.text}</Text>;
+      return <Text color={theme.success}>lucky › {item.text}</Text>;
     case "error":
       return <Text color="red">error: {item.text}</Text>;
     case "tool":
