@@ -40,7 +40,7 @@ export function App({
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
 
-  // Real-time metrics
+  // Real-time session metrics
   const [editedFiles, setEditedFiles] = useState<string[]>([]);
   const [readFiles, setReadFiles] = useState<string[]>([]);
   const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 });
@@ -63,10 +63,6 @@ export function App({
       process.stdout.off("resize", handleResize);
     };
   }, []);
-
-  // Proportions
-  const chatWidth = Math.max(40, Math.floor(terminalSize.width * 0.65));
-  const sidebarWidth = Math.max(25, terminalSize.width - chatWidth - 3);
 
   // Ctrl+C exits when idle. Support y/n for tool approval when active.
   useInput((_in, key) => {
@@ -184,128 +180,86 @@ export function App({
     [agent, busy, meta, exit],
   );
 
-  // Dynamically slice items to prevent scrollback overflow
+  // Dynamic slice to fit screen comfortably
   const visibleItems = items.slice(-8);
 
   return (
-    <Box flexDirection="column" width={terminalSize.width} height={terminalSize.height}>
+    <Box flexDirection="column" width={terminalSize.width} height={terminalSize.height} padding={1}>
       {/* Header bar */}
-      <Box width="100%" paddingX={1} paddingY={0} flexDirection="row" justifyContent="space-between">
-        <Text bold color="magenta">✦ LUCKY AGENT ✦</Text>
+      <Box width="100%" flexDirection="row" justifyContent="space-between" marginBottom={1}>
+        <Text bold color="cyan">✦ LUCKY AGENT ✦</Text>
         <Text color="gray">
-          [ Provider: {meta.provider} | Model: {meta.model} | Status: {busy ? "THINKING" : "IDLE"} ]
+          [ Provider: {meta.provider} | Model: {meta.model} ]
         </Text>
       </Box>
 
-      {/* Main split row */}
-      <Box flexDirection="row" width="100%" flexGrow={1} minHeight={10}>
-        {/* Chat / Left Panel */}
-        <Box
-          flexDirection="column"
-          width={chatWidth}
-          borderStyle="round"
-          borderColor={busy ? "green" : "cyan"}
-          paddingX={1}
-        >
-          <Box marginBottom={1}>
-            <Text bold color={busy ? "green" : "cyan"}>💬 Chat History</Text>
-          </Box>
-          
-          <Box flexDirection="column" flexGrow={1}>
-            {visibleItems.map((item, i) => (
-              <Box key={i} marginY={0.5}>
-                <ItemView item={item} />
-              </Box>
-            ))}
-            {streaming ? (
-              <Box marginY={0.5}>
-                <Text color="green">lucky › {streaming}</Text>
-              </Box>
-            ) : null}
-          </Box>
-
-          {/* Tool Approval dialog overlay inside the chat panel */}
-          {approvalRequest ? (
-            <Box borderStyle="double" borderColor="yellow" flexDirection="column" padding={1} marginY={1}>
-              <Text bold color="yellow">
-                ⚠️ Tool Approval Required
-              </Text>
-              <Text>
-                The agent is requesting to execute <Text bold color="cyan">{approvalRequest.name}</Text>:
-              </Text>
-              <Box marginLeft={2} marginY={1}>
-                <Text color="gray">{JSON.stringify(approvalRequest.input, null, 2)}</Text>
-              </Box>
-              <Text bold>
-                Allow execution? (y: Yes / n: No / esc: Deny)
-              </Text>
+      {/* Chat scrollback container */}
+      <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor="gray" paddingX={1} marginBottom={1}>
+        <Box flexDirection="column" flexGrow={1}>
+          {visibleItems.map((item, i) => (
+            <Box key={i} marginY={0.5}>
+              <ItemView item={item} />
+            </Box>
+          ))}
+          {streaming ? (
+            <Box marginY={0.5}>
+              <Text color="green">lucky › {streaming}</Text>
             </Box>
           ) : null}
-
-          {/* Prompt */}
-          {!busy ? (
-            <Box marginTop={1}>
-              <Text color="cyan">you › </Text>
-              <TextInput value={input} onChange={setInput} onSubmit={submit} />
-            </Box>
-          ) : (
-            !approvalRequest && (
-              <Box marginTop={1}>
-                <Text color="gray">… thinking</Text>
-              </Box>
-            )
-          )}
-        </Box>
-
-        {/* Workspace Sidebar / Right Panel */}
-        <Box
-          flexDirection="column"
-          width={sidebarWidth}
-          borderStyle="round"
-          borderColor="magenta"
-          paddingX={1}
-        >
-          <Box marginBottom={1}>
-            <Text bold color="magenta">⚙️ Workspace & Status</Text>
-          </Box>
-
-          {/* Active stats */}
-          <Box flexDirection="column" marginBottom={1}>
-            <Text bold color="yellow">⚡ SESSION STATS</Text>
-            <Text>Tokens In:  <Text color="cyan">{tokenUsage.input}</Text></Text>
-            <Text>Tokens Out: <Text color="cyan">{tokenUsage.output}</Text></Text>
-          </Box>
-
-          {/* Read files list */}
-          <Box flexDirection="column" marginBottom={1} flexGrow={1}>
-            <Text bold color="cyan">📁 READ FILES ({readFiles.length})</Text>
-            {readFiles.length === 0 ? (
-              <Text dimColor>(none)</Text>
-            ) : (
-              readFiles.slice(-4).map((f, i) => (
-                <Text key={i} color="gray">  • {f}</Text>
-              ))
-            )}
-          </Box>
-
-          {/* Edited files list */}
-          <Box flexDirection="column" marginBottom={1} flexGrow={1}>
-            <Text bold color="green">📝 EDITED FILES ({editedFiles.length})</Text>
-            {editedFiles.length === 0 ? (
-              <Text dimColor>(none)</Text>
-            ) : (
-              editedFiles.slice(-4).map((f, i) => (
-                <Text key={i} color="gray">  • {f}</Text>
-              ))
-            )}
-          </Box>
         </Box>
       </Box>
 
-      {/* Footer bar */}
-      <Box width="100%" paddingX={1} paddingY={0} flexDirection="row" justifyContent="space-between">
-        <Text color="gray">Commands: /help · /config · /exit</Text>
-        <Text color="gray">Press Ctrl+C to quit</Text>
+      {/* Dynamic Info bar */}
+      <Box width="100%" justifyContent="space-between" paddingX={1} marginBottom={1}>
+        <Box flexDirection="row">
+          <Text bold color="cyan">📁 Files Read: </Text>
+          <Text>{readFiles.length > 0 ? readFiles.slice(-3).join(", ") : "0"}</Text>
+        </Box>
+        <Box flexDirection="row">
+          <Text bold color="green">📝 Edited: </Text>
+          <Text>{editedFiles.length > 0 ? editedFiles.slice(-3).join(", ") : "0"}</Text>
+        </Box>
+        <Box flexDirection="row">
+          <Text bold color="yellow">⚡ Tokens: </Text>
+          <Text>{tokenUsage.input + tokenUsage.output}</Text>
+        </Box>
+      </Box>
+
+      {/* Chat Form Box */}
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={approvalRequest ? "yellow" : busy ? "green" : "cyan"}
+        paddingX={1}
+        width="100%"
+      >
+        {approvalRequest ? (
+          <Box flexDirection="column" marginY={0.5}>
+            <Text bold color="yellow">⚠️ TOOL APPROVAL REQUIRED</Text>
+            <Text>The agent wants to execute the side-effecting tool <Text bold color="cyan">{approvalRequest.name}</Text>:</Text>
+            <Box marginLeft={2} marginY={0.5}>
+              <Text color="gray">{JSON.stringify(approvalRequest.input, null, 2)}</Text>
+            </Box>
+            <Text bold color="yellow">Allow execution? (y: Yes / n: No / esc: Deny)</Text>
+          </Box>
+        ) : (
+          <Box flexDirection="row" marginY={0.5}>
+            <Text bold color={busy ? "green" : "cyan"}>Prompt › </Text>
+            {!busy ? (
+              <TextInput value={input} onChange={setInput} onSubmit={submit} />
+            ) : (
+              <Text color="gray">… thinking</Text>
+            )}
+          </Box>
+        )}
+
+        <Box marginTop={0.5} marginBottom={0.5} justifyContent="space-between">
+          <Text dimColor>[Enter] Send message</Text>
+          <Text dimColor>│</Text>
+          <Text dimColor>Commands: /help · /config · /exit</Text>
+          <Text dimColor>│</Text>
+          <Text dimColor>[Ctrl+C] Quit</Text>
+        </Box>
       </Box>
     </Box>
   );
