@@ -148,7 +148,12 @@ export interface OpenAiCredentials {
 
 export interface GeminiCredentials {
   type: "gemini";
-  apiKey: string;
+  authMethod?: "api_key" | "oauth" | "vertex";
+  apiKey?: string;
+  projectId?: string;
+  location?: string;
+  accessToken?: string;
+  refreshToken?: string;
 }
 
 export interface OllamaCredentials {

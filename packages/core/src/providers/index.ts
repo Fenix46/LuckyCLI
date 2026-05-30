@@ -46,7 +46,7 @@ export {
   listProviders,
   providerInfo,
 } from "./catalog.js";
-export type { AuthKind, ProviderCatalogEntry } from "./catalog.js";
+export type { AuthMethod, ProviderCatalogEntry } from "./catalog.js";
 export {
   getProvider,
   getRegisteredProviderIds,

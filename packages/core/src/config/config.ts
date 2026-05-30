@@ -106,7 +106,18 @@ export function credentialsFromEnv(
         ...(env.OPENAI_BASE_URL ? { baseUrl: env.OPENAI_BASE_URL } : {}),
       };
     case "gemini":
-      return { type: "gemini", apiKey: requireEnv(env, "GEMINI_API_KEY") };
+      if (env.GEMINI_API_KEY) {
+        return { type: "gemini", authMethod: "api_key", apiKey: env.GEMINI_API_KEY };
+      }
+      if (env.GOOGLE_CLOUD_PROJECT || env.GOOGLE_APPLICATION_CREDENTIALS) {
+        return {
+          type: "gemini",
+          authMethod: "vertex",
+          projectId: env.GOOGLE_CLOUD_PROJECT,
+          location: env.GOOGLE_CLOUD_LOCATION || "us-central1",
+        };
+      }
+      throw new Error("Missing GEMINI_API_KEY or GOOGLE_CLOUD_PROJECT.");
     case "ollama":
       return {
         type: "ollama",

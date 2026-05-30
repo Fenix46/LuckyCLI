@@ -8,20 +8,23 @@
 
 import type { ProviderId, ProviderInfo } from "./types.js";
 
-/** How a provider is authenticated, which drives what the setup dialog asks. */
-export type AuthKind = "apiKey" | "baseUrl";
+export interface AuthMethod {
+  id: string;
+  displayName: string;
+  kind: "apiKey" | "baseUrl" | "oauth" | "vertex";
+  hint: string;
+}
 
 export interface ProviderCatalogEntry extends ProviderInfo {
-  /** What the user must supply to use this provider. */
-  auth: AuthKind;
-  /** Human hint shown in the setup prompt. */
-  authHint: string;
+  company: string;
+  authMethods: AuthMethod[];
 }
 
 export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
   claude: {
     id: "claude",
     displayName: "Anthropic Claude",
+    company: "Anthropic",
     availableModels: [
       "claude-opus-4-8",
       "claude-sonnet-4-6",
@@ -31,50 +34,90 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
-    auth: "apiKey",
-    authHint: "Anthropic API key (console.anthropic.com)",
+    authMethods: [
+      {
+        id: "api_key",
+        displayName: "Anthropic API Key",
+        kind: "apiKey",
+        hint: "Anthropic API key (console.anthropic.com)",
+      },
+    ],
   },
   openai: {
     id: "openai",
     displayName: "OpenAI",
+    company: "OpenAI",
     availableModels: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o4-mini"],
     defaultModel: "gpt-4o",
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
-    auth: "apiKey",
-    authHint: "OpenAI API key (platform.openai.com)",
+    authMethods: [
+      {
+        id: "api_key",
+        displayName: "OpenAI API Key",
+        kind: "apiKey",
+        hint: "OpenAI API key (platform.openai.com)",
+      },
+    ],
   },
   gemini: {
     id: "gemini",
     displayName: "Google Gemini",
+    company: "Google",
     availableModels: ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"],
     defaultModel: "gemini-2.0-flash",
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
-    auth: "apiKey",
-    authHint: "Google AI Studio API key (aistudio.google.com)",
+    authMethods: [
+      {
+        id: "api_key",
+        displayName: "Google AI Studio API Key",
+        kind: "apiKey",
+        hint: "Google AI Studio API key (aistudio.google.com)",
+      },
+      {
+        id: "oauth",
+        displayName: "Google OAuth (Personal Gmail)",
+        kind: "oauth",
+        hint: "Interactive browser login with your Google account",
+      },
+      {
+        id: "vertex",
+        displayName: "Vertex AI (Google Cloud Platform)",
+        kind: "vertex",
+        hint: "Vertex AI GCP credentials (needs project ID)",
+      },
+    ],
   },
   ollama: {
     id: "ollama",
     displayName: "Ollama (local)",
+    company: "Ollama",
     availableModels: ["llama3.1", "qwen2.5", "mistral", "gemma2"],
     defaultModel: "llama3.1",
     supportsStreaming: true,
     supportsVision: false,
     supportsTools: true,
-    auth: "baseUrl",
-    authHint: "Ollama daemon URL",
+    authMethods: [
+      {
+        id: "base_url",
+        displayName: "Ollama Local Daemon",
+        kind: "baseUrl",
+        hint: "Ollama URL (default http://localhost:11434)",
+      },
+    ],
   },
 };
 
 /** The bare ProviderInfo for a provider (no auth fields). */
 export function providerInfo(id: ProviderId): ProviderInfo {
-  const { auth: _auth, authHint: _hint, ...info } = PROVIDER_CATALOG[id];
+  const { company: _company, authMethods: _methods, ...info } = PROVIDER_CATALOG[id];
   return info;
 }
 
 export function listProviders(): ProviderCatalogEntry[] {
   return Object.values(PROVIDER_CATALOG);
 }
+

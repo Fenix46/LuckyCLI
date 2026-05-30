@@ -24,21 +24,71 @@ import type {
   StreamChunk,
   TokenUsage,
 } from "../../types.js";
+import { refreshAccessToken } from "./GoogleAuthHelper.js";
+import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
 
 const INFO: ProviderInfo = providerInfo("gemini");
 
 export class GeminiProvider implements IProvider {
   readonly info = INFO;
-  private readonly client: GoogleGenAI;
+  private client!: GoogleGenAI;
+  private readonly credentials: GeminiCredentials;
 
   constructor(credentials: GeminiCredentials) {
-    this.client = new GoogleGenAI({ apiKey: credentials.apiKey });
+    this.credentials = credentials;
+    this.client = this.createClient();
+  }
+
+  private createClient(): GoogleGenAI {
+    if (this.credentials.authMethod === "vertex") {
+      return new GoogleGenAI({
+        vertexai: true,
+        project: this.credentials.projectId || undefined,
+        location: this.credentials.location || undefined,
+      });
+    } else if (this.credentials.authMethod === "oauth") {
+      if (this.credentials.accessToken) {
+        process.env.GOOGLE_CLOUD_ACCESS_TOKEN = this.credentials.accessToken;
+      }
+      return new GoogleGenAI({
+        vertexai: true,
+        project: this.credentials.projectId || undefined,
+        location: this.credentials.location || undefined,
+      });
+    } else {
+      return new GoogleGenAI({ apiKey: this.credentials.apiKey || "" });
+    }
+  }
+
+  private async ensureValidAuth(): Promise<void> {
+    if (this.credentials.authMethod === "oauth" && this.credentials.refreshToken) {
+      try {
+        const newToken = await refreshAccessToken(this.credentials.refreshToken);
+        if (newToken && newToken !== this.credentials.accessToken) {
+          this.credentials.accessToken = newToken;
+          process.env.GOOGLE_CLOUD_ACCESS_TOKEN = newToken;
+          this.client = this.createClient();
+          
+          const cfg = loadStoredConfig();
+          if (cfg.credentials?.gemini && cfg.credentials.gemini.type === "gemini") {
+            cfg.credentials.gemini = {
+              ...(cfg.credentials.gemini as GeminiCredentials),
+              accessToken: newToken,
+            };
+            saveStoredConfig(cfg);
+          }
+        }
+      } catch (e) {
+        // Fallback to existing token if refresh fails
+      }
+    }
   }
 
   async generate(
     messages: Message[],
     config: GenerationConfig,
   ): Promise<GenerationResponse> {
+    await this.ensureValidAuth();
     const response = await this.client.models.generateContent({
       model: config.model || INFO.defaultModel,
       contents: toGeminiContents(messages),
@@ -62,6 +112,7 @@ export class GeminiProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): AsyncGenerator<StreamChunk> {
+    await this.ensureValidAuth();
     const stream = await this.client.models.generateContentStream({
       model: config.model || INFO.defaultModel,
       contents: toGeminiContents(messages),
@@ -105,6 +156,7 @@ export class GeminiProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): Promise<TokenUsage | undefined> {
+    await this.ensureValidAuth();
     const result = await this.client.models.countTokens({
       model: config.model || INFO.defaultModel,
       contents: toGeminiContents(messages),
@@ -114,6 +166,7 @@ export class GeminiProvider implements IProvider {
 
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     try {
+      await this.ensureValidAuth();
       await this.client.models.generateContent({
         model: INFO.defaultModel,
         contents: [{ role: "user", parts: [{ text: "ping" }] }],

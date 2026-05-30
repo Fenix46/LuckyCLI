@@ -1,12 +1,15 @@
 import { Box, Text } from "ink";
 import SelectInput from "ink-select-input";
 import TextInput from "ink-text-input";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   PROVIDER_CATALOG,
   listProviders,
+  startOAuthFlow,
+  exchangeCodeForTokens,
   type ProviderCredentials,
   type ProviderId,
+  type AuthMethod,
 } from "@luckycli/core";
 
 export interface SetupResult {
@@ -19,7 +22,8 @@ interface SetupProps {
   onComplete: (result: SetupResult) => void;
 }
 
-type Step = "provider" | "secret" | "model";
+type Step = "company" | "authMethod" | "credential" | "model";
+type CredentialSubStep = "input" | "oauth_code" | "project" | "region";
 
 const WELCOME_LOGO = `
   _      _    _  ____ _  __ __   __ ____ _     ___ 
@@ -29,28 +33,70 @@ const WELCOME_LOGO = `
  |_____| \\____/ \\____|_|\\_\\   |_|  \\____|_____|___|
 `;
 
-/**
- * First-run (and on-demand) login & setup wizard.
- * Renders a gorgeous welcome logo and wraps the wizard in a structured login card.
- */
 export function Setup({ onComplete }: SetupProps): React.JSX.Element {
-  const [step, setStep] = useState<Step>("provider");
-  const [provider, setProvider] = useState<ProviderId | null>(null);
+  const [step, setStep] = useState<Step>("company");
+  const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  const [selectedProviderId, setSelectedProviderId] = useState<ProviderId | null>(null);
+  const [selectedAuthMethod, setSelectedAuthMethod] = useState<AuthMethod | null>(null);
+
+  // Credential Sub-Steps & Inputs
+  const [credSubStep, setCredSubStep] = useState<CredentialSubStep>("input");
   const [secret, setSecret] = useState("");
+  const [gcpProjectId, setGcpProjectId] = useState("");
+  const [gcpRegion, setGcpRegion] = useState("us-central1");
 
-  const entry = provider ? PROVIDER_CATALOG[provider] : null;
+  // OAuth Flow State
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
+  const [oauthVerifier, setOauthVerifier] = useState<string | null>(null);
+  const [oauthCode, setOauthCode] = useState("");
+  const [oauthError, setOauthError] = useState<string | null>(null);
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthTokens, setOauthTokens] = useState<{ accessToken: string; refreshToken?: string } | null>(null);
 
-  const providerItems = listProviders().map((p) => ({
-    key: p.id,
-    label: p.displayName,
-    value: p.id,
+  // Initialize OAuth flow asynchronously when oauth step starts
+  useEffect(() => {
+    if (selectedAuthMethod?.kind === "oauth" && step === "credential" && !oauthUrl) {
+      startOAuthFlow()
+        .then((session) => {
+          setOauthUrl(session.url);
+          setOauthVerifier(session.codeVerifier);
+        })
+        .catch((err) => {
+          setOauthError(`Failed to initialize Google OAuth: ${err instanceof Error ? err.message : String(err)}`);
+        });
+    }
+  }, [selectedAuthMethod, step, oauthUrl]);
+
+  // Unique list of companies from PROVIDER_CATALOG
+  const companyItems = Array.from(
+    new Set(listProviders().map((p) => p.company))
+  ).map((c) => ({
+    key: c,
+    label: c === "Google" ? "Google Gemini" : c,
+    value: c,
   }));
 
-  function onPickProvider(item: { label: string; value: ProviderId }) {
-    setProvider(item.value);
-    const cat = PROVIDER_CATALOG[item.value];
-    setSecret(cat.auth === "baseUrl" ? "http://localhost:11434" : "");
-    setStep("secret");
+  function onSelectCompany(item: { value: string }) {
+    setSelectedCompany(item.value);
+    const provider = listProviders().find((p) => p.company === item.value);
+    if (provider) {
+      setSelectedProviderId(provider.id);
+    }
+    setStep("authMethod");
+  }
+
+  function onSelectAuthMethod(item: { value: AuthMethod }) {
+    setSelectedAuthMethod(item.value);
+    setSecret(item.value.kind === "baseUrl" ? "http://localhost:11434" : "");
+    setStep("credential");
+
+    if (item.value.kind === "oauth") {
+      setCredSubStep("oauth_code");
+    } else if (item.value.kind === "vertex") {
+      setCredSubStep("project");
+    } else {
+      setCredSubStep("input");
+    }
   }
 
   function onSubmitSecret() {
@@ -58,19 +104,82 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     setStep("model");
   }
 
-  function onPickModel(item: { label: string; value: string }) {
-    if (!provider || !entry) return;
+  async function onSubmitOauthCode() {
+    if (!oauthCode.trim() || !oauthVerifier) return;
+    setOauthLoading(true);
+    setOauthError(null);
+    try {
+      const tokens = await exchangeCodeForTokens(oauthCode.trim(), oauthVerifier);
+      setOauthTokens(tokens);
+      setOauthLoading(false);
+      // Move to collect project ID for Vertex/GCP OAuth
+      setCredSubStep("project");
+    } catch (err) {
+      setOauthLoading(false);
+      setOauthError(`Authentication failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  function onSubmitProject() {
+    // GCP Project is required for Vertex, optional for OAuth
+    if (selectedAuthMethod?.kind === "vertex" && !gcpProjectId.trim()) return;
+    setCredSubStep("region");
+  }
+
+  function onSubmitRegion() {
+    setStep("model");
+  }
+
+  function onSelectModel(item: { value: string }) {
+    if (!selectedProviderId || !selectedAuthMethod) return;
+
+    let credentials: ProviderCredentials;
+    if (selectedProviderId === "claude") {
+      credentials = { type: "claude", apiKey: secret.trim() };
+    } else if (selectedProviderId === "openai") {
+      credentials = { type: "openai", apiKey: secret.trim() };
+    } else if (selectedProviderId === "ollama") {
+      credentials = { type: "ollama", baseUrl: secret.trim() };
+    } else {
+      // Gemini
+      if (selectedAuthMethod.kind === "oauth") {
+        credentials = {
+          type: "gemini",
+          authMethod: "oauth",
+          accessToken: oauthTokens?.accessToken,
+          refreshToken: oauthTokens?.refreshToken,
+          projectId: gcpProjectId.trim() || undefined,
+          location: gcpRegion.trim() || undefined,
+        };
+      } else if (selectedAuthMethod.kind === "vertex") {
+        credentials = {
+          type: "gemini",
+          authMethod: "vertex",
+          projectId: gcpProjectId.trim(),
+          location: gcpRegion.trim() || undefined,
+        };
+      } else {
+        credentials = {
+          type: "gemini",
+          authMethod: "api_key",
+          apiKey: secret.trim(),
+        };
+      }
+    }
+
     onComplete({
-      provider,
+      provider: selectedProviderId,
       model: item.value,
-      credentials: buildCredentials(provider, secret.trim()),
+      credentials,
     });
   }
 
+  const catalogEntry = selectedProviderId ? PROVIDER_CATALOG[selectedProviderId] : null;
+
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" paddingX={2} paddingY={1}>
       {/* ASCII Splash Logo */}
-      <Text bold color="magenta">
+      <Text bold color="cyan">
         {WELCOME_LOGO}
       </Text>
       <Box marginBottom={1}>
@@ -79,84 +188,144 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         </Text>
       </Box>
 
-      {/* Login Card Box */}
-      <Box
-        flexDirection="column"
-        borderStyle="round"
-        borderColor="magenta"
-        paddingX={1}
-        paddingY={0.5}
-        width="100%"
-      >
-        <Box marginBottom={1}>
-          <Text bold color="magenta">🔐 PROVIDER LOGIN</Text>
-        </Box>
-
-        {step === "provider" ? (
+      {/* Main Wizard Area */}
+      <Box flexDirection="column" marginTop={1}>
+        {step === "company" && (
           <Box flexDirection="column">
-            <Text color="cyan">Select your model provider:</Text>
-            <Box marginTop={0.5}>
-              <SelectInput<ProviderId>
-                items={providerItems}
-                onSelect={onPickProvider}
+            <Text bold color="cyan">🔐 SELECT PROVIDER COMPANY</Text>
+            <Box marginTop={0.5} flexDirection="column">
+              <SelectInput
+                items={companyItems}
+                onSelect={onSelectCompany}
               />
             </Box>
           </Box>
-        ) : null}
+        )}
 
-        {step === "secret" && entry ? (
+        {step === "authMethod" && selectedCompany && selectedProviderId && (
           <Box flexDirection="column">
-            <Text color="cyan">Authentication: {entry.displayName}</Text>
-            <Box marginTop={0.5} flexDirection="row">
-              <Text bold>
-                {entry.auth === "apiKey" ? "API Key" : "Base URL"}{" "}
-                <Text color="gray">({entry.authHint})</Text>:{" "}
-              </Text>
-              <TextInput
-                value={secret}
-                onChange={setSecret}
-                onSubmit={onSubmitSecret}
-                {...(entry.auth === "apiKey" ? { mask: "*" } : {})}
+            <Text bold color="cyan">🔑 SELECT LOGIN METHOD</Text>
+            <Text color="gray" dimColor>Select how you want to authenticate with {selectedCompany}:</Text>
+            <Box marginTop={0.5} flexDirection="column">
+              <SelectInput
+                items={PROVIDER_CATALOG[selectedProviderId].authMethods.map((m) => ({
+                  key: m.id,
+                  label: m.displayName,
+                  value: m,
+                }))}
+                onSelect={onSelectAuthMethod}
               />
             </Box>
-            <Box marginTop={1}>
-              <Text dimColor>Press [Enter] to submit credentials</Text>
-            </Box>
           </Box>
-        ) : null}
+        )}
 
-        {step === "model" && entry ? (
+        {step === "credential" && selectedAuthMethod && (
           <Box flexDirection="column">
-            <Text color="cyan">Choose a model for {entry.displayName}:</Text>
-            <Box marginTop={0.5}>
-              <SelectInput<string>
-                items={entry.availableModels.map((m) => ({
+            <Text bold color="cyan">⚙️ ENTER CREDENTIALS</Text>
+
+            {credSubStep === "input" && (
+              <Box flexDirection="column" marginTop={0.5}>
+                <Box flexDirection="row">
+                  <Text bold color="cyan">
+                    {selectedAuthMethod.kind === "apiKey" ? "API Key" : "Base URL"}{" "}
+                    <Text color="gray">({selectedAuthMethod.hint})</Text>:{" "}
+                  </Text>
+                  <TextInput
+                    value={secret}
+                    onChange={setSecret}
+                    onSubmit={onSubmitSecret}
+                    {...(selectedAuthMethod.kind === "apiKey" ? { mask: "*" } : {})}
+                  />
+                </Box>
+                <Box marginTop={1}>
+                  <Text dimColor color="gray">Press [Enter] to submit credentials</Text>
+                </Box>
+              </Box>
+            )}
+
+            {credSubStep === "oauth_code" && (
+              <Box flexDirection="column" marginTop={0.5}>
+                {oauthLoading ? (
+                  <Text color="yellow">⏳ Exchanging authorization code for tokens...</Text>
+                ) : (
+                  <Box flexDirection="column">
+                    <Text color="gray">› Please open the authorization URL in your browser to log in:</Text>
+                    <Box marginY={0.5} paddingX={1}>
+                      <Text bold color="cyan" underline>{oauthUrl || "Generating authorization link..."}</Text>
+                    </Box>
+                    <Box flexDirection="row" marginTop={0.5}>
+                      <Text bold color="cyan">› Enter the authorization code: </Text>
+                      <TextInput
+                        value={oauthCode}
+                        onChange={setOauthCode}
+                        onSubmit={onSubmitOauthCode}
+                      />
+                    </Box>
+                    {oauthError && (
+                      <Box marginTop={0.5}>
+                        <Text color="red">❌ {oauthError}</Text>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            )}
+
+            {credSubStep === "project" && (
+              <Box flexDirection="column" marginTop={0.5}>
+                <Box flexDirection="row">
+                  <Text bold color="cyan">
+                    GCP Project ID {selectedAuthMethod.kind === "oauth" ? "(optional)" : ""}:{" "}
+                  </Text>
+                  <TextInput
+                    value={gcpProjectId}
+                    onChange={setGcpProjectId}
+                    onSubmit={onSubmitProject}
+                  />
+                </Box>
+                <Box marginTop={1}>
+                  <Text dimColor color="gray">Press [Enter] to continue</Text>
+                </Box>
+              </Box>
+            )}
+
+            {credSubStep === "region" && (
+              <Box flexDirection="column" marginTop={0.5}>
+                <Box flexDirection="row">
+                  <Text bold color="cyan">
+                    GCP Region (default: us-central1):{" "}
+                  </Text>
+                  <TextInput
+                    value={gcpRegion}
+                    onChange={setGcpRegion}
+                    onSubmit={onSubmitRegion}
+                  />
+                </Box>
+                <Box marginTop={1}>
+                  <Text dimColor color="gray">Press [Enter] to continue</Text>
+                </Box>
+              </Box>
+            )}
+          </Box>
+        )}
+
+        {step === "model" && catalogEntry && (
+          <Box flexDirection="column">
+            <Text bold color="cyan">🤖 SELECT ACTIVE MODEL</Text>
+            <Text color="gray" dimColor>Choose the default LLM model to use:</Text>
+            <Box marginTop={0.5} flexDirection="column">
+              <SelectInput
+                items={catalogEntry.availableModels.map((m) => ({
                   key: m,
                   label: m,
                   value: m,
                 }))}
-                onSelect={onPickModel}
+                onSelect={onSelectModel}
               />
             </Box>
           </Box>
-        ) : null}
+        )}
       </Box>
     </Box>
   );
-}
-
-function buildCredentials(
-  provider: ProviderId,
-  secret: string,
-): ProviderCredentials {
-  switch (provider) {
-    case "claude":
-      return { type: "claude", apiKey: secret };
-    case "openai":
-      return { type: "openai", apiKey: secret };
-    case "gemini":
-      return { type: "gemini", apiKey: secret };
-    case "ollama":
-      return { type: "ollama", baseUrl: secret };
-  }
 }
