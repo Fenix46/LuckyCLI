@@ -22,6 +22,7 @@ export {
   execTool,
   readFileTool,
   writeFileTool,
+  editFileTool,
   listDirTool,
   httpFetchTool,
 } from "./tools/builtin/index.js";
