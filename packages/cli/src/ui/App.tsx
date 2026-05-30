@@ -76,6 +76,7 @@ export function App({
   const [streaming, setStreaming] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [busyFrame, setBusyFrame] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Persistent Theme System
@@ -140,6 +141,17 @@ export function App({
     }, 500);
     return () => clearInterval(timer);
   }, [busy, startedAt]);
+
+  useEffect(() => {
+    if (!busy) {
+      setBusyFrame(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setBusyFrame((frame) => frame + 1);
+    }, 200);
+    return () => clearInterval(timer);
+  }, [busy]);
 
   // Slash commands navigation
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -318,6 +330,9 @@ export function App({
   const hiddenItems = items.length - visibleItems.length;
   const status = approvalRequest ? "approval required" : busy ? `thinking ${elapsedSeconds}s` : "ready";
   const messageWidth = Math.max(32, terminalSize.width - 16);
+  const thinkingFrames = ["-", "\\", "|", "/"];
+  const thinkingFrame = thinkingFrames[busyFrame % thinkingFrames.length] ?? "-";
+  const thinkingDots = ".".repeat((busyFrame % 4) + 1).padEnd(4, " ");
 
   return (
     <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
@@ -360,7 +375,9 @@ export function App({
           </Box>
         ) : busy && !approvalRequest ? (
           <Box marginY={0.5}>
-            <Text color={activeTheme.muted}>assistant  thinking...</Text>
+            <Text color={activeTheme.muted}>
+              lucky    {thinkingFrame} thinking{thinkingDots} {elapsedSeconds}s
+            </Text>
           </Box>
         ) : null}
       </Box>
@@ -440,25 +457,18 @@ function ItemView({
     case "error":
       return <LabeledBlock label="error" color={theme.error} text={item.text} width={width} />;
     case "tool":
+      const toolText =
+        item.output === undefined
+          ? `${item.name}(${item.input}) -> running`
+          : `${item.name}(${item.input}) -> ${item.error ? "error: " : ""}${item.output}`;
       return (
-        <Box flexDirection="column">
-          <LabeledBlock
-            label="tool"
-            color={theme.muted}
-            text={`${item.name}(${item.input})`}
-            width={width}
-            indent={2}
-          />
-          {item.output !== undefined ? (
-            <LabeledBlock
-              label="result"
-              color={item.error ? theme.error : theme.muted}
-              text={item.output}
-              width={width}
-              indent={2}
-            />
-          ) : null}
-        </Box>
+        <LabeledBlock
+          label="tool"
+          color={item.error ? theme.error : theme.muted}
+          text={toolText}
+          width={width}
+          indent={2}
+        />
       );
   }
 }
@@ -552,39 +562,75 @@ function preview(value: unknown, max = 120): string {
 function wrapText(text: string, width: number): string[] {
   const safeWidth = Math.max(16, width);
   const output: string[] = [];
+  let inCodeBlock = false;
 
-  for (const paragraph of text.split("\n")) {
-    if (!paragraph.trim()) {
+  for (const rawLine of text.split("\n")) {
+    const trimmed = rawLine.trim();
+    if (trimmed.startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+
+    if (inCodeBlock) {
+      pushWrapped(output, `  ${rawLine.replace(/\t/g, "  ")}`, safeWidth);
+      continue;
+    }
+
+    if (!trimmed) {
       output.push("");
       continue;
     }
 
-    let line = "";
-    for (const word of paragraph.trim().split(/\s+/)) {
-      if (word.length > safeWidth) {
-        if (line) {
-          output.push(line);
-          line = "";
-        }
-        for (let i = 0; i < word.length; i += safeWidth) {
-          output.push(word.slice(i, i + safeWidth));
-        }
-        continue;
-      }
-
-      const next = line ? `${line} ${word}` : word;
-      if (next.length > safeWidth) {
-        output.push(line);
-        line = word;
-      } else {
-        line = next;
-      }
+    const listMatch = rawLine.match(/^(\s*(?:[-*+]|\d+[.)])\s+)(.*)$/);
+    if (listMatch) {
+      const prefix = listMatch[1] ?? "";
+      const body = stripInlineMarkdown(listMatch[2] ?? "");
+      pushWrapped(output, `${prefix}${body}`, safeWidth, " ".repeat(prefix.length));
+      continue;
     }
 
-    if (line) output.push(line);
+    pushWrapped(output, stripInlineMarkdown(trimmed), safeWidth);
   }
 
   return output.length > 0 ? output : [""];
+}
+
+function pushWrapped(
+  output: string[],
+  text: string,
+  width: number,
+  continuationPrefix = "",
+): void {
+  if (text.length <= width) {
+    output.push(text);
+    return;
+  }
+
+  const firstPrefixLength = Math.max(0, text.length - text.trimStart().length);
+  const firstPrefix = " ".repeat(firstPrefixLength);
+  let prefix = firstPrefix;
+  let rest = text.trimStart();
+
+  while (rest.length > 0) {
+    const available = Math.max(8, width - prefix.length);
+    if (rest.length <= available) {
+      output.push(`${prefix}${rest}`);
+      return;
+    }
+
+    let splitAt = rest.lastIndexOf(" ", available);
+    if (splitAt <= 0) splitAt = available;
+    output.push(`${prefix}${rest.slice(0, splitAt).trimEnd()}`);
+    rest = rest.slice(splitAt).trimStart();
+    prefix = continuationPrefix || firstPrefix;
+  }
+}
+
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1");
 }
 
 function humanizeError(message: string): string {

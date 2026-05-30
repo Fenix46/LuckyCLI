@@ -74,6 +74,9 @@ interface ResponsesStreamEvent {
     arguments?: string;
   };
   usage?: { input_tokens: number; output_tokens: number };
+  response?: {
+    usage?: { input_tokens?: number; output_tokens?: number } | null;
+  };
 }
 
 export class OpenAiOAuthProvider implements IProvider {
@@ -167,15 +170,18 @@ export class OpenAiOAuthProvider implements IProvider {
           };
         }
 
-        if (event.type === "response.completed" && event.usage) {
-          usage = {
-            inputTokens: event.usage.input_tokens,
-            outputTokens: event.usage.output_tokens,
-          };
+        if (event.type === "response.completed") {
+          const eventUsage = event.usage ?? event.response?.usage ?? undefined;
+          if (eventUsage) {
+            usage = {
+              inputTokens: eventUsage.input_tokens ?? 0,
+              outputTokens: eventUsage.output_tokens ?? 0,
+            };
+          }
           emittedFinal = true;
           yield {
             finishReason: hasToolCalls ? "tool_calls" : "stop",
-            usage,
+            ...(usage ? { usage } : {}),
           };
         }
       }

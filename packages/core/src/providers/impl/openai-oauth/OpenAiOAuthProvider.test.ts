@@ -174,4 +174,49 @@ describe("OpenAiOAuthProvider", () => {
       },
     ]);
   });
+
+  it("reads streamed token usage from response payloads", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(
+          encoder.encode(
+            [
+              'data: {"type":"response.output_text.delta","delta":"hello"}',
+              'data: {"type":"response.completed","response":{"usage":{"input_tokens":7,"output_tokens":3}}}',
+              "",
+            ].join("\n"),
+          ),
+        );
+        controller.close();
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, body: stream }),
+    );
+
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60 * 60 * 1000,
+    });
+
+    const chunks = [];
+    for await (const chunk of provider.generateStream(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { model: "gpt-5.5" },
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      { textDelta: "hello" },
+      {
+        finishReason: "stop",
+        usage: { inputTokens: 7, outputTokens: 3 },
+      },
+    ]);
+  });
 });
