@@ -30,6 +30,8 @@ export interface AgentConfig {
   };
   /** Optional callback to approve side-effecting tools before they run. */
   approveTool?: (name: string, input: unknown) => Promise<boolean> | boolean;
+  /** Prior conversation to resume from. Copied into the history on construction. */
+  messages?: Message[];
 }
 
 interface RequiredCompactionConfig {
@@ -82,6 +84,7 @@ export class Agent {
     };
     this.modelInfo = modelInfo(cfg.provider.info.id, cfg.model);
     this.approveTool = cfg.approveTool;
+    if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
 
   /** The conversation so far. Useful for persistence or inspection. */

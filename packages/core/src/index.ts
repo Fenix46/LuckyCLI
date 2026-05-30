@@ -47,6 +47,20 @@ export {
 } from "./config/store.js";
 export type { StoredConfig } from "./config/store.js";
 
+// Persistent chat sessions.
+export {
+  createSessionId,
+  deleteSession,
+  deriveTitle,
+  latestSession,
+  listSessions,
+  loadSession,
+  saveSession,
+  sessionFilePath,
+  sessionsDirPath,
+} from "./session/store.js";
+export type { Session, SessionMeta } from "./session/store.js";
+
 export {
   startOAuthFlow,
   refreshAccessToken,
