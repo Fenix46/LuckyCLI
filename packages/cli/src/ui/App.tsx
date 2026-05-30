@@ -21,7 +21,13 @@ type Item =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "tool"; name: string; input: string; output?: string; error?: boolean }
+  | { kind: "command"; title: string; rows: CommandRow[] }
   | { kind: "error"; text: string };
+
+interface CommandRow {
+  label: string;
+  value: string;
+}
 
 export interface ApprovalRequest {
   name: string;
@@ -61,9 +67,11 @@ const ALL_SLASH_COMMANDS = [
   { name: "/help", desc: "Show all available slash commands" },
   { name: "/model", desc: "Switch model for the active provider" },
   { name: "/setup", desc: "Switch model provider or change settings" },
+  { name: "/provider", desc: "Alias for /setup" },
   { name: "/config", desc: "Show active provider and model info" },
   { name: "/theme", desc: "Cycle between terminal UI color themes" },
   { name: "/exit", desc: "Exit the lucky agent session" },
+  { name: "/quit", desc: "Alias for /exit" },
 ];
 
 export function App({
@@ -108,7 +116,14 @@ export function App({
       }
       setItems((prevItems) => [
         ...prevItems,
-        { kind: "assistant", text: `Theme changed to: ${nextTheme.name}` },
+        {
+          kind: "command",
+          title: "Theme",
+          rows: [
+            { label: "active", value: nextTheme.name },
+            { label: "id", value: nextTheme.id },
+          ],
+        },
       ]);
       return nextTheme;
     });
@@ -284,6 +299,14 @@ export function App({
         return;
       }
       if (text === "/setup" || text === "/provider") {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "command",
+            title: "Setup",
+            rows: [{ label: "action", value: "opening provider setup" }],
+          },
+        ]);
         onTriggerSetup();
         setInput("");
         return;
@@ -297,10 +320,12 @@ export function App({
         setItems((prev) => [
           ...prev,
           {
-            kind: "assistant",
-            text: `Available ${meta.provider} models:\n${getAvailableModels(meta.provider)
-              .map((model) => `${model === meta.model ? "*" : "-"} ${model}`)
-              .join("\n")}`,
+            kind: "command",
+            title: "Models",
+            rows: getAvailableModels(meta.provider).map((model) => ({
+              label: model === meta.model ? "active" : "model",
+              value: model,
+            })),
           },
         ]);
         setInput("");
@@ -310,17 +335,32 @@ export function App({
         setItems((prev) => [
           ...prev,
           {
-            kind: "assistant",
-            text: "/help | /model | /setup | /config | /theme | /exit",
+            kind: "command",
+            title: "Commands",
+            rows: ALL_SLASH_COMMANDS.map((cmd) => ({
+              label: cmd.name,
+              value: cmd.desc,
+            })),
           },
         ]);
         setInput("");
         return;
       }
       if (text === "/config") {
+        const providerInfo = PROVIDER_CATALOG[meta.provider];
         setItems((prev) => [
           ...prev,
-          { kind: "assistant", text: `${meta.provider} / ${meta.model}` },
+          {
+            kind: "command",
+            title: "Config",
+            rows: [
+              { label: "provider", value: `${providerInfo.displayName} (${meta.provider})` },
+              { label: "model", value: meta.model },
+              { label: "streaming", value: providerInfo.supportsStreaming ? "yes" : "no" },
+              { label: "tools", value: providerInfo.supportsTools ? "yes" : "no" },
+              { label: "vision", value: providerInfo.supportsVision ? "yes" : "no" },
+            ],
+          },
         ]);
         setInput("");
         return;
@@ -331,7 +371,7 @@ export function App({
           ...prev,
           {
             kind: "error",
-            text: `unknown command: ${text} (try /help or /setup)`,
+            text: `unknown command: ${text}. Try /help.`,
           },
         ]);
         setInput("");
@@ -581,6 +621,15 @@ function ItemView({
           indent={2}
         />
       );
+    case "command":
+      return (
+        <LabeledBlock
+          label="system"
+          color={theme.accent}
+          text={formatCommandRows(item.title, item.rows)}
+          width={width}
+        />
+      );
   }
 }
 
@@ -705,6 +754,17 @@ function validateModel(
     ok: false,
     message: `unknown ${provider} model: ${model}. Use /model to pick one of: ${knownModels.join(", ")}`,
   };
+}
+
+function formatCommandRows(title: string, rows: CommandRow[]): string {
+  const labelWidth = Math.max(
+    title.length,
+    ...rows.map((row) => row.label.length),
+  );
+  return [
+    title,
+    ...rows.map((row) => `${row.label.padEnd(labelWidth)}  ${row.value}`),
+  ].join("\n");
 }
 
 function preview(value: unknown, max = 120): string {
