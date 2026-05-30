@@ -80,4 +80,45 @@ describe("OpenAiOAuthProvider", () => {
     ]);
     expect(response.content).toEqual([{ type: "text", text: "done" }]);
   });
+
+  it("normalizes OpenAPI boolean exclusive minimums for ChatGPT tools", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ output: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60 * 60 * 1000,
+    });
+
+    await provider.generate([{ role: "user", content: [{ type: "text", text: "run" }] }], {
+      model: "gpt-5.5",
+      tools: [
+        {
+          name: "exec",
+          description: "Run command",
+          parameters: {
+            type: "object",
+            properties: {
+              timeoutMs: {
+                type: "integer",
+                minimum: 0,
+                exclusiveMinimum: true,
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools[0].parameters.properties.timeoutMs).toEqual({
+      type: "integer",
+      exclusiveMinimum: 0,
+    });
+  });
 });

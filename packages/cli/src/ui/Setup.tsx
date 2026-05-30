@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import SelectInput from "ink-select-input";
 import TextInput from "ink-text-input";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   PROVIDER_CATALOG,
   listProviders,
@@ -53,6 +53,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthTokens, setOauthTokens] = useState<{ accessToken: string; refreshToken?: string } | null>(null);
   const [openAiOAuthTokens, setOpenAiOAuthTokens] = useState<OpenAiOAuthTokens | null>(null);
+  const openAiOAuthStartedRef = useRef(false);
 
   // 1. Clear terminal screen on mount to ensure clean, viewport-aligned rendering
   useEffect(() => {
@@ -67,17 +68,20 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
       step === "credential" &&
       !oauthUrl &&
       !oauthLoading &&
-      !oauthError
+      !oauthError &&
+      !openAiOAuthTokens
     ) {
       setOauthLoading(true);
       setOauthError(null);
 
       if (selectedProviderId === "openai-oauth") {
+        if (openAiOAuthStartedRef.current) return;
+        openAiOAuthStartedRef.current = true;
         runOpenAiBrowserOAuthFlow()
           .then(({ tokens }) => {
             setOpenAiOAuthTokens(tokens);
-            setOauthLoading(false);
             setStep("model");
+            setOauthLoading(false);
           })
           .catch((err) => {
             setOauthLoading(false);
@@ -112,7 +116,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         activeSession.stop();
       }
     };
-  }, [selectedAuthMethod?.id, selectedProviderId, step, oauthUrl, oauthLoading, oauthError]);
+  }, [selectedAuthMethod?.id, selectedProviderId, step, oauthUrl, oauthLoading, oauthError, openAiOAuthTokens]);
 
   const companyItems = listProviders().map((provider) => ({
     key: provider.id,
@@ -135,11 +139,17 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     setOauthError(null);
     setOauthTokens(null);
     setOpenAiOAuthTokens(null);
+    openAiOAuthStartedRef.current = false;
   }
 
   function onSelectAuthMethod(item: { value: AuthMethod }) {
     setSelectedAuthMethod(item.value);
     setSecret(item.value.kind === "baseUrl" ? "http://localhost:11434" : "");
+    setOauthUrl(null);
+    setOauthError(null);
+    setOauthTokens(null);
+    setOpenAiOAuthTokens(null);
+    openAiOAuthStartedRef.current = false;
     setStep("credential");
 
     if (item.value.kind === "oauth") {

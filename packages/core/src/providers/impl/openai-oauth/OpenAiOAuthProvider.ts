@@ -274,7 +274,7 @@ function buildRequestBody(
             type: "function" as const,
             name: tool.name,
             description: tool.description,
-            parameters: tool.parameters,
+            parameters: toOpenAiJsonSchema(tool.parameters),
           })),
         }
       : {}),
@@ -341,4 +341,43 @@ function parseArgs(raw: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function toOpenAiJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  return normalizeJsonSchema(schema) as Record<string, unknown>;
+}
+
+function normalizeJsonSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeJsonSchema);
+  if (!value || typeof value !== "object") return value;
+
+  const input = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(input)) {
+    if (key === "$schema") continue;
+
+    if (key === "exclusiveMinimum" && typeof child === "boolean") {
+      if (child === true && typeof input.minimum === "number") {
+        out.exclusiveMinimum = input.minimum;
+      }
+      continue;
+    }
+
+    if (key === "exclusiveMaximum" && typeof child === "boolean") {
+      if (child === true && typeof input.maximum === "number") {
+        out.exclusiveMaximum = input.maximum;
+      }
+      continue;
+    }
+
+    if (
+      (key === "minimum" && input.exclusiveMinimum === true) ||
+      (key === "maximum" && input.exclusiveMaximum === true)
+    ) {
+      continue;
+    }
+
+    out[key] = normalizeJsonSchema(child);
+  }
+  return out;
 }
