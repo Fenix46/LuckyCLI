@@ -3,6 +3,7 @@ import {
   defaultToolRegistry,
   getProvider,
   resetProvider,
+  type Message,
   type ProviderCredentials,
   type ProviderId,
 } from "@luckycli/core";
@@ -15,6 +16,8 @@ export interface BuildAgentOptions {
   temperature?: number;
   maxTokens?: number;
   approveTool?: (name: string, input: unknown) => Promise<boolean> | boolean;
+  /** Prior conversation to resume from (e.g. a loaded session). */
+  messages?: Message[];
 }
 
 /**
@@ -32,5 +35,6 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     approveTool: opts.approveTool,
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+    ...(opts.messages?.length ? { messages: opts.messages } : {}),
   });
 }

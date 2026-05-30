@@ -7,6 +7,7 @@ import {
   type ProviderCredentials,
   type ProviderId,
   type ResolvedConfig,
+  type Session,
 } from "@luckycli/core";
 import { buildAgent } from "../runtime.js";
 import { App, type ApprovalRequest } from "./App.js";
@@ -15,6 +16,7 @@ import { Setup, type SetupResult } from "./Setup.js";
 interface RootProps {
   config: ResolvedConfig;
   forceSetup: boolean;
+  resume?: Session;
 }
 
 interface ActiveRuntime {
@@ -28,7 +30,7 @@ interface ActiveRuntime {
  * Top-level component. Decides between the setup dialog and the chat UI, and
  * rebuilds the agent when setup completes.
  */
-export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
+export function Root({ config, forceSetup, resume }: RootProps): React.JSX.Element {
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
 
   function approveTool(name: string, input: unknown) {
@@ -53,6 +55,7 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
         ...(config.maxTokens !== undefined
           ? { maxTokens: config.maxTokens }
           : {}),
+        ...(resume?.messages?.length ? { messages: resume.messages } : {}),
       }),
       provider: config.provider,
       model: config.model,
@@ -90,6 +93,9 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
       provider: runtime.provider,
       model,
     });
+    // Carry the conversation over so switching models mid-session keeps context
+    // (and doesn't truncate the saved session).
+    const carried = [...runtime.agent.messages];
     setRuntime({
       agent: buildAgent({
         provider: runtime.provider,
@@ -103,6 +109,7 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
         ...(config.maxTokens !== undefined
           ? { maxTokens: config.maxTokens }
           : {}),
+        ...(carried.length ? { messages: carried } : {}),
       }),
       provider: runtime.provider,
       model,
@@ -120,6 +127,7 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
       setApprovalRequest={setApprovalRequest}
       onTriggerSetup={() => setRuntime(null)}
       onChangeModel={onChangeModel}
+      {...(resume ? { resumed: resume } : {})}
     />
   );
 }

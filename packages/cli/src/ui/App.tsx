@@ -6,9 +6,15 @@ import {
   type Agent,
   type AgentEvent,
   type ContextStatus,
+  type Message,
   type ProviderId,
+  type Session,
   type TokenUsage,
+  createSessionId,
+  deriveTitle,
+  listSessions,
   loadStoredConfig,
+  saveSession,
   saveStoredConfig,
 } from "@luckycli/core";
 
@@ -43,6 +49,8 @@ interface AppProps {
   setApprovalRequest: (req: ApprovalRequest | null) => void;
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
+  /** A session loaded via --continue/--resume, replayed into the transcript. */
+  resumed?: Session;
 }
 
 interface Theme {
@@ -69,6 +77,7 @@ const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
   { name: "/context", desc: "Show model context window and usage" },
   { name: "/compact", desc: "Summarize older chat history now" },
+  { name: "/sessions", desc: "List saved sessions (resume with: lucky --resume <id>)" },
   { name: "/setup", desc: "Switch model provider or change settings" },
   { name: "/provider", desc: "Alias for /setup" },
   { name: "/config", desc: "Show active provider and model info" },
@@ -84,9 +93,35 @@ export function App({
   setApprovalRequest,
   onTriggerSetup,
   onChangeModel,
+  resumed,
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<Item[]>(() =>
+    resumed ? messagesToItems(resumed.messages) : [],
+  );
+  // Session persistence: id + creation time, established lazily on first save.
+  const sessionIdRef = useRef<string | null>(resumed?.id ?? null);
+  const sessionCreatedAtRef = useRef<number>(resumed?.createdAt ?? Date.now());
+
+  const persistSession = useCallback(() => {
+    const messages = [...agent.messages];
+    if (messages.length === 0) return;
+    if (!sessionIdRef.current) sessionIdRef.current = createSessionId();
+    const title = deriveTitle(messages);
+    try {
+      saveSession({
+        id: sessionIdRef.current,
+        ...(title ? { title } : {}),
+        provider: meta.provider,
+        model: meta.model,
+        createdAt: sessionCreatedAtRef.current,
+        updatedAt: Date.now(),
+        messages,
+      });
+    } catch {
+      // persistence is best-effort; never break the session over a write error
+    }
+  }, [agent, meta.provider, meta.model]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
@@ -365,6 +400,25 @@ export function App({
         setInput("");
         return;
       }
+      if (text === "/sessions") {
+        const sessions = listSessions().slice(0, 12);
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "command",
+            title: "Sessions",
+            rows:
+              sessions.length === 0
+                ? [{ label: "none", value: "no saved sessions yet" }]
+                : sessions.map((s) => ({
+                    label: s.id === sessionIdRef.current ? "current" : s.id,
+                    value: `${s.messageCount} msgs · ${s.title ?? "(untitled)"}`,
+                  })),
+          },
+        ]);
+        setInput("");
+        return;
+      }
       if (text === "/context") {
         try {
           const status = await agent.contextStatus();
@@ -592,9 +646,10 @@ export function App({
         setStreaming("");
         setBusy(false);
         setStartedAt(null);
+        persistSession();
       }
     },
-    [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, selectModel, selectTheme],
+    [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, selectModel, selectTheme, persistSession],
   );
 
   const transcriptHeight = Math.max(6, terminalSize.height - 10);
@@ -1035,6 +1090,39 @@ function preview(value: unknown, max = 120): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
   const flat = s.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+/**
+ * Rebuild the scrollback transcript from a resumed session's canonical
+ * messages. Tool calls and their results are stitched back together by id.
+ */
+function messagesToItems(messages: Message[]): Item[] {
+  const items: Item[] = [];
+  const toolIndexById = new Map<string, number>();
+
+  for (const message of messages) {
+    for (const part of message.content) {
+      if (part.type === "text") {
+        const text = part.text.trim();
+        if (!text) continue;
+        if (message.role === "user") items.push({ kind: "user", text });
+        else if (message.role === "assistant") items.push({ kind: "assistant", text });
+        // system summaries (from compaction) are context only — skip in the UI
+      } else if (part.type === "tool_call") {
+        toolIndexById.set(part.id, items.length);
+        items.push({ kind: "tool", name: part.name, input: preview(part.arguments) });
+      } else if (part.type === "tool_result") {
+        const index = toolIndexById.get(part.toolCallId);
+        const target = index !== undefined ? items[index] : undefined;
+        if (target && target.kind === "tool") {
+          target.output = preview(part.content, 200);
+          if (part.isError) target.error = true;
+        }
+      }
+    }
+  }
+
+  return items;
 }
 
 function wrapText(text: string, width: number): string[] {
