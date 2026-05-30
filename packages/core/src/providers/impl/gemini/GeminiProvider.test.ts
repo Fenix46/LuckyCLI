@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiProvider } from "./GeminiProvider.js";
 import { GoogleGenAI } from "@google/genai";
 import { CodeAssistClient } from "./CodeAssistClient.js";
@@ -79,6 +79,10 @@ vi.mock("../../../config/store.js", () => ({
 }));
 
 describe("GeminiProvider", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("initializes with api_key by default", () => {
     const provider = new GeminiProvider({
       type: "gemini",
@@ -125,6 +129,41 @@ describe("GeminiProvider", () => {
       expect.objectContaining({ model: "gemini-2.5-pro" }),
     );
     expect(response.content[0]).toEqual({ type: "text", text: "mocked response" });
+  });
+
+  it("falls back to stable flash on Code Assist OAuth rate limits", async () => {
+    const provider = new GeminiProvider({
+      type: "gemini",
+      authMethod: "oauth",
+      accessToken: "test-access-token",
+    });
+    mocks.codeAssistGenerateContent
+      .mockRejectedValueOnce(
+        new Error(
+          'Code Assist request failed (429): {"status":"RESOURCE_EXHAUSTED"}',
+        ),
+      )
+      .mockResolvedValueOnce({
+        text: "fallback response",
+        candidates: [{ finishReason: "STOP" }],
+      });
+
+    const response = await provider.generate([], {
+      model: "gemini-3.1-flash-lite",
+    });
+
+    expect(mocks.codeAssistGenerateContent).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ model: "gemini-3.1-flash-lite" }),
+    );
+    expect(mocks.codeAssistGenerateContent).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ model: "gemini-2.5-flash" }),
+    );
+    expect(response.content[0]).toEqual({
+      type: "text",
+      text: "fallback response",
+    });
   });
 
   it("maps canonical tool calls and results to Gemini function parts", async () => {
