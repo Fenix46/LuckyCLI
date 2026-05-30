@@ -6,7 +6,6 @@ import {
   PROVIDER_CATALOG,
   listProviders,
   startOAuthFlow,
-  exchangeCodeForTokens,
   type ProviderCredentials,
   type ProviderId,
   type AuthMethod,
@@ -47,24 +46,43 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
 
   // OAuth Flow State
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
-  const [oauthVerifier, setOauthVerifier] = useState<string | null>(null);
-  const [oauthCode, setOauthCode] = useState("");
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthTokens, setOauthTokens] = useState<{ accessToken: string; refreshToken?: string } | null>(null);
 
-  // Initialize OAuth flow asynchronously when oauth step starts
+  // 1. Clear terminal screen on mount to ensure clean, viewport-aligned rendering
   useEffect(() => {
+    process.stdout.write("\u001b[2J\u001b[H");
+  }, []);
+
+  // 2. Initialize dynamic Google OAuth loopback flow asynchronously
+  useEffect(() => {
+    let activeSession: any = null;
     if (selectedAuthMethod?.kind === "oauth" && step === "credential" && !oauthUrl) {
+      setOauthLoading(true);
+      setOauthError(null);
       startOAuthFlow()
         .then((session) => {
+          activeSession = session;
           setOauthUrl(session.url);
-          setOauthVerifier(session.codeVerifier);
+          setOauthLoading(false);
+          return session.tokenPromise;
+        })
+        .then((tokens) => {
+          setOauthTokens(tokens);
+          setCredSubStep("project");
         })
         .catch((err) => {
-          setOauthError(`Failed to initialize Google OAuth: ${err instanceof Error ? err.message : String(err)}`);
+          setOauthLoading(false);
+          setOauthError(`Authentication failed: ${err instanceof Error ? err.message : String(err)}`);
         });
     }
+
+    return () => {
+      if (activeSession) {
+        activeSession.stop();
+      }
+    };
   }, [selectedAuthMethod, step, oauthUrl]);
 
   // Unique list of companies from PROVIDER_CATALOG
@@ -102,22 +120,6 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   function onSubmitSecret() {
     if (!secret.trim()) return;
     setStep("model");
-  }
-
-  async function onSubmitOauthCode() {
-    if (!oauthCode.trim() || !oauthVerifier) return;
-    setOauthLoading(true);
-    setOauthError(null);
-    try {
-      const tokens = await exchangeCodeForTokens(oauthCode.trim(), oauthVerifier);
-      setOauthTokens(tokens);
-      setOauthLoading(false);
-      // Move to collect project ID for Vertex/GCP OAuth
-      setCredSubStep("project");
-    } catch (err) {
-      setOauthLoading(false);
-      setOauthError(`Authentication failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
 
   function onSubmitProject() {
@@ -246,20 +248,15 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
             {credSubStep === "oauth_code" && (
               <Box flexDirection="column" marginTop={0.5}>
                 {oauthLoading ? (
-                  <Text color="yellow">⏳ Exchanging authorization code for tokens...</Text>
+                  <Text color="yellow">⏳ Starting secure loopback callback server...</Text>
                 ) : (
                   <Box flexDirection="column">
                     <Text color="gray">› Please open the authorization URL in your browser to log in:</Text>
                     <Box marginY={0.5} paddingX={1}>
                       <Text bold color="cyan" underline>{oauthUrl || "Generating authorization link..."}</Text>
                     </Box>
-                    <Box flexDirection="row" marginTop={0.5}>
-                      <Text bold color="cyan">› Enter the authorization code: </Text>
-                      <TextInput
-                        value={oauthCode}
-                        onChange={setOauthCode}
-                        onSubmit={onSubmitOauthCode}
-                      />
+                    <Box marginTop={0.5}>
+                      <Text bold color="yellow">⏳ Waiting for browser callback... (Automatic login)</Text>
                     </Box>
                     {oauthError && (
                       <Box marginTop={0.5}>
