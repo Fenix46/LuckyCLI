@@ -10,9 +10,10 @@ agent logic, tools and CLI never know which model provider is behind them.
 
 ## Architecture
 
-Everything speaks one **canonical message format** (`src/core/types.ts`). Each
+Everything speaks one **canonical message format** (`packages/core/src/providers/types.ts`). Each
 provider is just an *adapter* that translates that format to and from its own
-wire protocol. Nothing outside `src/providers/` imports a provider SDK.
+wire protocol. Nothing outside `packages/core/src/providers/impl/` imports a
+provider SDK.
 
 ```
 ┌────────────┐     AgentEvent      ┌──────────────┐
@@ -35,12 +36,12 @@ wire protocol. Nothing outside `src/providers/` imports a provider SDK.
 
 | Layer        | Path             | Responsibility                                           |
 |--------------|------------------|----------------------------------------------------------|
-| Core types   | `src/core`       | Provider-agnostic messages, content blocks, stream events |
-| Providers    | `src/providers`  | One adapter per provider; canonical ⇄ SDK translation     |
-| Tools        | `src/tools`      | Zod-typed tools + registry (JSON Schema generation)       |
-| Agent        | `src/agent`      | The provider ⇄ tool loop; owns conversation history       |
-| Config       | `src/config`     | Resolves provider/model from flags, env, defaults         |
-| CLI          | `src/cli`        | Interactive REPL + terminal rendering                     |
+| Core types   | `packages/core/src/providers` | Provider-agnostic messages, content blocks, stream events |
+| Providers    | `packages/core/src/providers` | One adapter per provider; canonical ⇄ SDK translation     |
+| Tools        | `packages/core/src/tools`     | Zod-typed tools + registry (JSON Schema generation)       |
+| Agent        | `packages/core/src/agent`     | The provider ⇄ tool loop; owns conversation history       |
+| Config       | `packages/core/src/config`    | Resolves provider/model from flags, env, defaults         |
+| CLI          | `packages/cli/src`            | Interactive REPL + terminal rendering                     |
 
 ### Why this shape scales
 
@@ -64,7 +65,7 @@ CLI flags:
 
 ```bash
 lucky --provider openai --model gpt-4o
-lucky -p anthropic -m claude-sonnet-4-6
+lucky -p claude -m claude-sonnet-4-6
 lucky -p ollama -m llama3.1
 ```
 
@@ -73,8 +74,8 @@ lucky -p ollama -m llama3.1
 - [ ] Verify Gemini adapter against the live API + surface finish reasons
 - [ ] Conversation persistence / session resume
 - [ ] Streaming markdown rendering in the CLI
-- [ ] Tool approval prompts for side-effecting tools (`exec`, `write_file`)
+- [x] Tool approval prompts for side-effecting tools (`exec`, `write_file`)
 - [ ] Retry/backoff + structured error taxonomy in providers
-- [ ] More tools (list dir, search, http fetch)
+- [ ] More tools (e.g. search)
 - [ ] Unit tests per adapter with recorded fixtures
 ```
