@@ -69,7 +69,7 @@ const ALL_SLASH_COMMANDS = [
   { name: "/setup", desc: "Switch model provider or change settings" },
   { name: "/provider", desc: "Alias for /setup" },
   { name: "/config", desc: "Show active provider and model info" },
-  { name: "/theme", desc: "Cycle between terminal UI color themes" },
+  { name: "/theme", desc: "Choose terminal UI colors" },
   { name: "/exit", desc: "Exit the lucky agent session" },
   { name: "/quit", desc: "Alias for /exit" },
 ];
@@ -103,30 +103,27 @@ export function App({
     }
   });
 
-  const cycleTheme = useCallback(() => {
-    setActiveTheme((prev) => {
-      const idx = THEMES.findIndex((t) => t.id === prev.id);
-      const nextTheme = THEMES[(idx + 1) % THEMES.length] as Theme;
-      try {
-        const cfg = loadStoredConfig();
-        cfg.theme = nextTheme.id;
-        saveStoredConfig(cfg);
-      } catch {
-        // ignore
-      }
-      setItems((prevItems) => [
-        ...prevItems,
-        {
-          kind: "command",
-          title: "Theme",
-          rows: [
-            { label: "active", value: nextTheme.name },
-            { label: "id", value: nextTheme.id },
-          ],
-        },
-      ]);
-      return nextTheme;
-    });
+  const applyTheme = useCallback((theme: Theme) => {
+    setActiveTheme(theme);
+    try {
+      const cfg = loadStoredConfig();
+      cfg.theme = theme.id;
+      saveStoredConfig(cfg);
+    } catch {
+      // ignore
+    }
+    setItems((prevItems) => [
+      ...prevItems,
+      {
+        kind: "command",
+        title: "Theme",
+        rows: [
+          { label: "active", value: theme.name },
+          { label: "id", value: theme.id },
+          { label: "scope", value: "header, labels, borders, status and command panels" },
+        ],
+      },
+    ]);
   }, []);
 
   // Real-time metrics
@@ -181,10 +178,16 @@ export function App({
   );
   const modelPicker = getModelPickerState(input, meta.provider, meta.model);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+  const themePicker = getThemePickerState(input, activeTheme.id);
+  const [selectedThemeIndex, setSelectedThemeIndex] = useState(0);
 
   useEffect(() => {
     setSelectedModelIndex(0);
   }, [modelPicker.query, meta.provider]);
+
+  useEffect(() => {
+    setSelectedThemeIndex(0);
+  }, [themePicker.query]);
 
   // Ctrl+C exits when idle. Support autocomplete and tool approval.
   useInput((_in, key) => {
@@ -225,8 +228,32 @@ export function App({
       }
     }
 
-    // 3. Interactive Slash Commands menu navigation
-    if (!modelPicker.open && showSlashMenu && filteredCommands.length > 0) {
+    // 3. Interactive theme picker navigation
+    if (themePicker.open && themePicker.items.length > 0) {
+      if (key.downArrow) {
+        setSelectedThemeIndex((prev) => (prev + 1) % themePicker.items.length);
+        return;
+      }
+      if (key.upArrow) {
+        setSelectedThemeIndex(
+          (prev) => (prev - 1 + themePicker.items.length) % themePicker.items.length,
+        );
+        return;
+      }
+      if (key.return) {
+        const selected = themePicker.items[selectedThemeIndex];
+        if (selected) selectTheme(selected.id);
+        return;
+      }
+    }
+
+    // 4. Interactive Slash Commands menu navigation
+    if (
+      !modelPicker.open &&
+      !themePicker.open &&
+      showSlashMenu &&
+      filteredCommands.length > 0
+    ) {
       if (key.downArrow) {
         setSelectedCommandIndex((prev) => (prev + 1) % filteredCommands.length);
         return;
@@ -247,7 +274,7 @@ export function App({
       }
     }
 
-    // 4. Regular Ctrl+C exit
+    // 5. Regular Ctrl+C exit
     if (key.ctrl && _in === "c" && busy) {
       abortControllerRef.current?.abort();
       return;
@@ -284,6 +311,27 @@ export function App({
     [meta.provider, onChangeModel],
   );
 
+  const selectTheme = useCallback(
+    (themeId: string) => {
+      const theme = THEMES.find((candidate) => candidate.id === themeId);
+      if (!theme) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `unknown theme: ${themeId}. Use /theme to pick one.`,
+          },
+        ]);
+        setInput("");
+        return;
+      }
+
+      applyTheme(theme);
+      setInput("");
+    },
+    [applyTheme],
+  );
+
   const submit = useCallback(
     async (value: string) => {
       const text = value.trim();
@@ -293,8 +341,23 @@ export function App({
         exit();
         return;
       }
-      if (text === "/theme") {
-        cycleTheme();
+      if (text === "/theme" || text.startsWith("/theme ")) {
+        const requestedTheme = text.slice("/theme".length).trim();
+        if (requestedTheme) {
+          selectTheme(requestedTheme);
+          return;
+        }
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "command",
+            title: "Themes",
+            rows: THEMES.map((theme) => ({
+              label: theme.id === activeTheme.id ? "active" : "theme",
+              value: `${theme.id} (${theme.name})`,
+            })),
+          },
+        ]);
         setInput("");
         return;
       }
@@ -439,7 +502,7 @@ export function App({
         setStartedAt(null);
       }
     },
-    [agent, busy, meta, exit, cycleTheme, onTriggerSetup, selectModel],
+    [agent, busy, meta, exit, activeTheme.id, onTriggerSetup, selectModel, selectTheme],
   );
 
   const transcriptHeight = Math.max(6, terminalSize.height - 10);
@@ -541,6 +604,38 @@ export function App({
           <Box marginTop={0.5}>
             <Text color={activeTheme.muted}>
               up/down navigate | enter switch | type to filter
+            </Text>
+          </Box>
+        </Box>
+      ) : themePicker.open ? (
+        <Box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor={activeTheme.accent}
+          paddingX={1}
+          paddingY={0.5}
+          marginBottom={0.5}
+          width="100%"
+        >
+          <Text bold color={activeTheme.accent}>Themes</Text>
+          {themePicker.items.length > 0 ? (
+            themePicker.items.map((theme, idx) => (
+              <Box key={theme.id} flexDirection="row">
+                <Text color={idx === selectedThemeIndex ? activeTheme.accent : "gray"}>
+                  {idx === selectedThemeIndex ? "› " : "  "}
+                </Text>
+                <Text bold={theme.id === activeTheme.id} color={idx === selectedThemeIndex ? activeTheme.accent : "white"}>
+                  {theme.id === activeTheme.id ? "* " : "  "}
+                  {theme.id.padEnd(10)} {theme.name}
+                </Text>
+              </Box>
+            ))
+          ) : (
+            <Text color={activeTheme.muted}>No matching theme. Type /theme.</Text>
+          )}
+          <Box marginTop={0.5}>
+            <Text color={activeTheme.muted}>
+              up/down navigate | enter apply | type to filter
             </Text>
           </Box>
         </Box>
@@ -727,6 +822,30 @@ function getModelPickerState(
   const items = query
     ? models.filter((model) => model.toLowerCase().includes(query))
     : models;
+  return { open: true, query, items };
+}
+
+function getThemePickerState(
+  input: string,
+  activeThemeId: string,
+): { open: boolean; query: string; items: Theme[] } {
+  if (input !== "/theme" && !input.startsWith("/theme ")) {
+    return { open: false, query: "", items: [] };
+  }
+
+  const query = input.slice("/theme".length).trim().toLowerCase();
+  const themes = [...THEMES].sort((a, b) => {
+    if (a.id === activeThemeId) return -1;
+    if (b.id === activeThemeId) return 1;
+    return 0;
+  });
+  const items = query
+    ? themes.filter(
+        (theme) =>
+          theme.id.toLowerCase().includes(query) ||
+          theme.name.toLowerCase().includes(query),
+      )
+    : themes;
   return { open: true, query, items };
 }
 

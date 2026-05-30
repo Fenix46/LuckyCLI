@@ -55,12 +55,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const [openAiOAuthTokens, setOpenAiOAuthTokens] = useState<OpenAiOAuthTokens | null>(null);
   const openAiOAuthStartedRef = useRef(false);
 
-  // 1. Clear terminal screen on mount to ensure clean, viewport-aligned rendering
-  useEffect(() => {
-    process.stdout.write("\u001b[2J\u001b[H");
-  }, []);
-
-  // 2. Initialize dynamic Google OAuth loopback flow asynchronously
+  // Initialize dynamic Google OAuth loopback flow asynchronously.
   useEffect(() => {
     let activeSession: any = null;
     if (
