@@ -10,8 +10,8 @@ agent logic, tools and CLI never know which model provider is behind them.
 > prompts for approval on side-effecting ones, and compacts context automatically.
 >
 > Caveat: adapters are covered by unit tests with mocked transports — there are
-> **no recorded fixtures or end-to-end runs against the live APIs yet**, and there
-> is no session persistence. See the roadmap.
+> **no recorded fixtures or end-to-end runs against the live APIs yet**. See the
+> roadmap.
 
 ## Architecture
 
@@ -85,12 +85,27 @@ Inside the REPL, slash commands drive the session:
 /help      show all slash commands       /compact   summarize older history now
 /model     switch model for the provider /setup     switch provider / credentials
 /context   show context window + usage    /config    show active provider + model
-/theme     choose terminal UI colors      /exit      quit (alias: /quit)
+/sessions  list saved sessions            /theme     choose terminal UI colors
+/exit      quit (alias: /quit)
 ```
 
-Side-effecting tools (`write_file`, `exec`, `http_fetch`) prompt for approval
-before running. When the conversation approaches the model's usable context, the
-agent automatically summarizes the older turns to stay within budget.
+Side-effecting tools (`write_file`, `edit_file`, `exec`, `http_fetch`) prompt for
+approval before running. When the conversation approaches the model's usable
+context, the agent automatically summarizes the older turns to stay within budget.
+
+### Sessions
+
+Conversations are saved to `~/.luckycli/sessions/<id>.json` after each turn and
+can be resumed:
+
+```bash
+lucky --continue        # resume the most recent session
+lucky --resume <id>     # resume a specific session
+lucky --sessions        # list saved sessions and exit
+```
+
+A resumed session restores the transcript and the model's context, and keeps its
+own provider/model unless you override them with flags.
 
 ## Testing
 
@@ -108,10 +123,10 @@ provider APIs.
 - [x] Automatic context compaction (summarize older turns near the budget)
 - [x] Interactive model/provider switching from the REPL
 - [x] Browser OAuth (OpenAI) and Google OAuth via Code Assist (Gemini)
-- [ ] Verify adapters against the live APIs with recorded fixtures
-- [ ] Conversation persistence / session resume
-- [ ] Streaming markdown rendering in the CLI
 - [x] Surgical file edits (`edit_file`) with fuzzy snippet matching
 - [x] Code search tools (`glob`, `grep`)
+- [x] Conversation persistence / session resume
+- [ ] Verify adapters against the live APIs with recorded fixtures
+- [ ] Streaming markdown rendering in the CLI
 - [ ] Retry/backoff + structured error taxonomy in providers
 ```
