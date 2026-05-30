@@ -14,6 +14,7 @@ export interface BuildAgentOptions {
   system: string;
   temperature?: number;
   maxTokens?: number;
+  approveTool?: (name: string, input: unknown) => Promise<boolean> | boolean;
 }
 
 /**
@@ -28,6 +29,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     model: opts.model,
     tools: defaultToolRegistry(),
     system: opts.system,
+    approveTool: opts.approveTool,
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
   });

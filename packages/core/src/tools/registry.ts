@@ -21,6 +21,10 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
+  get(name: string): Tool | undefined {
+    return this.tools.get(name);
+  }
+
   /** Provider-facing definitions for every registered tool. */
   definitions(): ToolDefinition[] {
     return [...this.tools.values()].map((tool) => ({

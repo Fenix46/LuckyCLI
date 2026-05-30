@@ -38,6 +38,8 @@ export interface ToolResultPart {
   type: "tool_result";
   /** Must match the id of the originating ToolCallPart. */
   toolCallId: string;
+  /** The name of the tool being called (e.g. "exec"). */
+  name: string;
   content: string;
   isError?: boolean;
 }

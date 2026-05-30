@@ -19,6 +19,8 @@ export interface AgentConfig {
   maxTokens?: number;
   /** Safety bound on provider round-trips per user turn. */
   maxSteps?: number;
+  /** Optional callback to approve side-effecting tools before they run. */
+  approveTool?: (name: string, input: unknown) => Promise<boolean> | boolean;
 }
 
 /**
@@ -40,6 +42,7 @@ export class Agent {
   private readonly temperature: number | undefined;
   private readonly maxTokens: number | undefined;
   private readonly maxSteps: number;
+  private readonly approveTool: ((name: string, input: unknown) => Promise<boolean> | boolean) | undefined;
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -51,6 +54,7 @@ export class Agent {
     this.temperature = cfg.temperature;
     this.maxTokens = cfg.maxTokens;
     this.maxSteps = cfg.maxSteps ?? 10;
+    this.approveTool = cfg.approveTool;
   }
 
   /** The conversation so far. Useful for persistence or inspection. */
@@ -123,10 +127,32 @@ export class Agent {
           name: call.name,
           input: call.arguments,
         };
-        const result = await this.tools.execute(call.name, call.arguments, {
-          cwd: this.cwd,
-          ...(signal ? { signal } : {}),
-        });
+
+        const tool = this.tools.get(call.name);
+        const needsApproval = tool ? !tool.readonly : true;
+
+        let approved = true;
+        if (needsApproval && this.approveTool) {
+          try {
+            approved = await this.approveTool(call.name, call.arguments);
+          } catch {
+            approved = false;
+          }
+        }
+
+        let result;
+        if (!approved) {
+          result = {
+            content: `Tool '${call.name}' execution was denied by the user.`,
+            isError: true,
+          };
+        } else {
+          result = await this.tools.execute(call.name, call.arguments, {
+            cwd: this.cwd,
+            ...(signal ? { signal } : {}),
+          });
+        }
+
         yield {
           type: "tool_end",
           id: call.id,
@@ -137,6 +163,7 @@ export class Agent {
         resultBlocks.push({
           type: "tool_result",
           toolCallId: call.id,
+          name: call.name,
           content: result.content,
           ...(result.isError ? { isError: true } : {}),
         });

@@ -10,6 +10,7 @@ export const readFileTool = defineTool({
   description:
     "Read the contents of a text file, relative to the working directory. " +
     "Returns up to 256KB of UTF-8 text.",
+  readonly: true,
   schema: z.object({
     path: z.string().describe("File path, relative to the working directory."),
   }),

@@ -22,6 +22,7 @@ export {
   execTool,
   readFileTool,
   writeFileTool,
+  listDirTool,
 } from "./tools/builtin/index.js";
 
 // Configuration.

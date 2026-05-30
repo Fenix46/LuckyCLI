@@ -45,9 +45,14 @@ export class GeminiProvider implements IProvider {
       config: buildConfig(config),
     });
 
+    const content = contentFromResponse(response);
+    const hasToolCalls = content.some((p) => p.type === "tool_call");
+    const rawReason = response.candidates?.[0]?.finishReason;
+    const finishReason = hasToolCalls ? "tool_calls" : mapFinishReason(rawReason);
+
     return {
-      content: contentFromResponse(response),
-      finishReason: mapFinishReason(response.candidates?.[0]?.finishReason),
+      content,
+      finishReason,
       usage: usageOf(response),
       rawMetadata: response,
     };
@@ -65,12 +70,14 @@ export class GeminiProvider implements IProvider {
 
     let finishReason: FinishReason = "stop";
     let usage: TokenUsage | undefined;
+    let hasToolCalls = false;
 
     for await (const chunk of stream) {
       const text = chunk.text;
       if (text) yield { textDelta: text };
 
       for (const fc of chunk.functionCalls ?? []) {
+        hasToolCalls = true;
         yield {
           toolCall: {
             type: "tool_call",
@@ -85,6 +92,10 @@ export class GeminiProvider implements IProvider {
       if (candidateReason) finishReason = mapFinishReason(candidateReason);
       const u = usageOf(chunk);
       if (u) usage = u;
+    }
+
+    if (hasToolCalls) {
+      finishReason = "tool_calls";
     }
 
     yield usage ? { finishReason, usage } : { finishReason };
@@ -169,8 +180,10 @@ function toGeminiPart(part: ContentPart): Part {
       return {
         functionResponse: {
           id: part.toolCallId,
-          name: part.toolCallId,
-          response: { content: part.content },
+          name: part.name,
+          response: part.isError
+            ? { error: part.content }
+            : { output: part.content },
         },
       };
   }

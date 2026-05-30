@@ -5,7 +5,7 @@ import {
   type ResolvedConfig,
 } from "@luckycli/core";
 import { buildAgent } from "../runtime.js";
-import { App } from "./App.js";
+import { App, type ApprovalRequest } from "./App.js";
 import { Setup, type SetupResult } from "./Setup.js";
 
 interface RootProps {
@@ -24,6 +24,14 @@ interface ActiveRuntime {
  * rebuilds the agent when setup completes.
  */
 export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
+  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
+
+  function approveTool(name: string, input: unknown) {
+    return new Promise<boolean>((resolve) => {
+      setApprovalRequest({ name, input, resolve });
+    });
+  }
+
   const [runtime, setRuntime] = useState<ActiveRuntime | null>(() => {
     if (forceSetup || config.needsSetup) return null;
     if (!config.provider || !config.model || !config.credentials) return null;
@@ -33,6 +41,7 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
         model: config.model,
         credentials: config.credentials,
         system: config.system,
+        approveTool,
         ...(config.temperature !== undefined
           ? { temperature: config.temperature }
           : {}),
@@ -53,6 +62,7 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
         model: result.model,
         credentials: result.credentials,
         system: config.system,
+        approveTool,
         ...(config.temperature !== undefined
           ? { temperature: config.temperature }
           : {}),
@@ -71,6 +81,8 @@ export function Root({ config, forceSetup }: RootProps): React.JSX.Element {
     <App
       agent={runtime.agent}
       meta={{ provider: runtime.provider, model: runtime.model }}
+      approvalRequest={approvalRequest}
+      setApprovalRequest={setApprovalRequest}
     />
   );
 }

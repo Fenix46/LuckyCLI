@@ -126,6 +126,7 @@ describe("Agent loop", () => {
     expect(toolMsg?.content[0]).toMatchObject({
       type: "tool_result",
       toolCallId: "t1",
+      name: "echo",
     });
   });
 });

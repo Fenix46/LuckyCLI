@@ -23,6 +23,7 @@ export interface Tool<Schema extends z.ZodType = z.ZodType> {
   name: string;
   description: string;
   schema: Schema;
+  readonly?: boolean;
   execute(input: z.infer<Schema>, ctx: ToolContext): Promise<ToolResult>;
 }
 

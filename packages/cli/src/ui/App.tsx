@@ -15,20 +15,43 @@ type Item =
   | { kind: "tool"; name: string; input: string; output?: string; error?: boolean }
   | { kind: "error"; text: string };
 
+export interface ApprovalRequest {
+  name: string;
+  input: unknown;
+  resolve: (approved: boolean) => void;
+}
+
 interface AppProps {
   agent: Agent;
   meta: AppMeta;
+  approvalRequest: ApprovalRequest | null;
+  setApprovalRequest: (req: ApprovalRequest | null) => void;
 }
 
-export function App({ agent, meta }: AppProps): React.JSX.Element {
+export function App({
+  agent,
+  meta,
+  approvalRequest,
+  setApprovalRequest,
+}: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
 
-  // Ctrl+C exits when idle.
+  // Ctrl+C exits when idle. Support y/n for tool approval when active.
   useInput((_in, key) => {
+    if (approvalRequest) {
+      if (_in === "y" || _in === "Y") {
+        approvalRequest.resolve(true);
+        setApprovalRequest(null);
+      } else if (_in === "n" || _in === "N" || key.escape) {
+        approvalRequest.resolve(false);
+        setApprovalRequest(null);
+      }
+      return;
+    }
     if (key.ctrl && _in === "c" && !busy) exit();
   });
 
@@ -122,13 +145,29 @@ export function App({ agent, meta }: AppProps): React.JSX.Element {
       {streaming ? (
         <Text color="green">lucky › {streaming}</Text>
       ) : null}
+      {approvalRequest ? (
+        <Box borderStyle="round" borderColor="yellow" flexDirection="column" padding={1} marginY={1}>
+          <Text bold color="yellow">
+            ⚠️ Tool Approval Request
+          </Text>
+          <Text>
+            The agent wants to execute the side-effecting tool <Text bold color="cyan">{approvalRequest.name}</Text>:
+          </Text>
+          <Box marginLeft={2} marginY={1}>
+            <Text color="gray">{JSON.stringify(approvalRequest.input, null, 2)}</Text>
+          </Box>
+          <Text bold>
+            Allow execution? (y: Yes / n: No)
+          </Text>
+        </Box>
+      ) : null}
       {!busy ? (
         <Box>
           <Text color="cyan">you › </Text>
           <TextInput value={input} onChange={setInput} onSubmit={submit} />
         </Box>
       ) : (
-        <Text color="gray">…thinking</Text>
+        !approvalRequest && <Text color="gray">…thinking</Text>
       )}
     </Box>
   );
