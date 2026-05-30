@@ -48,7 +48,25 @@ export function getAvailablePort(): Promise<number> {
  * and starts a temporary HTTP callback server to capture the code automatically.
  */
 export async function startOAuthFlow(): Promise<OAuthSession> {
-  const port = await getAvailablePort();
+  const state = crypto.randomBytes(32).toString("hex");
+
+  let server!: http.Server;
+
+  // Start the HTTP server on port 0 to let the OS allocate a guaranteed free port.
+  // This avoids socket TIME_WAIT address reuse collisions.
+  const port = await new Promise<number>((resolve, reject) => {
+    server = http.createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address && typeof address === "object") {
+        resolve(address.port);
+      } else {
+        reject(new Error("Failed to retrieve callback server port."));
+      }
+    });
+    server.on("error", reject);
+  });
+
   const redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
 
   const client = new OAuth2Client({
@@ -57,7 +75,6 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
     redirectUri,
   });
 
-  const state = crypto.randomBytes(32).toString("hex");
   const verifier = await client.generateCodeVerifierAsync();
 
   const url = client.generateAuthUrl({
@@ -68,10 +85,9 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
     state,
   });
 
-  let server: http.Server | null = null;
-
   const tokenPromise = new Promise<{ accessToken: string; refreshToken?: string }>((resolve, reject) => {
-    server = http.createServer(async (req, res) => {
+    // Setup request listener on the already-listening server
+    server.on("request", async (req, res) => {
       try {
         const parsedUrl = new URL(req.url || "", `http://127.0.0.1:${port}`);
         if (parsedUrl.pathname !== "/oauth2callback") {
@@ -122,22 +138,20 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
         res.end("Authentication failed.");
         reject(err);
       } finally {
-        if (server) {
-          server.close();
-        }
+        server.close();
       }
     });
 
-    server.listen(port, "127.0.0.1");
+    server.on("error", (err) => {
+      reject(err);
+    });
   });
 
   return {
     url,
     tokenPromise,
     stop: () => {
-      if (server) {
-        server.close();
-      }
+      server.close();
     },
   };
 }
