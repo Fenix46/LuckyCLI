@@ -100,6 +100,7 @@ can be resumed:
 
 ```bash
 lucky --continue        # resume the most recent session
+lucky --resume          # pick a session to resume interactively
 lucky --resume <id>     # resume a specific session
 lucky --sessions        # list saved sessions and exit
 ```
