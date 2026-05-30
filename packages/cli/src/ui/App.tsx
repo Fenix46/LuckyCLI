@@ -222,7 +222,7 @@ export function App({
           ...prev,
           {
             kind: "assistant",
-            text: "/help · /setup · /config · /theme · /exit",
+            text: "/help | /setup | /config | /theme | /exit",
           },
         ]);
         setInput("");
@@ -255,6 +255,16 @@ export function App({
       setStartedAt(Date.now());
 
       let assistantBuf = "";
+      const flushAssistant = () => {
+        if (!assistantBuf.trim()) return;
+        const text = assistantBuf;
+        assistantBuf = "";
+        setStreaming("");
+        setItems((prev) => [
+          ...prev,
+          { kind: "assistant", text },
+        ]);
+      };
       const controller = new AbortController();
       abortControllerRef.current = controller;
       try {
@@ -265,6 +275,7 @@ export function App({
               setStreaming(assistantBuf);
             },
             onToolStart: (name, rawInput) => {
+              flushAssistant();
               setItems((prev) => [
                 ...prev,
                 { kind: "tool", name, input: preview(rawInput) },
@@ -272,8 +283,13 @@ export function App({
             },
             onToolEnd: (name, output, error) =>
               setItems((prev) => patchLastTool(prev, name, output, error)),
-            onError: (message) =>
-              setItems((prev) => [...prev, { kind: "error", text: message }]),
+            onError: (message) => {
+              flushAssistant();
+              setItems((prev) => [
+                ...prev,
+                { kind: "error", text: humanizeError(message) },
+              ]);
+            },
             onTurnEnd: (usage) => {
               if (usage) {
                 setTokenUsage((prev) => ({
@@ -288,12 +304,7 @@ export function App({
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
-        if (assistantBuf) {
-          setItems((prev) => [
-            ...prev,
-            { kind: "assistant", text: assistantBuf },
-          ]);
-        }
+        flushAssistant();
         setStreaming("");
         setBusy(false);
         setStartedAt(null);
@@ -306,6 +317,7 @@ export function App({
   const visibleItems = items.slice(-transcriptHeight);
   const hiddenItems = items.length - visibleItems.length;
   const status = approvalRequest ? "approval required" : busy ? `thinking ${elapsedSeconds}s` : "ready";
+  const messageWidth = Math.max(32, terminalSize.width - 16);
 
   return (
     <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
@@ -335,12 +347,16 @@ export function App({
         ) : null}
         {visibleItems.map((item, i) => (
           <Box key={i} marginY={0.5}>
-            <ItemView item={item} theme={activeTheme} />
+            <ItemView item={item} theme={activeTheme} width={messageWidth} />
           </Box>
         ))}
         {streaming ? (
           <Box marginY={0.5}>
-            <ItemView item={{ kind: "assistant", text: streaming }} theme={activeTheme} />
+            <ItemView
+              item={{ kind: "assistant", text: streaming }}
+              theme={activeTheme}
+              width={messageWidth}
+            />
           </Box>
         ) : busy && !approvalRequest ? (
           <Box marginY={0.5}>
@@ -407,41 +423,76 @@ export function App({
   );
 }
 
-function ItemView({ item, theme }: { item: Item; theme: Theme }): React.JSX.Element {
+function ItemView({
+  item,
+  theme,
+  width,
+}: {
+  item: Item;
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
   switch (item.kind) {
     case "user":
-      return <LabeledLine label="you" color={theme.primary} text={item.text} />;
+      return <LabeledBlock label="you" color={theme.primary} text={item.text} width={width} />;
     case "assistant":
-      return <LabeledLine label="lucky" color={theme.success} text={item.text} />;
+      return <LabeledBlock label="lucky" color={theme.success} text={item.text} width={width} />;
     case "error":
-      return <LabeledLine label="error" color={theme.error} text={item.text} />;
+      return <LabeledBlock label="error" color={theme.error} text={item.text} width={width} />;
     case "tool":
       return (
-        <Box flexDirection="column" marginLeft={2}>
-          <Text color={theme.muted}>tool     {item.name}({item.input})</Text>
+        <Box flexDirection="column">
+          <LabeledBlock
+            label="tool"
+            color={theme.muted}
+            text={`${item.name}(${item.input})`}
+            width={width}
+            indent={2}
+          />
           {item.output !== undefined ? (
-            <Text color={item.error ? theme.error : theme.muted}>result   {item.output}</Text>
+            <LabeledBlock
+              label="result"
+              color={item.error ? theme.error : theme.muted}
+              text={item.output}
+              width={width}
+              indent={2}
+            />
           ) : null}
         </Box>
       );
   }
 }
 
-function LabeledLine({
+function LabeledBlock({
   label,
   color,
   text,
+  width,
+  indent = 0,
 }: {
   label: string;
   color: string;
   text: string;
+  width: number;
+  indent?: number;
 }): React.JSX.Element {
+  const labelWidth = 9;
+  const lines = wrapText(text, width);
+
   return (
-    <Box flexDirection="row">
-      <Box width={9}>
-        <Text bold color={color}>{label}</Text>
-      </Box>
-      <Text color={color}>{text}</Text>
+    <Box flexDirection="column" marginLeft={indent}>
+      {lines.map((line, index) => (
+        <Box key={index} flexDirection="row">
+          <Box width={labelWidth}>
+            {index === 0 ? (
+              <Text bold color={color}>{label}</Text>
+            ) : (
+              <Text> </Text>
+            )}
+          </Box>
+          <Text color={color}>{line}</Text>
+        </Box>
+      ))}
     </Box>
   );
 }
@@ -496,4 +547,61 @@ function preview(value: unknown, max = 120): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
   const flat = s.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+function wrapText(text: string, width: number): string[] {
+  const safeWidth = Math.max(16, width);
+  const output: string[] = [];
+
+  for (const paragraph of text.split("\n")) {
+    if (!paragraph.trim()) {
+      output.push("");
+      continue;
+    }
+
+    let line = "";
+    for (const word of paragraph.trim().split(/\s+/)) {
+      if (word.length > safeWidth) {
+        if (line) {
+          output.push(line);
+          line = "";
+        }
+        for (let i = 0; i < word.length; i += safeWidth) {
+          output.push(word.slice(i, i + safeWidth));
+        }
+        continue;
+      }
+
+      const next = line ? `${line} ${word}` : word;
+      if (next.length > safeWidth) {
+        output.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    }
+
+    if (line) output.push(line);
+  }
+
+  return output.length > 0 ? output : [""];
+}
+
+function humanizeError(message: string): string {
+  if (!message.includes("Code Assist request failed")) return message;
+
+  const statusMatch = message.match(/Code Assist request failed \((\d+)\)/);
+  const resetMatch = message.match(/reset after\s+(\d+s)/i);
+  const modelMatch = message.match(/"model":"([^"]+)"/);
+  const status = statusMatch?.[1];
+
+  if (status === "429") {
+    return [
+      "Code Assist quota exhausted",
+      modelMatch ? `for ${modelMatch[1]}` : "",
+      resetMatch ? `retry in ${resetMatch[1]}` : "",
+    ].filter(Boolean).join(" | ");
+  }
+
+  return message;
 }
