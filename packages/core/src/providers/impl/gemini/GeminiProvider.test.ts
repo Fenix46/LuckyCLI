@@ -74,14 +74,15 @@ describe("GeminiProvider", () => {
       type: "gemini",
       authMethod: "oauth",
       accessToken: "test-access-token",
-      projectId: "test-project",
     });
     expect(GoogleGenAI).toHaveBeenCalledWith({
-      vertexai: true,
-      project: "test-project",
-      location: undefined,
+      apiKey: "",
+      httpOptions: {
+        headers: {
+          Authorization: "Bearer test-access-token",
+        },
+      },
     });
-    expect(process.env.GOOGLE_CLOUD_ACCESS_TOKEN).toBe("test-access-token");
   });
 
   it("refreshes oauth token automatically prior to generating content", async () => {
@@ -92,9 +93,16 @@ describe("GeminiProvider", () => {
       refreshToken: "mock-refresh-token",
     });
 
-    const response = await provider.generate([], { model: "gemini-2.0-flash" });
+    const response = await provider.generate([], { model: "gemini-2.5-pro" });
     expect(refreshAccessToken).toHaveBeenCalledWith("mock-refresh-token");
-    expect(process.env.GOOGLE_CLOUD_ACCESS_TOKEN).toBe("new-access-token");
+    expect(GoogleGenAI).toHaveBeenLastCalledWith({
+      apiKey: "",
+      httpOptions: {
+        headers: {
+          Authorization: "Bearer new-access-token",
+        },
+      },
+    });
     expect(response.content[0]).toEqual({ type: "text", text: "mocked response" });
   });
 });

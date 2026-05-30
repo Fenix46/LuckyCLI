@@ -47,13 +47,13 @@ export class GeminiProvider implements IProvider {
         location: this.credentials.location || undefined,
       });
     } else if (this.credentials.authMethod === "oauth") {
-      if (this.credentials.accessToken) {
-        process.env.GOOGLE_CLOUD_ACCESS_TOKEN = this.credentials.accessToken;
-      }
       return new GoogleGenAI({
-        vertexai: true,
-        project: this.credentials.projectId || undefined,
-        location: this.credentials.location || undefined,
+        apiKey: "", // Bypasses GCP Application Default Credentials lookup
+        httpOptions: {
+          headers: {
+            Authorization: `Bearer ${this.credentials.accessToken || ""}`,
+          },
+        },
       });
     } else {
       return new GoogleGenAI({ apiKey: this.credentials.apiKey || "" });
@@ -66,7 +66,6 @@ export class GeminiProvider implements IProvider {
         const newToken = await refreshAccessToken(this.credentials.refreshToken);
         if (newToken && newToken !== this.credentials.accessToken) {
           this.credentials.accessToken = newToken;
-          process.env.GOOGLE_CLOUD_ACCESS_TOKEN = newToken;
           this.client = this.createClient();
           
           const cfg = loadStoredConfig();
