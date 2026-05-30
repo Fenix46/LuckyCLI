@@ -128,6 +128,8 @@ export class OpenAiOAuthProvider implements IProvider {
     const decoder = new TextDecoder();
     let buffer = "";
     let usage: TokenUsage | undefined;
+    let hasToolCalls = false;
+    let emittedFinal = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -154,6 +156,7 @@ export class OpenAiOAuthProvider implements IProvider {
         }
 
         if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
+          hasToolCalls = true;
           yield {
             toolCall: {
               type: "tool_call",
@@ -169,9 +172,20 @@ export class OpenAiOAuthProvider implements IProvider {
             inputTokens: event.usage.input_tokens,
             outputTokens: event.usage.output_tokens,
           };
-          yield { finishReason: "stop", usage };
+          emittedFinal = true;
+          yield {
+            finishReason: hasToolCalls ? "tool_calls" : "stop",
+            usage,
+          };
         }
       }
+    }
+
+    if (!emittedFinal) {
+      yield {
+        finishReason: hasToolCalls ? "tool_calls" : "stop",
+        ...(usage ? { usage } : {}),
+      };
     }
   }
 

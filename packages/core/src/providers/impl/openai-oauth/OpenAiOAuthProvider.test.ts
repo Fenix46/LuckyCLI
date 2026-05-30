@@ -121,4 +121,57 @@ describe("OpenAiOAuthProvider", () => {
       exclusiveMinimum: 0,
     });
   });
+
+  it("marks streamed function calls as tool_calls finish reason", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(
+          encoder.encode(
+            [
+              'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_1","name":"list_dir","arguments":"{}"}}',
+              'data: {"type":"response.completed","usage":{"input_tokens":5,"output_tokens":1}}',
+              "",
+            ].join("\n"),
+          ),
+        );
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: stream,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60 * 60 * 1000,
+    });
+
+    const chunks = [];
+    for await (const chunk of provider.generateStream(
+      [{ role: "user", content: [{ type: "text", text: "list" }] }],
+      { model: "gpt-5.5" },
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      {
+        toolCall: {
+          type: "tool_call",
+          id: "call_1",
+          name: "list_dir",
+          arguments: {},
+        },
+      },
+      {
+        finishReason: "tool_calls",
+        usage: { inputTokens: 5, outputTokens: 1 },
+      },
+    ]);
+  });
 });
