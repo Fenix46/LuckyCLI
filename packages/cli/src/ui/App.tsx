@@ -297,6 +297,10 @@ export function App({
           <Box marginY={0.5}>
             <Text color={activeTheme.success}>lucky › {streaming}</Text>
           </Box>
+        ) : busy && !approvalRequest ? (
+          <Box marginY={0.5}>
+            <Text color="gray">… thinking</Text>
+          </Box>
         ) : null}
       </Box>
 
@@ -352,11 +356,7 @@ export function App({
         width="100%"
       >
         <Text bold color={busy ? activeTheme.success : activeTheme.primary}>› </Text>
-        {!busy ? (
-          <TextInput value={input} onChange={setInput} onSubmit={submit} />
-        ) : (
-          !approvalRequest && <Text color="gray">… thinking</Text>
-        )}
+        <TextInput value={input} onChange={setInput} onSubmit={submit} />
       </Box>
 
       {/* Bottom Status Bar with chosen config and real-time Token counters */}
