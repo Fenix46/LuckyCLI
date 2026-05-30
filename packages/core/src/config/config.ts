@@ -1,26 +1,9 @@
-import type {
-  ProviderCredentials,
-  ProviderId,
-} from "../providers/types.js";
+import { PROVIDER_CATALOG } from "../providers/catalog.js";
+import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import { isProviderId } from "../providers/types.js";
+import { loadStoredConfig, type StoredConfig } from "./store.js";
 
-export interface AppConfig {
-  provider: ProviderId;
-  model: string;
-  system: string;
-  temperature?: number;
-  maxTokens?: number;
-}
-
-/** Default model per provider when none is supplied. */
-const DEFAULT_MODELS: Record<ProviderId, string> = {
-  claude: "claude-sonnet-4-6",
-  openai: "gpt-4o",
-  gemini: "gemini-2.0-flash",
-  ollama: "llama3.1",
-};
-
-const DEFAULT_SYSTEM_PROMPT =
+export const DEFAULT_SYSTEM_PROMPT =
   "You are lucky, a concise and capable terminal coding assistant. " +
   "Use the available tools to inspect and modify the project when needed. " +
   "Prefer small, verifiable steps and explain what you do briefly.";
@@ -31,37 +14,84 @@ export interface CliOverrides {
 }
 
 /**
- * Resolve effective configuration from CLI flags, environment variables and
- * built-in defaults, in that order of precedence.
+ * The fully resolved runtime configuration. `needsSetup` is true when we don't
+ * yet have both a provider and usable credentials — the CLI then shows the
+ * setup dialog instead of failing.
  */
-export function loadConfig(
+export interface ResolvedConfig {
+  provider?: ProviderId;
+  model?: string;
+  system: string;
+  temperature?: number;
+  maxTokens?: number;
+  credentials?: ProviderCredentials;
+  needsSetup: boolean;
+}
+
+/**
+ * Resolve configuration from (in order of precedence): CLI flags, the stored
+ * config file, environment variables, then built-in defaults. Nothing here
+ * throws for missing credentials — that surfaces as `needsSetup`.
+ */
+export function resolveConfig(
   overrides: CliOverrides = {},
+  stored: StoredConfig = loadStoredConfig(),
   env: NodeJS.ProcessEnv = process.env,
-): AppConfig {
-  const providerRaw = overrides.provider ?? env.LUCKY_PROVIDER ?? "claude";
-  if (!isProviderId(providerRaw)) {
-    throw new Error(
-      `Unknown provider "${providerRaw}". Valid: claude, openai, gemini, ollama.`,
-    );
+): ResolvedConfig {
+  const providerRaw = overrides.provider ?? stored.provider ?? env.LUCKY_PROVIDER;
+  let provider: ProviderId | undefined;
+  if (providerRaw) {
+    if (!isProviderId(providerRaw)) {
+      throw new Error(
+        `Unknown provider "${providerRaw}". Valid: claude, openai, gemini, ollama.`,
+      );
+    }
+    provider = providerRaw;
   }
-  const provider = providerRaw;
-  const model = overrides.model ?? env.LUCKY_MODEL ?? DEFAULT_MODELS[provider];
+
+  const model = provider
+    ? overrides.model ??
+      stored.model ??
+      env.LUCKY_MODEL ??
+      PROVIDER_CATALOG[provider].defaultModel
+    : undefined;
+
+  const credentials = provider
+    ? resolveCredentials(provider, stored, env)
+    : undefined;
 
   return {
-    provider,
-    model,
+    ...(provider ? { provider } : {}),
+    ...(model ? { model } : {}),
     system: env.LUCKY_SYSTEM ?? DEFAULT_SYSTEM_PROMPT,
     ...(env.LUCKY_TEMPERATURE
       ? { temperature: Number(env.LUCKY_TEMPERATURE) }
       : {}),
     ...(env.LUCKY_MAX_TOKENS ? { maxTokens: Number(env.LUCKY_MAX_TOKENS) } : {}),
+    ...(credentials ? { credentials } : {}),
+    needsSetup: !provider || !credentials,
   };
 }
 
 /**
- * Build provider credentials from the environment. Throws a clear error if a
- * required key is missing so the CLI can guide the user.
+ * Credentials for a provider: stored config first, then environment fallback.
+ * Returns undefined when nothing is available (so the caller can prompt).
  */
+export function resolveCredentials(
+  provider: ProviderId,
+  stored: StoredConfig = loadStoredConfig(),
+  env: NodeJS.ProcessEnv = process.env,
+): ProviderCredentials | undefined {
+  const fromStore = stored.credentials?.[provider];
+  if (fromStore) return fromStore;
+  try {
+    return credentialsFromEnv(provider, env);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Build provider credentials from environment variables (override path). */
 export function credentialsFromEnv(
   provider: ProviderId,
   env: NodeJS.ProcessEnv = process.env,
@@ -87,10 +117,6 @@ export function credentialsFromEnv(
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
-  if (!value) {
-    throw new Error(
-      `Missing ${name}. Set it in your environment or .env file.`,
-    );
-  }
+  if (!value) throw new Error(`Missing ${name}.`);
   return value;
 }

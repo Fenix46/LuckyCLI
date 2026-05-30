@@ -12,6 +12,7 @@ import {
   type Part,
 } from "@google/genai";
 import type { IProvider } from "../../IProvider.js";
+import { providerInfo } from "../../catalog.js";
 import type {
   ContentPart,
   FinishReason,
@@ -24,15 +25,7 @@ import type {
   TokenUsage,
 } from "../../types.js";
 
-const INFO: ProviderInfo = {
-  id: "gemini",
-  displayName: "Google Gemini",
-  availableModels: ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"],
-  defaultModel: "gemini-2.0-flash",
-  supportsStreaming: true,
-  supportsVision: true,
-  supportsTools: true,
-};
+const INFO: ProviderInfo = providerInfo("gemini");
 
 export class GeminiProvider implements IProvider {
   readonly info = INFO;
@@ -139,7 +132,10 @@ function buildConfig(config: GenerationConfig) {
               functionDeclarations: config.tools.map((t) => ({
                 name: t.name,
                 description: t.description,
-                parameters: t.parameters as Record<string, unknown>,
+                parameters: toGeminiSchema(t.parameters) as Record<
+                  string,
+                  unknown
+                >,
               })),
             },
           ],
@@ -205,6 +201,54 @@ function usageOf(response: GenerateContentResponse): TokenUsage | undefined {
       ? { cacheReadTokens: u.cachedContentTokenCount }
       : {}),
   };
+}
+
+/**
+ * Gemini's function-declaration parameters accept only a restricted OpenAPI-3
+ * schema subset. zod-to-json-schema emits valid JSON Schema that includes keys
+ * Gemini rejects with a 400 (notably `additionalProperties` and `$schema`), so
+ * we deep-clone and keep only the supported keys.
+ */
+const GEMINI_SCHEMA_KEYS = new Set([
+  "type",
+  "format",
+  "title",
+  "description",
+  "nullable",
+  "enum",
+  "items",
+  "properties",
+  "required",
+  "minItems",
+  "maxItems",
+  "anyOf",
+  "default",
+]);
+
+function toGeminiSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(toGeminiSchema);
+  if (schema === null || typeof schema !== "object") return schema;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (!GEMINI_SCHEMA_KEYS.has(key)) continue;
+    if (key === "properties" && value && typeof value === "object") {
+      const props: Record<string, unknown> = {};
+      for (const [propName, propSchema] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        props[propName] = toGeminiSchema(propSchema);
+      }
+      out[key] = props;
+    } else if (key === "items") {
+      out[key] = toGeminiSchema(value);
+    } else if (key === "anyOf") {
+      out[key] = Array.isArray(value) ? value.map(toGeminiSchema) : value;
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 function mapFinishReason(reason: string | undefined): FinishReason {

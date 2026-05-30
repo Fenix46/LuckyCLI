@@ -3,25 +3,21 @@ import "dotenv/config";
 import { parseArgs } from "node:util";
 import { render } from "ink";
 import React from "react";
-import {
-  Agent,
-  credentialsFromEnv,
-  defaultToolRegistry,
-  getProvider,
-  loadConfig,
-} from "@luckycli/core";
-import { App } from "./ui/App.js";
+import { resolveConfig } from "@luckycli/core";
+import { Root } from "./ui/Root.js";
 
 const HELP = `lucky — a multi-provider terminal agent
 
 Usage: lucky [options]
 
+On first run, lucky asks you to pick a provider and enter its key, then
+remembers your choice in ~/.luckycli/config.json. No .env required.
+
 Options:
   -p, --provider  claude | openai | gemini | ollama
   -m, --model     model id (provider-specific)
+      --setup     force the provider setup dialog
   -h, --help      show this help
-
-Configuration can also be set via .env (see .env.example).
 `;
 
 function main(): void {
@@ -29,6 +25,7 @@ function main(): void {
     options: {
       provider: { type: "string", short: "p" },
       model: { type: "string", short: "m" },
+      setup: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,
@@ -39,32 +36,14 @@ function main(): void {
     return;
   }
 
-  const config = loadConfig({
+  const config = resolveConfig({
     ...(values.provider ? { provider: values.provider } : {}),
     ...(values.model ? { model: values.model } : {}),
   });
 
-  let provider;
-  try {
-    provider = getProvider(config.provider, credentialsFromEnv(config.provider));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`fatal: ${message}\n`);
-    process.exit(1);
-  }
-
-  const agent = new Agent({
-    provider,
-    model: config.model,
-    tools: defaultToolRegistry(),
-    system: config.system,
-    ...(config.temperature !== undefined
-      ? { temperature: config.temperature }
-      : {}),
-    ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
-  });
-
-  render(React.createElement(App, { agent, config }));
+  render(
+    React.createElement(Root, { config, forceSetup: values.setup === true }),
+  );
 }
 
 main();

@@ -7,6 +7,7 @@
 
 import OpenAI from "openai";
 import type { IProvider } from "../../IProvider.js";
+import { providerInfo } from "../../catalog.js";
 import type {
   ContentPart,
   FinishReason,
@@ -20,15 +21,7 @@ import type {
   TokenUsage,
 } from "../../types.js";
 
-const INFO: ProviderInfo = {
-  id: "openai",
-  displayName: "OpenAI",
-  availableModels: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o4-mini"],
-  defaultModel: "gpt-4o",
-  supportsStreaming: true,
-  supportsVision: true,
-  supportsTools: true,
-};
+const INFO: ProviderInfo = providerInfo("openai");
 
 export class OpenAiProvider implements IProvider {
   readonly info: ProviderInfo = INFO;

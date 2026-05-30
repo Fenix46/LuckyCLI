@@ -6,18 +6,11 @@
  * interface lets one adapter back multiple "providers".
  */
 
+import { providerInfo } from "../../catalog.js";
 import type { OllamaCredentials, ProviderInfo } from "../../types.js";
 import { OpenAiProvider } from "../openai/OpenAiProvider.js";
 
-const INFO: ProviderInfo = {
-  id: "ollama",
-  displayName: "Ollama (local)",
-  availableModels: ["llama3.1", "qwen2.5", "mistral", "gemma2"],
-  defaultModel: "llama3.1",
-  supportsStreaming: true,
-  supportsVision: false,
-  supportsTools: true,
-};
+const INFO: ProviderInfo = providerInfo("ollama");
 
 export class OllamaProvider extends OpenAiProvider {
   override readonly info: ProviderInfo = INFO;

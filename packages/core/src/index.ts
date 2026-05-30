@@ -27,6 +27,17 @@ export {
 // Configuration.
 export {
   credentialsFromEnv,
-  loadConfig,
+  DEFAULT_SYSTEM_PROMPT,
+  resolveConfig,
+  resolveCredentials,
 } from "./config/config.js";
-export type { AppConfig, CliOverrides } from "./config/config.js";
+export type { CliOverrides, ResolvedConfig } from "./config/config.js";
+
+// Persistent config store.
+export {
+  configFilePath,
+  loadStoredConfig,
+  saveProviderSetup,
+  saveStoredConfig,
+} from "./config/store.js";
+export type { StoredConfig } from "./config/store.js";

@@ -5,6 +5,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { IProvider } from "../../IProvider.js";
+import { providerInfo } from "../../catalog.js";
 import type {
   ClaudeCredentials,
   ContentPart,
@@ -18,19 +19,7 @@ import type {
   TokenUsage,
 } from "../../types.js";
 
-const INFO: ProviderInfo = {
-  id: "claude",
-  displayName: "Anthropic Claude",
-  availableModels: [
-    "claude-opus-4-8",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
-  ],
-  defaultModel: "claude-sonnet-4-6",
-  supportsStreaming: true,
-  supportsVision: true,
-  supportsTools: true,
-};
+const INFO: ProviderInfo = providerInfo("claude");
 
 export class ClaudeProvider implements IProvider {
   readonly info = INFO;

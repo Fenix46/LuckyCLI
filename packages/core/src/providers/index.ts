@@ -42,6 +42,12 @@ registerBuiltinProviders();
 export * from "./types.js";
 export type { IProvider } from "./IProvider.js";
 export {
+  PROVIDER_CATALOG,
+  listProviders,
+  providerInfo,
+} from "./catalog.js";
+export type { AuthKind, ProviderCatalogEntry } from "./catalog.js";
+export {
   getProvider,
   getRegisteredProviderIds,
   registerProviderFactory,

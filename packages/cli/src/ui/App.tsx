@@ -1,7 +1,12 @@
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import React, { useCallback, useState } from "react";
-import type { Agent, AgentEvent, AppConfig } from "@luckycli/core";
+import type { Agent, AgentEvent } from "@luckycli/core";
+
+interface AppMeta {
+  provider: string;
+  model: string;
+}
 
 /** A line in the scrollback transcript. */
 type Item =
@@ -12,10 +17,10 @@ type Item =
 
 interface AppProps {
   agent: Agent;
-  config: AppConfig;
+  meta: AppMeta;
 }
 
-export function App({ agent, config }: AppProps): React.JSX.Element {
+export function App({ agent, meta }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [input, setInput] = useState("");
@@ -39,7 +44,10 @@ export function App({ agent, config }: AppProps): React.JSX.Element {
       if (text === "/help") {
         setItems((prev) => [
           ...prev,
-          { kind: "assistant", text: "/help · /config · /exit" },
+          {
+            kind: "assistant",
+            text: "/help · /config · /exit — switch provider: relaunch with --setup",
+          },
         ]);
         setInput("");
         return;
@@ -47,7 +55,19 @@ export function App({ agent, config }: AppProps): React.JSX.Element {
       if (text === "/config") {
         setItems((prev) => [
           ...prev,
-          { kind: "assistant", text: `${config.provider} / ${config.model}` },
+          { kind: "assistant", text: `${meta.provider} / ${meta.model}` },
+        ]);
+        setInput("");
+        return;
+      }
+      // Unknown slash command: never forward it to the model.
+      if (text.startsWith("/")) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `unknown command: ${text} (try /help; to switch provider relaunch with --setup)`,
+          },
         ]);
         setInput("");
         return;
@@ -88,11 +108,14 @@ export function App({ agent, config }: AppProps): React.JSX.Element {
         setBusy(false);
       }
     },
-    [agent, busy, config, exit],
+    [agent, busy, meta, exit],
   );
 
   return (
     <Box flexDirection="column">
+      <Text dimColor>
+        ✦ lucky · {meta.provider}/{meta.model} · /help /config /exit
+      </Text>
       {items.map((item, i) => (
         <ItemView key={i} item={item} />
       ))}
