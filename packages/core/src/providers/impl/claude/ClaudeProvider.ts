@@ -33,7 +33,10 @@ export class ClaudeProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): Promise<GenerationResponse> {
-    const { system, messages: anthropicMessages } = toAnthropic(messages);
+    const { system, messages: anthropicMessages } = toAnthropic(
+      messages,
+      config.systemPrompt,
+    );
     const response = await this.client.messages.create(
       {
         model: config.model || INFO.defaultModel,
@@ -51,7 +54,10 @@ export class ClaudeProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): AsyncGenerator<StreamChunk> {
-    const { system, messages: anthropicMessages } = toAnthropic(messages);
+    const { system, messages: anthropicMessages } = toAnthropic(
+      messages,
+      config.systemPrompt,
+    );
     const stream = this.client.messages.stream(
       {
         model: config.model || INFO.defaultModel,
@@ -116,7 +122,10 @@ export class ClaudeProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): Promise<TokenUsage | undefined> {
-    const { system, messages: anthropicMessages } = toAnthropic(messages);
+    const { system, messages: anthropicMessages } = toAnthropic(
+      messages,
+      config.systemPrompt,
+    );
     const result = await this.client.messages.countTokens({
       model: config.model || INFO.defaultModel,
       ...(system ? { system } : {}),
@@ -158,19 +167,25 @@ function buildOptions(config: GenerationConfig) {
   };
 }
 
-function toAnthropic(messages: Message[]): {
+function toAnthropic(
+  messages: Message[],
+  systemPrompt?: string,
+): {
   system?: string;
   messages: Anthropic.Messages.MessageParam[];
 } {
-  let system: string | undefined;
+  const systemParts: string[] = [];
   const result: Anthropic.Messages.MessageParam[] = [];
+
+  if (systemPrompt) systemParts.push(systemPrompt);
 
   for (const msg of messages) {
     if (msg.role === "system") {
-      system = msg.content
+      const text = msg.content
         .filter((p): p is TextPart => p.type === "text")
         .map((p) => p.text)
         .join("\n");
+      if (text) systemParts.push(text);
       continue;
     }
 
@@ -180,7 +195,8 @@ function toAnthropic(messages: Message[]): {
     result.push({ role, content });
   }
 
-  return system !== undefined
+  const system = systemParts.join("\n").trim();
+  return system
     ? { system, messages: result }
     : { messages: result };
 }
