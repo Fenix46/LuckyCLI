@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
+import { resolveInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 
 export const listDirTool = defineTool({
@@ -17,7 +17,7 @@ export const listDirTool = defineTool({
   }),
   async execute({ path = "." }, ctx) {
     try {
-      const abs = isAbsolute(path) ? path : resolve(ctx.cwd, path);
+      const abs = resolveInsideCwd(ctx.cwd, path);
       const entries = await readdir(abs, { withFileTypes: true });
       const lines = entries.map((entry) => {
         const type = entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other";
