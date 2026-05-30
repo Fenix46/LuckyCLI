@@ -42,23 +42,17 @@ interface Theme {
   success: string;
   accent: string;
   warning: string;
+  muted: string;
+  error: string;
 }
 
 const THEMES: Theme[] = [
-  { id: "neon", name: "Neon Cyan (Default)", primary: "cyan", accent: "magenta", success: "green", warning: "yellow" },
-  { id: "cyberpunk", name: "Cyberpunk", primary: "yellow", accent: "cyan", success: "green", warning: "red" },
-  { id: "dracula", name: "Dracula Purple", primary: "magenta", accent: "red", success: "green", warning: "yellow" },
-  { id: "matrix", name: "Hacker Matrix", primary: "green", accent: "green", success: "green", warning: "yellow" },
-  { id: "minimal", name: "Minimal Monochrome", primary: "white", accent: "gray", success: "white", warning: "white" }
+  { id: "neon", name: "Neon Cyan", primary: "cyan", accent: "blue", success: "green", warning: "yellow", muted: "gray", error: "red" },
+  { id: "cyberpunk", name: "Cyberpunk", primary: "yellow", accent: "cyan", success: "green", warning: "red", muted: "gray", error: "red" },
+  { id: "dracula", name: "Dracula", primary: "magenta", accent: "red", success: "green", warning: "yellow", muted: "gray", error: "red" },
+  { id: "matrix", name: "Matrix", primary: "green", accent: "green", success: "green", warning: "yellow", muted: "gray", error: "red" },
+  { id: "minimal", name: "Minimal", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white" }
 ];
-
-const WELCOME_LOGO = `
-  _      _    _  ____ _  __ __   __ ____ _     ___ 
- | |    | |  | |/ ___| |/ / \\ / // ___| |   |_ _|
- | |    | |  | | |   | ' /   \\ V /| |   | |    | | 
- | |___ | |__| | |___| . \\    | | | |___| |___ | | 
- |_____| \\____/ \\____|_|\\_\\   |_|  \\____|_____|___|
-`;
 
 const ALL_SLASH_COMMANDS = [
   { name: "/help", desc: "Show all available slash commands" },
@@ -80,6 +74,8 @@ export function App({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Persistent Theme System
@@ -133,6 +129,17 @@ export function App({
       process.stdout.off("resize", handleResize);
     };
   }, []);
+
+  useEffect(() => {
+    if (!busy || startedAt === null) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 500);
+    return () => clearInterval(timer);
+  }, [busy, startedAt]);
 
   // Slash commands navigation
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -245,6 +252,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text }]);
       setInput("");
       setBusy(true);
+      setStartedAt(Date.now());
 
       let assistantBuf = "";
       const controller = new AbortController();
@@ -288,61 +296,81 @@ export function App({
         }
         setStreaming("");
         setBusy(false);
+        setStartedAt(null);
       }
     },
     [agent, busy, meta, exit, cycleTheme, onTriggerSetup],
   );
 
+  const transcriptHeight = Math.max(6, terminalSize.height - 10);
+  const visibleItems = items.slice(-transcriptHeight);
+  const hiddenItems = items.length - visibleItems.length;
+  const status = approvalRequest ? "approval required" : busy ? `thinking ${elapsedSeconds}s` : "ready";
+
   return (
-    <Box flexDirection="column" width={terminalSize.width} padding={1}>
-      {/* Splash Welcome Logo */}
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold color={activeTheme.accent}>{WELCOME_LOGO}</Text>
-        <Text color="gray">✦ Welcome to LuckyCLI! Type your message or enter / to browse commands.</Text>
+    <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
+      <Box
+        borderStyle="single"
+        borderColor={activeTheme.accent}
+        paddingX={1}
+        justifyContent="space-between"
+        width="100%"
+      >
+        <Text bold color={activeTheme.accent}>LuckyCLI</Text>
+        <Text color={activeTheme.muted}>
+          {meta.provider} / {meta.model}
+        </Text>
       </Box>
 
-      {/* Main clean scrollback stream */}
-      <Box flexDirection="column" marginBottom={1}>
-        {items.map((item, i) => (
+      <Box flexDirection="column" marginY={1} minHeight={Math.min(transcriptHeight, 8)}>
+        {hiddenItems > 0 ? (
+          <Box marginBottom={1}>
+            <Text color={activeTheme.muted}>... {hiddenItems} older message{hiddenItems === 1 ? "" : "s"} hidden</Text>
+          </Box>
+        ) : null}
+        {visibleItems.length === 0 && !streaming && !busy ? (
+          <Box marginY={1}>
+            <Text color={activeTheme.muted}>Type a prompt, or use / for commands.</Text>
+          </Box>
+        ) : null}
+        {visibleItems.map((item, i) => (
           <Box key={i} marginY={0.5}>
             <ItemView item={item} theme={activeTheme} />
           </Box>
         ))}
         {streaming ? (
           <Box marginY={0.5}>
-            <Text color={activeTheme.success}>lucky › {streaming}</Text>
+            <ItemView item={{ kind: "assistant", text: streaming }} theme={activeTheme} />
           </Box>
         ) : busy && !approvalRequest ? (
           <Box marginY={0.5}>
-            <Text color="gray">… thinking</Text>
+            <Text color={activeTheme.muted}>assistant  thinking...</Text>
           </Box>
         ) : null}
       </Box>
 
-      {/* Tool safety approval dialog (shown inside the stream area) */}
       {approvalRequest ? (
         <Box flexDirection="column" borderStyle="single" borderColor={activeTheme.warning} paddingX={1} marginY={1}>
-          <Text bold color={activeTheme.warning}>⚠️ TOOL APPROVAL REQUIRED</Text>
-          <Text>The agent wants to run the side-effecting tool <Text bold color={activeTheme.primary}>{approvalRequest.name}</Text>:</Text>
+          <Text bold color={activeTheme.warning}>Tool Approval Required</Text>
+          <Text>The agent wants to run <Text bold color={activeTheme.primary}>{approvalRequest.name}</Text>:</Text>
           <Box marginLeft={2} marginY={0.5}>
-            <Text color="gray">{JSON.stringify(approvalRequest.input, null, 2)}</Text>
+            <Text color={activeTheme.muted}>{JSON.stringify(approvalRequest.input, null, 2)}</Text>
           </Box>
-          <Text bold color={activeTheme.warning}>Allow execution? (y: Yes / n: No / esc: Deny)</Text>
+          <Text color={activeTheme.warning}>y approve | n deny | esc deny</Text>
         </Box>
       ) : null}
 
-      {/* Slash Commands Dropdown / Pop-up Menu */}
       {showSlashMenu && filteredCommands.length > 0 ? (
         <Box
           flexDirection="column"
-          borderStyle="round"
+          borderStyle="single"
           borderColor={activeTheme.accent}
           paddingX={1}
           paddingY={0.5}
           marginBottom={0.5}
           width="100%"
         >
-          <Text bold color={activeTheme.accent}>⌨️ Slash Commands Menu</Text>
+          <Text bold color={activeTheme.accent}>Commands</Text>
           {filteredCommands.map((cmd, idx) => (
             <Box key={cmd.name} flexDirection="row">
               <Text color={idx === selectedCommandIndex ? activeTheme.accent : "gray"}>
@@ -351,18 +379,15 @@ export function App({
               <Text bold color={idx === selectedCommandIndex ? activeTheme.accent : "white"}>
                 {cmd.name.padEnd(10)}
               </Text>
-              <Text color="gray"> - {cmd.desc}</Text>
+              <Text color={activeTheme.muted}> {cmd.desc}</Text>
             </Box>
           ))}
           <Box marginTop={0.5}>
-            <Text dimColor>
-              Navigate [Up/Down] · Select [Tab/Enter]
-            </Text>
+            <Text color={activeTheme.muted}>up/down navigate | tab/enter select</Text>
           </Box>
         </Box>
       ) : null}
 
-      {/* Dedicated Writing Input Bar (No "you" prefix, just a clean styled arrow) */}
       <Box
         flexDirection="row"
         borderStyle="single"
@@ -374,12 +399,9 @@ export function App({
         <TextInput value={input} onChange={setInput} onSubmit={submit} />
       </Box>
 
-      {/* Bottom Status Bar with chosen config and real-time Token counters */}
       <Box width="100%" paddingX={1} justifyContent="space-between" marginTop={0.5}>
-        <Text color="gray">🤖 Provider: {meta.provider} · 🧠 Model: {meta.model}</Text>
-        <Text color={activeTheme.warning}>
-          ⚡ Tokens: {tokenUsage.input + tokenUsage.output} (In: {tokenUsage.input} / Out: {tokenUsage.output})
-        </Text>
+        <Text color={approvalRequest ? activeTheme.warning : activeTheme.muted}>{status}</Text>
+        <Text color={activeTheme.muted}>tokens {tokenUsage.input + tokenUsage.output} | in {tokenUsage.input} | out {tokenUsage.output}</Text>
       </Box>
     </Box>
   );
@@ -388,21 +410,40 @@ export function App({
 function ItemView({ item, theme }: { item: Item; theme: Theme }): React.JSX.Element {
   switch (item.kind) {
     case "user":
-      return <Text color={theme.primary}>› {item.text}</Text>;
+      return <LabeledLine label="you" color={theme.primary} text={item.text} />;
     case "assistant":
-      return <Text color={theme.success}>lucky › {item.text}</Text>;
+      return <LabeledLine label="lucky" color={theme.success} text={item.text} />;
     case "error":
-      return <Text color="red">error: {item.text}</Text>;
+      return <LabeledLine label="error" color={theme.error} text={item.text} />;
     case "tool":
       return (
-        <Box flexDirection="column">
-          <Text color="gray">⚙  {item.name}({item.input})</Text>
+        <Box flexDirection="column" marginLeft={2}>
+          <Text color={theme.muted}>tool     {item.name}({item.input})</Text>
           {item.output !== undefined ? (
-            <Text color={item.error ? "red" : "gray"}>   ↳ {item.output}</Text>
+            <Text color={item.error ? theme.error : theme.muted}>result   {item.output}</Text>
           ) : null}
         </Box>
       );
   }
+}
+
+function LabeledLine({
+  label,
+  color,
+  text,
+}: {
+  label: string;
+  color: string;
+  text: string;
+}): React.JSX.Element {
+  return (
+    <Box flexDirection="row">
+      <Box width={9}>
+        <Text bold color={color}>{label}</Text>
+      </Box>
+      <Text color={color}>{text}</Text>
+    </Box>
+  );
 }
 
 interface EventHandlers {
