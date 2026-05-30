@@ -75,7 +75,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
             throw new Error("Google did not return an access token.");
           }
           setOauthTokens(tokens);
-          setCredSubStep("project");
+          setStep("model");
         })
         .catch((err) => {
           setOauthLoading(false);
@@ -129,11 +129,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
 
   function onSubmitProject() {
     if (!gcpProjectId.trim()) return;
-    if (selectedAuthMethod?.kind === "oauth") {
-      setStep("model");
-    } else {
-      setCredSubStep("region");
-    }
+    setCredSubStep("region");
   }
 
   function onSubmitRegion() {
@@ -164,8 +160,6 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
           authMethod: "oauth",
           accessToken: oauthTokens.accessToken,
           refreshToken: oauthTokens?.refreshToken,
-          projectId: gcpProjectId.trim() || undefined,
-          location: gcpRegion.trim() || undefined,
         };
       } else if (selectedAuthMethod.kind === "vertex") {
         credentials = {
