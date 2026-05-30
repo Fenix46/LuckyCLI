@@ -47,4 +47,5 @@ export type { StoredConfig } from "./config/store.js";
 export {
   startOAuthFlow,
   refreshAccessToken,
+  openBrowser,
 } from "./providers/impl/gemini/GoogleAuthHelper.js";

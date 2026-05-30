@@ -1,4 +1,5 @@
 import { OAuth2Client, CodeChallengeMethod } from "google-auth-library";
+import { exec } from "node:child_process";
 import crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
@@ -171,3 +172,19 @@ export async function refreshAccessToken(
   const { credentials } = await client.refreshAccessToken();
   return credentials.access_token || "";
 }
+
+/**
+ * Opens a URL in the default browser in a cross-platform manner.
+ */
+export function openBrowser(url: string): void {
+  const start =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+      ? "start"
+      : "xdg-open";
+  exec(`${start} "${url.replace(/"/g, '\\"')}"`, () => {
+    // best-effort, ignore errors
+  });
+}
+

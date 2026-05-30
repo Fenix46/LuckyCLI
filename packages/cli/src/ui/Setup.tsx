@@ -6,6 +6,7 @@ import {
   PROVIDER_CATALOG,
   listProviders,
   startOAuthFlow,
+  openBrowser,
   type ProviderCredentials,
   type ProviderId,
   type AuthMethod,
@@ -66,6 +67,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
           activeSession = session;
           setOauthUrl(session.url);
           setOauthLoading(false);
+          openBrowser(session.url);
           return session.tokenPromise;
         })
         .then((tokens) => {
