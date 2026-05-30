@@ -31,11 +31,12 @@ provider SDK.
                                    │  Provider    │  │   Tools      │
                                    │  (providers/)│  │  read_file   │
                                    │  claude      │  │  write_file  │
-                                   │  openai      │  │  list_dir    │
-                                   │  openai-oauth│  │  exec        │
-                                   │  gemini      │  │  http_fetch  │
-                                   │  ollama      │  └──────────────┘
-                                   └──────────────┘
+                                   │  openai      │  │  edit_file   │
+                                   │  openai-oauth│  │  list_dir    │
+                                   │  gemini      │  │  glob / grep │
+                                   │  ollama      │  │  exec        │
+                                   └──────────────┘  │  http_fetch  │
+                                                     └──────────────┘
 ```
 
 ### Layers
@@ -110,6 +111,7 @@ provider APIs.
 - [ ] Verify adapters against the live APIs with recorded fixtures
 - [ ] Conversation persistence / session resume
 - [ ] Streaming markdown rendering in the CLI
+- [x] Surgical file edits (`edit_file`) with fuzzy snippet matching
+- [x] Code search tools (`glob`, `grep`)
 - [ ] Retry/backoff + structured error taxonomy in providers
-- [ ] More tools (e.g. search)
 ```
