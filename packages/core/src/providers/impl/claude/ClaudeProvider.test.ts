@@ -63,4 +63,67 @@ describe("ClaudeProvider", () => {
       }),
     );
   });
+
+  it("maps canonical tool calls and results to Anthropic content blocks", async () => {
+    const provider = new ClaudeProvider({ type: "claude", apiKey: "test-key" });
+
+    await provider.generate(
+      [
+        { role: "user", content: [{ type: "text", text: "read file" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: "toolu_1",
+              name: "read_file",
+              arguments: { path: "README.md" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool_result",
+              toolCallId: "toolu_1",
+              name: "read_file",
+              content: "contents",
+            },
+          ],
+        },
+      ],
+      { model: "claude-test" },
+    );
+
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "read file" }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_1",
+                name: "read_file",
+                input: { path: "README.md" },
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_1",
+                content: "contents",
+              },
+            ],
+          },
+        ],
+      }),
+      expect.any(Object),
+    );
+  });
 });
