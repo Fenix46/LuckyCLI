@@ -98,10 +98,34 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     company: "OpenAI",
     availableModels: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-4o"],
     models: modelEntries([
-      { id: "gpt-5.5", source: "unknown" },
-      { id: "gpt-5.4", source: "unknown" },
-      { id: "gpt-5.4-mini", source: "unknown" },
-      { id: "gpt-5.3-codex", source: "unknown" },
+      {
+        id: "gpt-5.5",
+        contextWindow: 400_000,
+        maxInputTokens: 258_400,
+        maxOutputTokens: 128_000,
+        source: "provider",
+      },
+      {
+        id: "gpt-5.4",
+        contextWindow: 1_000_000,
+        maxInputTokens: 258_400,
+        maxOutputTokens: 128_000,
+        source: "provider",
+      },
+      {
+        id: "gpt-5.4-mini",
+        contextWindow: 400_000,
+        maxInputTokens: 258_400,
+        maxOutputTokens: 128_000,
+        source: "provider",
+      },
+      {
+        id: "gpt-5.3-codex",
+        contextWindow: 400_000,
+        maxInputTokens: 258_400,
+        maxOutputTokens: 128_000,
+        source: "provider",
+      },
       {
         id: "gpt-4o",
         contextWindow: 128_000,

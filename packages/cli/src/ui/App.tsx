@@ -1002,6 +1002,10 @@ function contextRows(status: ContextStatus): CommandRow[] {
       value: status.usableTokens ? `${formatNumber(status.usableTokens)} tokens` : "unknown",
     },
     {
+      label: "input cap",
+      value: status.maxInputTokens ? `${formatNumber(status.maxInputTokens)} tokens` : "not specified",
+    },
+    {
       label: "used",
       value: status.usedTokens ? `${formatNumber(status.usedTokens)} tokens` : "not available",
     },

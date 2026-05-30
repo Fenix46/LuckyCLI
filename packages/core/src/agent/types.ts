@@ -3,6 +3,7 @@ import type { TokenUsage } from "../providers/types.js";
 export interface ContextStatus {
   model: string;
   contextWindow?: number;
+  maxInputTokens?: number;
   maxOutputTokens?: number;
   usedTokens?: number;
   usableTokens?: number;

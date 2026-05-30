@@ -138,6 +138,7 @@ export interface ProviderInfo {
 export interface ModelInfo {
   id: string;
   contextWindow?: number;
+  maxInputTokens?: number;
   maxOutputTokens?: number;
   source?: "official" | "provider" | "local" | "unknown";
 }

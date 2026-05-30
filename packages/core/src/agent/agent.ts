@@ -226,10 +226,12 @@ export class Agent {
 
   private async contextStatusFor(messages: Message[]): Promise<ContextStatus> {
     const contextWindow = this.modelInfo.contextWindow;
+    const maxInputTokens = this.modelInfo.maxInputTokens;
     const maxOutputTokens = this.modelInfo.maxOutputTokens;
     const base: ContextStatus = {
       model: this.model,
       ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       ...(this.modelInfo.source ? { source: this.modelInfo.source } : {}),
       tokenCounter: "unavailable",
@@ -321,6 +323,9 @@ export class Agent {
   }
 
   private usableInputTokens(contextWindow: number): number {
+    if (this.modelInfo.maxInputTokens !== undefined) {
+      return this.modelInfo.maxInputTokens;
+    }
     const reserved =
       this.compaction.reservedOutputTokens ??
       this.maxTokens ??
