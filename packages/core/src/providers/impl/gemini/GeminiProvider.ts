@@ -29,6 +29,7 @@ import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
 import { CodeAssistClient } from "./CodeAssistClient.js";
 
 const INFO: ProviderInfo = providerInfo("gemini");
+const SYNTHETIC_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
 const GEMINI_2_5_PRO = "gemini-2.5-pro";
 const GEMINI_2_5_FLASH = "gemini-2.5-flash";
 const CODE_ASSIST_FALLBACKS: Record<string, string> = {
@@ -40,6 +41,8 @@ const CODE_ASSIST_FALLBACKS: Record<string, string> = {
   [GEMINI_2_5_FLASH]: GEMINI_2_5_PRO,
   [GEMINI_2_5_PRO]: GEMINI_2_5_FLASH,
 };
+
+type CodeAssistPart = Part & { thoughtSignature?: string };
 
 export class GeminiProvider implements IProvider {
   readonly info = INFO;
@@ -108,7 +111,7 @@ export class GeminiProvider implements IProvider {
       ? await this.withCodeAssistFallback(model, (effectiveModel) =>
           this.codeAssistClient!.generateContent({
             model: effectiveModel,
-            contents: toGeminiContents(messages),
+            contents: toCodeAssistContents(messages),
             ...codeAssistOptions(config),
           }),
         )
@@ -141,7 +144,7 @@ export class GeminiProvider implements IProvider {
     const model = config.model || INFO.defaultModel;
     const stream = this.codeAssistClient
       ? this.codeAssistStreamWithFallback(model, {
-          contents: toGeminiContents(messages),
+          contents: toCodeAssistContents(messages),
           ...codeAssistOptions(config),
         })
       : await (async () => {
@@ -361,6 +364,46 @@ function toGeminiContents(messages: Message[]): Content[] {
     contents.push({ role, parts: msg.content.map(toGeminiPart) });
   }
   return contents;
+}
+
+function toCodeAssistContents(messages: Message[]): Content[] {
+  return ensureActiveLoopThoughtSignatures(toGeminiContents(messages));
+}
+
+function ensureActiveLoopThoughtSignatures(contents: Content[]): Content[] {
+  let activeLoopStartIndex = -1;
+  for (let i = contents.length - 1; i >= 0; i--) {
+    const content = contents[i];
+    if (!content) continue;
+    if (content.role === "user" && content.parts?.some((part) => part.text)) {
+      activeLoopStartIndex = i;
+      break;
+    }
+  }
+
+  if (activeLoopStartIndex === -1) return contents;
+
+  const out = contents.slice();
+  for (let i = activeLoopStartIndex; i < out.length; i++) {
+    const content = out[i];
+    if (!content) continue;
+    if (content.role !== "model" || !content.parts) continue;
+
+    const callIndex = content.parts.findIndex((part) => part.functionCall);
+    if (callIndex < 0) continue;
+
+    const part = content.parts[callIndex] as CodeAssistPart | undefined;
+    if (!part) continue;
+    if (part.thoughtSignature) continue;
+
+    const parts = content.parts.slice();
+    parts[callIndex] = {
+      ...part,
+      thoughtSignature: SYNTHETIC_THOUGHT_SIGNATURE,
+    } as CodeAssistPart;
+    out[i] = { ...content, parts };
+  }
+  return out;
 }
 
 function toGeminiPart(part: ContentPart): Part {

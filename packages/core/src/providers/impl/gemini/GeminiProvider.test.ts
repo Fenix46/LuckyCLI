@@ -244,4 +244,61 @@ describe("GeminiProvider", () => {
       }),
     );
   });
+
+  it("adds Code Assist thought signatures to tool call history", async () => {
+    const provider = new GeminiProvider({
+      type: "gemini",
+      authMethod: "oauth",
+      accessToken: "test-access-token",
+    });
+
+    await provider.generate(
+      [
+        { role: "user", content: [{ type: "text", text: "read file" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: "call_1",
+              name: "read_file",
+              arguments: { path: "README.md" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool_result",
+              toolCallId: "call_1",
+              name: "read_file",
+              content: "contents",
+            },
+          ],
+        },
+      ],
+      { model: "gemini-test" },
+    );
+
+    expect(mocks.codeAssistGenerateContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contents: expect.arrayContaining([
+          expect.objectContaining({
+            role: "model",
+            parts: [
+              expect.objectContaining({
+                functionCall: {
+                  id: "call_1",
+                  name: "read_file",
+                  args: { path: "README.md" },
+                },
+                thoughtSignature: "skip_thought_signature_validator",
+              }),
+            ],
+          }),
+        ]),
+      }),
+    );
+  });
 });
