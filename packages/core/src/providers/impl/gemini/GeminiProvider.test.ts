@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { GeminiProvider } from "./GeminiProvider.js";
 import { GoogleGenAI } from "@google/genai";
+import { CodeAssistClient } from "./CodeAssistClient.js";
 import { refreshAccessToken } from "./GoogleAuthHelper.js";
 import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
+
+const mocks = vi.hoisted(() => ({
+  codeAssistGenerateContent: vi.fn(),
+  codeAssistGenerateContentStream: vi.fn(),
+  codeAssistCountTokens: vi.fn(),
+}));
 
 vi.mock("@google/genai", () => {
   const GoogleGenAI = vi.fn().mockImplementation((options) => ({
@@ -23,6 +30,32 @@ vi.mock("@google/genai", () => {
 
 vi.mock("./GoogleAuthHelper.js", () => ({
   refreshAccessToken: vi.fn().mockResolvedValue("new-access-token"),
+}));
+
+vi.mock("./CodeAssistClient.js", () => ({
+  CodeAssistClient: vi.fn().mockImplementation((accessToken) => ({
+    generateContent: mocks.codeAssistGenerateContent.mockImplementation(
+      async () => {
+        await accessToken();
+        return {
+          text: "mocked response",
+          candidates: [{ finishReason: "STOP" }],
+        };
+      },
+    ),
+    generateContentStream:
+      mocks.codeAssistGenerateContentStream.mockImplementation(async function* () {
+        await accessToken();
+        yield {
+          text: "mocked stream response",
+          candidates: [{ finishReason: "STOP" }],
+        };
+      }),
+    countTokens: mocks.codeAssistCountTokens.mockImplementation(async () => {
+      await accessToken();
+      return { totalTokens: 42 };
+    }),
+  })),
 }));
 
 vi.mock("../../../config/store.js", () => ({
@@ -75,14 +108,7 @@ describe("GeminiProvider", () => {
       authMethod: "oauth",
       accessToken: "test-access-token",
     });
-    expect(GoogleGenAI).toHaveBeenCalledWith({
-      apiKey: "",
-      httpOptions: {
-        headers: {
-          Authorization: "Bearer test-access-token",
-        },
-      },
-    });
+    expect(CodeAssistClient).toHaveBeenCalledOnce();
   });
 
   it("refreshes oauth token automatically prior to generating content", async () => {
@@ -95,14 +121,9 @@ describe("GeminiProvider", () => {
 
     const response = await provider.generate([], { model: "gemini-2.5-pro" });
     expect(refreshAccessToken).toHaveBeenCalledWith("mock-refresh-token");
-    expect(GoogleGenAI).toHaveBeenLastCalledWith({
-      apiKey: "",
-      httpOptions: {
-        headers: {
-          Authorization: "Bearer new-access-token",
-        },
-      },
-    });
+    expect(mocks.codeAssistGenerateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gemini-2.5-pro" }),
+    );
     expect(response.content[0]).toEqual({ type: "text", text: "mocked response" });
   });
 

@@ -26,17 +26,23 @@ import type {
 } from "../../types.js";
 import { refreshAccessToken } from "./GoogleAuthHelper.js";
 import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
+import { CodeAssistClient } from "./CodeAssistClient.js";
 
 const INFO: ProviderInfo = providerInfo("gemini");
 
 export class GeminiProvider implements IProvider {
   readonly info = INFO;
   private client!: GoogleGenAI;
+  private readonly codeAssistClient: CodeAssistClient | undefined;
   private readonly credentials: GeminiCredentials;
 
   constructor(credentials: GeminiCredentials) {
     this.credentials = credentials;
     this.client = this.createClient();
+    this.codeAssistClient =
+      credentials.authMethod === "oauth"
+        ? new CodeAssistClient(() => this.currentAccessToken())
+        : undefined;
   }
 
   private createClient(): GoogleGenAI {
@@ -46,19 +52,17 @@ export class GeminiProvider implements IProvider {
         project: this.credentials.projectId || undefined,
         location: this.credentials.location || undefined,
       });
-    } else if (this.credentials.authMethod === "oauth") {
-      return new GoogleGenAI({
-        apiKey: "", // Bypasses GCP Application Default Credentials lookup
-        httpOptions: {
-          headers: {
-            Authorization: `Bearer ${this.credentials.accessToken || ""}`,
-            ...(this.credentials.projectId ? { "x-goog-user-project": this.credentials.projectId } : {}),
-          },
-        },
-      });
     } else {
       return new GoogleGenAI({ apiKey: this.credentials.apiKey || "" });
     }
+  }
+
+  private async currentAccessToken(): Promise<string> {
+    await this.ensureValidAuth();
+    if (!this.credentials.accessToken) {
+      throw new Error("Missing Google OAuth access token.");
+    }
+    return this.credentials.accessToken;
   }
 
   private async ensureValidAuth(): Promise<void> {
@@ -88,12 +92,21 @@ export class GeminiProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): Promise<GenerationResponse> {
-    await this.ensureValidAuth();
-    const response = await this.client.models.generateContent({
-      model: config.model || INFO.defaultModel,
-      contents: toGeminiContents(messages),
-      config: buildConfig(config),
-    });
+    const model = config.model || INFO.defaultModel;
+    const response = this.codeAssistClient
+      ? await this.codeAssistClient.generateContent({
+          model,
+          contents: toGeminiContents(messages),
+          ...codeAssistOptions(config),
+        })
+      : await (async () => {
+          await this.ensureValidAuth();
+          return this.client.models.generateContent({
+            model,
+            contents: toGeminiContents(messages),
+            config: buildConfig(config),
+          });
+        })();
 
     const content = contentFromResponse(response);
     const hasToolCalls = content.some((p) => p.type === "tool_call");
@@ -112,12 +125,21 @@ export class GeminiProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): AsyncGenerator<StreamChunk> {
-    await this.ensureValidAuth();
-    const stream = await this.client.models.generateContentStream({
-      model: config.model || INFO.defaultModel,
-      contents: toGeminiContents(messages),
-      config: buildConfig(config),
-    });
+    const model = config.model || INFO.defaultModel;
+    const stream = this.codeAssistClient
+      ? this.codeAssistClient.generateContentStream({
+          model,
+          contents: toGeminiContents(messages),
+          ...codeAssistOptions(config),
+        })
+      : await (async () => {
+          await this.ensureValidAuth();
+          return this.client.models.generateContentStream({
+            model,
+            contents: toGeminiContents(messages),
+            config: buildConfig(config),
+          });
+        })();
 
     let finishReason: FinishReason = "stop";
     let usage: TokenUsage | undefined;
@@ -156,26 +178,69 @@ export class GeminiProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): Promise<TokenUsage | undefined> {
-    await this.ensureValidAuth();
-    const result = await this.client.models.countTokens({
-      model: config.model || INFO.defaultModel,
-      contents: toGeminiContents(messages),
-    });
+    const model = config.model || INFO.defaultModel;
+    const result = this.codeAssistClient
+      ? await this.codeAssistClient.countTokens(
+          model,
+          toGeminiContents(messages),
+          config.abortSignal,
+        )
+      : await (async () => {
+          await this.ensureValidAuth();
+          return this.client.models.countTokens({
+            model,
+            contents: toGeminiContents(messages),
+          });
+        })();
     return { inputTokens: result.totalTokens ?? 0, outputTokens: 0 };
   }
 
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     try {
-      await this.ensureValidAuth();
-      await this.client.models.generateContent({
-        model: INFO.defaultModel,
-        contents: [{ role: "user", parts: [{ text: "ping" }] }],
-      });
+      if (this.codeAssistClient) {
+        await this.codeAssistClient.generateContent({
+          model: INFO.defaultModel,
+          contents: [{ role: "user", parts: [{ text: "ping" }] }],
+        });
+      } else {
+        await this.ensureValidAuth();
+        await this.client.models.generateContent({
+          model: INFO.defaultModel,
+          contents: [{ role: "user", parts: [{ text: "ping" }] }],
+        });
+      }
       return { ok: true };
     } catch (e) {
       return { ok: false, error: String(e) };
     }
   }
+}
+
+function codeAssistOptions(config: GenerationConfig) {
+  const built = buildConfig(config);
+  const generationConfig: Record<string, unknown> = {};
+  if ("temperature" in built) generationConfig.temperature = built.temperature;
+  if ("topP" in built) generationConfig.topP = built.topP;
+  if ("maxOutputTokens" in built) {
+    generationConfig.maxOutputTokens = built.maxOutputTokens;
+  }
+  if ("stopSequences" in built) {
+    generationConfig.stopSequences = built.stopSequences;
+  }
+
+  return {
+    ...(built.systemInstruction
+      ? {
+          systemInstruction: {
+            role: "user",
+            parts: [{ text: String(built.systemInstruction) }],
+          },
+        }
+      : {}),
+    ...(built.tools ? { tools: built.tools } : {}),
+    ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
+    ...(config.abortSignal ? { abortSignal: config.abortSignal } : {}),
+  };
 }
 
 function buildConfig(config: GenerationConfig) {
