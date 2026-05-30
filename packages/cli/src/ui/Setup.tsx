@@ -53,6 +53,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthTokens, setOauthTokens] = useState<{ accessToken: string; refreshToken?: string } | null>(null);
   const [openAiOAuthTokens, setOpenAiOAuthTokens] = useState<OpenAiOAuthTokens | null>(null);
+  const googleOAuthStartedRef = useRef(false);
   const openAiOAuthStartedRef = useRef(false);
 
   // Initialize dynamic Google OAuth loopback flow asynchronously.
@@ -61,10 +62,8 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     if (
       selectedAuthMethod?.kind === "oauth" &&
       step === "credential" &&
-      !oauthUrl &&
-      !oauthLoading &&
-      !oauthError &&
-      !openAiOAuthTokens
+      !googleOAuthStartedRef.current &&
+      !openAiOAuthStartedRef.current
     ) {
       setOauthLoading(true);
       setOauthError(null);
@@ -85,6 +84,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         return;
       }
 
+      googleOAuthStartedRef.current = true;
       startOAuthFlow()
         .then((session) => {
           activeSession = session;
@@ -103,6 +103,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         .catch((err) => {
           setOauthLoading(false);
           setOauthError(`Authentication failed: ${err instanceof Error ? err.message : String(err)}`);
+          googleOAuthStartedRef.current = false;
         });
     }
 
@@ -111,7 +112,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         activeSession.stop();
       }
     };
-  }, [selectedAuthMethod?.id, selectedProviderId, step, oauthUrl, oauthLoading, oauthError, openAiOAuthTokens]);
+  }, [selectedAuthMethod?.id, selectedProviderId, step]);
 
   const companyItems = listProviders().map((provider) => ({
     key: provider.id,
@@ -134,6 +135,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     setOauthError(null);
     setOauthTokens(null);
     setOpenAiOAuthTokens(null);
+    googleOAuthStartedRef.current = false;
     openAiOAuthStartedRef.current = false;
   }
 
@@ -144,6 +146,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     setOauthError(null);
     setOauthTokens(null);
     setOpenAiOAuthTokens(null);
+    googleOAuthStartedRef.current = false;
     openAiOAuthStartedRef.current = false;
     setStep("credential");
 

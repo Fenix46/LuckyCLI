@@ -139,7 +139,7 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
         res.end("Authentication failed.");
         reject(err);
       } finally {
-        server.close();
+        closeServer(server);
       }
     });
 
@@ -152,9 +152,16 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
     url,
     tokenPromise,
     stop: () => {
-      server.close();
+      closeServer(server);
     },
   };
+}
+
+function closeServer(server: http.Server): void {
+  if (!server.listening) return;
+  server.close(() => {
+    // best-effort cleanup
+  });
 }
 
 /**
@@ -187,4 +194,3 @@ export function openBrowser(url: string): void {
     // best-effort, ignore errors
   });
 }
-
