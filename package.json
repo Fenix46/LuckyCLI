@@ -1,0 +1,26 @@
+{
+  "name": "luckycli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "npm run dev --workspace @luckycli/cli",
+    "start": "npm run start --workspace @luckycli/cli",
+    "typecheck": "tsc --build",
+    "test": "vitest run",
+    "clean": "tsc --build --clean && find packages -name dist -type d -exec rm -rf {} + 2>/dev/null; true"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0"
+  }
+}
