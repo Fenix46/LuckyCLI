@@ -3,10 +3,15 @@
 A modern, multi-provider terminal AI agent. Built in TypeScript, designed so the
 agent logic, tools and CLI never know which model provider is behind them.
 
-> Status: **early scaffold.** The architecture is complete and type-safe.
-> Anthropic and OpenAI (and therefore Ollama) adapters are fleshed out; the
-> Gemini adapter is structurally complete but not yet exercised against the live
-> API. Not all paths are tested end to end yet — see the roadmap.
+> Status: **working MVP.** The architecture is complete and type-safe, the build
+> and unit suite are green, and the Ink-based REPL is interactive. Five provider
+> adapters are implemented — Claude, OpenAI (API key + browser OAuth), Gemini
+> (API key + Google OAuth via Code Assist) and Ollama. The agent loop runs tools,
+> prompts for approval on side-effecting ones, and compacts context automatically.
+>
+> Caveat: adapters are covered by unit tests with mocked transports — there are
+> **no recorded fixtures or end-to-end runs against the live APIs yet**, and there
+> is no session persistence. See the roadmap.
 
 ## Architecture
 
@@ -25,10 +30,11 @@ provider SDK.
                                    ┌──────▼───────┐  ┌──────────────┐
                                    │  Provider    │  │   Tools      │
                                    │  (providers/)│  │  read_file   │
-                                   │  anthropic   │  │  write_file  │
-                                   │  openai      │  │  exec        │
-                                   │  gemini      │  └──────────────┘
-                                   │  ollama      │
+                                   │  claude      │  │  write_file  │
+                                   │  openai      │  │  list_dir    │
+                                   │  openai-oauth│  │  exec        │
+                                   │  gemini      │  │  http_fetch  │
+                                   │  ollama      │  └──────────────┘
                                    └──────────────┘
 ```
 
@@ -61,7 +67,10 @@ cp .env.example .env   # add your API keys
 npm run dev            # run the REPL with tsx
 ```
 
-CLI flags:
+On first run the REPL walks you through an interactive setup (provider choice,
+credentials, including browser OAuth for OpenAI and Google OAuth for Gemini) and
+persists it to `~/.luckycli/config.json`. Defaults can also come from `.env`
+(`LUCKY_PROVIDER`, `LUCKY_MODEL`) or be overridden with CLI flags:
 
 ```bash
 lucky --provider openai --model gpt-4o
@@ -69,13 +78,38 @@ lucky -p claude -m claude-sonnet-4-6
 lucky -p ollama -m llama3.1
 ```
 
+Inside the REPL, slash commands drive the session:
+
+```
+/help      show all slash commands       /compact   summarize older history now
+/model     switch model for the provider /setup     switch provider / credentials
+/context   show context window + usage    /config    show active provider + model
+/theme     choose terminal UI colors      /exit      quit (alias: /quit)
+```
+
+Side-effecting tools (`write_file`, `exec`, `http_fetch`) prompt for approval
+before running. When the conversation approaches the model's usable context, the
+agent automatically summarizes the older turns to stay within budget.
+
+## Testing
+
+```bash
+npm run typecheck   # tsc --build across the workspace
+npm test            # vitest — unit suite for providers, agent and tools
+```
+
+Adapters are unit-tested with mocked transports; the suite does not yet hit live
+provider APIs.
+
 ## Roadmap
 
-- [ ] Verify Gemini adapter against the live API + surface finish reasons
+- [x] Tool approval prompts for side-effecting tools (`exec`, `write_file`, `http_fetch`)
+- [x] Automatic context compaction (summarize older turns near the budget)
+- [x] Interactive model/provider switching from the REPL
+- [x] Browser OAuth (OpenAI) and Google OAuth via Code Assist (Gemini)
+- [ ] Verify adapters against the live APIs with recorded fixtures
 - [ ] Conversation persistence / session resume
 - [ ] Streaming markdown rendering in the CLI
-- [x] Tool approval prompts for side-effecting tools (`exec`, `write_file`)
 - [ ] Retry/backoff + structured error taxonomy in providers
 - [ ] More tools (e.g. search)
-- [ ] Unit tests per adapter with recorded fixtures
 ```
