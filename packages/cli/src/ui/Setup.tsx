@@ -83,7 +83,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         activeSession.stop();
       }
     };
-  }, [selectedAuthMethod, step, oauthUrl]);
+  }, [selectedAuthMethod?.id, step]);
 
   // Unique list of companies from PROVIDER_CATALOG
   const companyItems = Array.from(
