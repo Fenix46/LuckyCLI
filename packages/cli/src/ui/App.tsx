@@ -10,6 +10,7 @@ import {
   type Message,
   type ProviderStatus,
   type ProviderId,
+  type ProviderQuotaStatus,
   type Session,
   type ToolApproval,
   type TokenUsage,
@@ -35,6 +36,7 @@ type Item =
   | { kind: "assistant"; text: string }
   | { kind: "tool"; name: string; input: string; output?: string; error?: boolean }
   | { kind: "command"; title: string; rows: CommandRow[] }
+  | { kind: "status"; provider: ProviderStatus; context: ContextStatus }
   | { kind: "error"; text: string };
 
 interface CommandRow {
@@ -522,9 +524,9 @@ export function App({
           setItems((prev) => [
             ...prev,
             {
-              kind: "command",
-              title: "Status",
-              rows: statusRows(providerStatus, status),
+              kind: "status",
+              provider: providerStatus,
+              context: status,
             },
           ]);
         } catch (error) {
@@ -1113,6 +1115,15 @@ function ItemView({
         </Box>
       );
     }
+    case "status":
+      return (
+        <StatusView
+          provider={item.provider}
+          context={item.context}
+          theme={theme}
+          width={width}
+        />
+      );
     case "command":
       return (
         <Box flexDirection="column" paddingLeft={2} marginY={0.2}>
@@ -1128,6 +1139,123 @@ function ItemView({
         </Box>
       );
   }
+}
+
+function StatusView({
+  provider,
+  context,
+  theme,
+  width,
+}: {
+  provider: ProviderStatus;
+  context: ContextStatus;
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
+  const panelWidth = Math.max(56, Math.min(width - 4, 112));
+  const details = statusDetails(provider, context);
+  const notes = compactStatusNotes(provider.notes ?? []);
+  const contextUsage = contextUsagePercent(context);
+
+  return (
+    <Box flexDirection="column" marginY={0.4} paddingLeft={1}>
+      <Box
+        flexDirection="column"
+        borderStyle="single"
+        borderColor={theme.muted}
+        paddingX={2}
+        paddingY={1}
+        width={panelWidth}
+      >
+        <Box flexDirection="row" marginBottom={1}>
+          <Text bold color={theme.accent}>›_ </Text>
+          <Text bold>{provider.displayName}</Text>
+          <Text color={theme.muted}> ({provider.provider})</Text>
+        </Box>
+
+        <Box flexDirection="column" marginBottom={1}>
+          {details.map((row) => (
+            <Box key={row.label} flexDirection="row">
+              <Box width={15}>
+                <Text color={theme.muted}>{row.label}:</Text>
+              </Box>
+              <Text color="white">{row.value}</Text>
+              {row.hint ? <Text color={theme.muted}> {row.hint}</Text> : null}
+            </Box>
+          ))}
+        </Box>
+
+        <UsageBar
+          label="Context"
+          percent={contextUsage}
+          unavailable={contextUsage === undefined}
+          detail={contextDetail(context)}
+          theme={theme}
+          width={panelWidth - 8}
+        />
+
+        {provider.quotas?.length ? (
+          <Box flexDirection="column" marginTop={1}>
+            {provider.quotas.map((quota, index) => (
+              <UsageBar
+                key={`${quota.label}-${index}`}
+                label={quotaLabel(quota.label)}
+                percent={quotaUsedPercent(quota)}
+                detail={quotaResetDetail(quota)}
+                theme={theme}
+                width={panelWidth - 8}
+              />
+            ))}
+          </Box>
+        ) : (
+          <Box marginTop={1}>
+            <Text color={theme.muted}>Quota windows not available from this provider.</Text>
+          </Box>
+        )}
+
+        {notes.length ? (
+          <Box flexDirection="column" marginTop={1}>
+            {notes.map((note) => (
+              <Text key={note} color={theme.muted}>{note}</Text>
+            ))}
+          </Box>
+        ) : null}
+      </Box>
+    </Box>
+  );
+}
+
+function UsageBar({
+  label,
+  percent,
+  detail,
+  unavailable,
+  theme,
+  width,
+}: {
+  label: string;
+  percent: number | undefined;
+  detail: string | undefined;
+  unavailable?: boolean;
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
+  const barWidth = Math.max(18, Math.min(36, width - 25));
+  const safePercent = percent === undefined ? 0 : Math.max(0, Math.min(100, percent));
+  const filled = Math.round((safePercent / 100) * barWidth);
+  const empty = Math.max(0, barWidth - filled);
+
+  return (
+    <Box flexDirection="column" marginTop={0.3}>
+      <Text bold color="white">{label}</Text>
+      <Box flexDirection="row">
+        <Text color={theme.accent}>{"█".repeat(filled)}</Text>
+        <Text color={theme.muted}>{"░".repeat(empty)}</Text>
+        <Text color="white"> {unavailable ? "unknown" : `${safePercent}% used`}</Text>
+        {detail ? <Text color={theme.muted}> {detail}</Text> : null}
+      </Box>
+    </Box>
+  );
 }
 
 function ApprovalOptionView({
@@ -1577,63 +1705,77 @@ function contextRows(status: ContextStatus): CommandRow[] {
   ];
 }
 
-function statusRows(
+function statusDetails(
   provider: ProviderStatus,
   context: ContextStatus,
-): CommandRow[] {
-  const rows: CommandRow[] = [
-    { label: "provider", value: `${provider.displayName} (${provider.provider})` },
-    { label: "login", value: provider.authType },
-    { label: "account", value: provider.account ?? "not available" },
-    { label: "project", value: provider.project ?? "not applicable" },
-    { label: "subscription", value: provider.subscription ?? "not available" },
-    { label: "tier", value: provider.tier ?? "not available" },
+): Array<{ label: string; value: string; hint?: string }> {
+  return [
+    { label: "Model", value: context.model },
+    { label: "Directory", value: prettyCwd(process.cwd()) },
+    { label: "Login", value: provider.authType },
     {
-      label: "context",
-      value:
-        context.usedTokens !== undefined && context.usableTokens
-          ? `${formatNumber(context.usedTokens)} / ${formatNumber(context.usableTokens)} tokens`
-          : context.contextWindow
-            ? `${formatNumber(context.contextWindow)} token window`
-            : "unknown",
+      label: "Account",
+      value: provider.account ?? "not available",
+      hint: provider.subscription ? `(${provider.subscription})` : undefined,
     },
-    {
-      label: "ctx pressure",
-      value: context.ratio !== undefined ? `${Math.round(context.ratio * 100)}%` : "unknown",
-    },
+    ...(provider.project ? [{ label: "Project", value: provider.project }] : []),
+    ...(provider.tier ? [{ label: "Tier", value: provider.tier }] : []),
   ];
+}
 
-  if (provider.quotas?.length) {
-    rows.push(
-      ...provider.quotas.map((quota) => ({
-        label: "quota",
-        value: [
-          quota.label,
-          quota.remaining ? `remaining ${quota.remaining}` : undefined,
-          quota.resetTime ? `resets ${quota.resetTime}` : undefined,
-          quota.modelId ? `model ${quota.modelId}` : undefined,
-        ]
-          .filter(Boolean)
-          .join(" | "),
-      })),
-    );
-  } else {
-    rows.push(
-      { label: "5h limit", value: "not available" },
-      { label: "weekly limit", value: "not available" },
-    );
+function compactStatusNotes(notes: string[]): string[] {
+  return notes
+    .filter((note) => !note.startsWith("subscription status:"))
+    .filter((note) => !note.startsWith("billing:"))
+    .filter((note) => note !== "extra usage enabled")
+    .map((note) => note.replace(/^organization role: /, "role: "))
+    .slice(0, 4);
+}
+
+function contextUsagePercent(context: ContextStatus): number | undefined {
+  if (typeof context.ratio !== "number" || !Number.isFinite(context.ratio)) return undefined;
+  return Math.round(Math.max(0, Math.min(1, context.ratio)) * 100);
+}
+
+function contextDetail(context: ContextStatus): string | undefined {
+  if (context.usedTokens !== undefined && context.usableTokens) {
+    return `(${formatNumber(context.usedTokens)} / ${formatNumber(context.usableTokens)})`;
   }
+  if (context.contextWindow) return `(${formatNumber(context.contextWindow)} window)`;
+  return undefined;
+}
 
-  if (provider.notes?.length) {
-    rows.push(
-      ...provider.notes.map((note) => ({
-        label: "note",
-        value: note,
-      })),
-    );
+function quotaUsedPercent(quota: ProviderQuotaStatus): number | undefined {
+  const match = quota.remaining?.match(/\((\d+)% used\)/);
+  if (match?.[1]) return Number(match[1]);
+  const remainingMatch = quota.remaining?.match(/^(\d+)% available/);
+  if (remainingMatch?.[1]) return 100 - Number(remainingMatch[1]);
+  return undefined;
+}
+
+function quotaResetDetail(quota: ProviderQuotaStatus): string | undefined {
+  if (!quota.resetTime) return quota.modelId ? `(model ${quota.modelId})` : undefined;
+  const reset = new Date(quota.resetTime);
+  const formatted = Number.isNaN(reset.getTime())
+    ? quota.resetTime
+    : reset.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+  return `(resets ${formatted}${quota.modelId ? ` · ${quota.modelId}` : ""})`;
+}
+
+function quotaLabel(label: string): string {
+  switch (label) {
+    case "5h limit":
+      return "Current session";
+    case "weekly limit":
+      return "Current week";
+    default:
+      return label;
   }
-
-  return rows;
 }
 
 function formatContextFooter(status: ContextStatus | null): string {
