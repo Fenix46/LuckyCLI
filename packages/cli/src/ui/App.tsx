@@ -908,16 +908,20 @@ export function App({
         </Box>
       ) : null}
 
-      <Box
-        flexDirection="row"
-        paddingX={0}
-        width="100%"
-        marginTop={0.5}
-      >
-        <Text bold color={busy ? activeTheme.success : activeTheme.primary}>
-          {busy ? "⏳ lucky › " : "you › "}
-        </Text>
-        <TextInput value={input} onChange={handleInputChange} onSubmit={submit} />
+      <Box flexDirection="column" width="100%" marginTop={0.5}>
+        <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
+        <Box
+          flexDirection="row"
+          paddingX={0}
+          width="100%"
+          marginY={0.1}
+        >
+          <Text bold color={busy ? activeTheme.success : activeTheme.accent}>
+            {busy ? " ⏳ " : " > "}
+          </Text>
+          <TextInput value={input} onChange={handleInputChange} onSubmit={submit} />
+        </Box>
+        <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
       </Box>
 
       <Box width="100%" paddingX={0} justifyContent="space-between" marginTop={0.2}>
@@ -957,8 +961,7 @@ function ItemView({
       return (
         <Box flexDirection="column" marginY={0.2}>
           <Box flexDirection="row" marginBottom={0.1}>
-            <Text bold color={theme.primary}>you</Text>
-            <Text color={theme.muted}> › </Text>
+            <Text bold color={theme.accent}>› </Text>
           </Box>
           <Box paddingLeft={2}>
             {parseMarkdownToReact(item.text, theme)}
