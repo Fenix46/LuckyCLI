@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build workspaces
+        run: npm run build # emits @luckycli/core dist so the bundler can resolve it
+
       - name: Build standalone binaries
         run: bun run scripts/build.ts
 
