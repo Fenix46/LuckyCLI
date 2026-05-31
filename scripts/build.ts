@@ -14,6 +14,8 @@ const root = join(here, "..");
 const entry = join(root, "packages/cli/src/index.tsx");
 const outDir = join(root, "dist-bin");
 const stub = join(here, "stubs/react-devtools-core.js");
+const googleOAuthClientId = process.env.LUCKY_GOOGLE_OAUTH_CLIENT_ID || "__unset__";
+const googleOAuthClientSecret = process.env.LUCKY_GOOGLE_OAUTH_CLIENT_SECRET || "__unset__";
 
 // Bun cross-compilation targets -> output file name.
 const TARGETS: Record<string, string> = {
@@ -49,6 +51,10 @@ for (const name of selected) {
   const result = await Bun.build({
     entrypoints: [entry],
     plugins: stubDevtools,
+    define: {
+      __LUCKY_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(googleOAuthClientId),
+      __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(googleOAuthClientSecret),
+    },
     compile: { target: `bun-${name}`, outfile: join(outDir, outfile) },
   });
   if (!result.success) {

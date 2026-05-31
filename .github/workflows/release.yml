@@ -40,6 +40,9 @@ jobs:
 
       - name: Build standalone binaries
         run: bun run scripts/build.ts
+        env:
+          LUCKY_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.LUCKY_GOOGLE_OAUTH_CLIENT_ID }}
+          LUCKY_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.LUCKY_GOOGLE_OAUTH_CLIENT_SECRET }}
 
       - name: Generate checksums
         run: |

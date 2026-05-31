@@ -4,6 +4,9 @@ import crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
 
+declare const __LUCKY_GOOGLE_OAUTH_CLIENT_ID__: string | undefined;
+declare const __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__: string | undefined;
+
 const OAUTH_CLIENT_ID_ENV = "LUCKY_GOOGLE_OAUTH_CLIENT_ID";
 const OAUTH_CLIENT_SECRET_ENV = "LUCKY_GOOGLE_OAUTH_CLIENT_SECRET";
 const OAUTH_SCOPE = [
@@ -183,14 +186,28 @@ export async function refreshAccessToken(
 }
 
 function getGoogleOAuthClientConfig(): { clientId: string; clientSecret: string } {
-  const clientId = process.env[OAUTH_CLIENT_ID_ENV];
-  const clientSecret = process.env[OAUTH_CLIENT_SECRET_ENV];
+  const clientId =
+    buildInjectedValue(
+      typeof __LUCKY_GOOGLE_OAUTH_CLIENT_ID__ === "undefined"
+        ? undefined
+        : __LUCKY_GOOGLE_OAUTH_CLIENT_ID__,
+    ) ?? process.env[OAUTH_CLIENT_ID_ENV];
+  const clientSecret =
+    buildInjectedValue(
+      typeof __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__ === "undefined"
+        ? undefined
+        : __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__,
+    ) ?? process.env[OAUTH_CLIENT_SECRET_ENV];
   if (!clientId || !clientSecret) {
     throw new Error(
       `Google OAuth requires ${OAUTH_CLIENT_ID_ENV} and ${OAUTH_CLIENT_SECRET_ENV} to be set.`,
     );
   }
   return { clientId, clientSecret };
+}
+
+function buildInjectedValue(value: string | undefined): string | undefined {
+  return value && value !== "__unset__" ? value : undefined;
 }
 
 /**
