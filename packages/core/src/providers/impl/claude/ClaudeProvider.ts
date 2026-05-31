@@ -14,6 +14,7 @@ import type {
   GenerationResponse,
   Message,
   ProviderInfo,
+  ProviderQuotaStatus,
   ProviderStatus,
   StreamChunk,
   TextPart,
@@ -23,9 +24,12 @@ import {
   CLAUDE_OAUTH_BETA_HEADER,
   fetchClaudeOAuthProfile,
   fetchClaudeOAuthRoles,
+  fetchClaudeOAuthUsage,
   refreshClaudeOAuthToken,
   subscriptionType,
   type ClaudeOAuthTokens,
+  type ClaudeOAuthUsage,
+  type ClaudeOAuthUsageWindow,
 } from "./oauth.js";
 
 const INFO: ProviderInfo = providerInfo("claude");
@@ -190,16 +194,19 @@ export class ClaudeProvider implements IProvider {
   async getStatus(): Promise<ProviderStatus> {
     if (this.credentials.authMethod === "oauth") {
       const credentials = await this.ensureFreshToken();
-      const [profile, roles] = credentials.accessToken
+      const [profile, roles, usage] = credentials.accessToken
         ? await Promise.all([
             fetchClaudeOAuthProfile(credentials.accessToken).catch(() => undefined),
             fetchClaudeOAuthRoles(credentials.accessToken).catch(() => undefined),
+            fetchClaudeOAuthUsage(credentials.accessToken).catch(() => undefined),
           ])
-        : [undefined, undefined];
+        : [undefined, undefined, undefined];
       const sub =
         subscriptionType(profile?.organization?.organization_type) ??
         credentials.subscriptionType;
       const tier = profile?.organization?.rate_limit_tier ?? credentials.rateLimitTier;
+      const quotas = usageQuotas(usage);
+      const usageNotes = extraUsageNotes(usage);
       return {
         provider: this.info.id,
         displayName: this.info.displayName,
@@ -212,6 +219,7 @@ export class ClaudeProvider implements IProvider {
           : {}),
         ...(sub ? { subscription: sub } : {}),
         ...(tier ?? sub ? { tier: tier ?? sub } : {}),
+        ...(quotas.length ? { quotas } : {}),
         notes: [
           profile?.organization?.subscription_status
             ? `subscription status: ${profile.organization.subscription_status}`
@@ -224,6 +232,7 @@ export class ClaudeProvider implements IProvider {
             : undefined,
           roles?.organization_role ? `organization role: ${roles.organization_role}` : undefined,
           roles?.workspace_role ? `workspace role: ${roles.workspace_role}` : undefined,
+          ...usageNotes,
           sub ? undefined : "Claude OAuth account does not report a Pro/Max/Team/Enterprise subscription.",
         ].filter((note): note is string => Boolean(note)),
       };
@@ -314,6 +323,57 @@ function buildOptions(config: GenerationConfig) {
         }
       : {}),
   };
+}
+
+function usageQuotas(usage: ClaudeOAuthUsage | undefined): ProviderQuotaStatus[] {
+  return [
+    usageQuota("5h limit", usage?.five_hour),
+    usageQuota("weekly limit", usage?.seven_day),
+    usageQuota("weekly OAuth apps", usage?.seven_day_oauth_apps),
+    usageQuota("weekly Opus", usage?.seven_day_opus),
+    usageQuota("weekly Sonnet", usage?.seven_day_sonnet),
+    usageQuota("weekly cowork", usage?.seven_day_cowork),
+    usageQuota("weekly omelette", usage?.seven_day_omelette),
+  ].filter((quota): quota is ProviderQuotaStatus => Boolean(quota));
+}
+
+function usageQuota(
+  label: string,
+  window: ClaudeOAuthUsageWindow | null | undefined,
+): ProviderQuotaStatus | undefined {
+  if (!window) return undefined;
+  const used =
+    typeof window.utilization === "number" && Number.isFinite(window.utilization)
+      ? Math.round(window.utilization)
+      : undefined;
+  return {
+    label,
+    ...(used !== undefined
+      ? { remaining: `${Math.max(0, 100 - used)}% available (${used}% used)` }
+      : {}),
+    ...(window.resets_at ? { resetTime: window.resets_at } : {}),
+    tokenType: label,
+  };
+}
+
+function extraUsageNotes(usage: ClaudeOAuthUsage | undefined): string[] {
+  const extra = usage?.extra_usage;
+  if (!extra) return [];
+
+  const currency = extra.currency ? ` ${extra.currency}` : "";
+  const parts = [
+    extra.is_enabled === undefined ? undefined : extra.is_enabled ? "enabled" : "disabled",
+    extra.monthly_limit !== undefined
+      ? `monthly limit ${extra.monthly_limit}${currency}`
+      : undefined,
+    extra.used_credits !== undefined ? `used ${extra.used_credits}${currency}` : undefined,
+    typeof extra.utilization === "number" && Number.isFinite(extra.utilization)
+      ? `${Math.round(extra.utilization)}% used`
+      : undefined,
+    extra.disabled_reason ? `reason ${extra.disabled_reason}` : undefined,
+  ].filter((part): part is string => Boolean(part));
+
+  return parts.length ? [`extra usage: ${parts.join(", ")}`] : [];
 }
 
 function toAnthropic(

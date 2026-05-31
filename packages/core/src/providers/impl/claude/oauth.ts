@@ -11,6 +11,7 @@ export const CLAUDE_OAUTH_AUTHORIZE_URL = "https://claude.com/cai/oauth/authoriz
 export const CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 export const CLAUDE_OAUTH_API_BASE = "https://api.anthropic.com";
 export const CLAUDE_OAUTH_ROLES_URL = `${CLAUDE_OAUTH_API_BASE}/api/oauth/claude_cli/roles`;
+export const CLAUDE_OAUTH_USAGE_URL = `${CLAUDE_OAUTH_API_BASE}/api/oauth/usage`;
 export const CLAUDE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
 let claudeOAuthCaLoaded = false;
 
@@ -88,6 +89,34 @@ export interface ClaudeOAuthRoles {
   workspace_uuid?: string | null;
   workspace_name?: string | null;
   workspace_role?: string | null;
+}
+
+export interface ClaudeOAuthUsageWindow {
+  utilization?: number;
+  resets_at?: string;
+}
+
+export interface ClaudeOAuthExtraUsage {
+  is_enabled?: boolean;
+  monthly_limit?: number;
+  used_credits?: number;
+  utilization?: number | null;
+  currency?: string;
+  disabled_reason?: string | null;
+}
+
+export interface ClaudeOAuthUsage {
+  five_hour?: ClaudeOAuthUsageWindow | null;
+  seven_day?: ClaudeOAuthUsageWindow | null;
+  seven_day_oauth_apps?: ClaudeOAuthUsageWindow | null;
+  seven_day_opus?: ClaudeOAuthUsageWindow | null;
+  seven_day_sonnet?: ClaudeOAuthUsageWindow | null;
+  seven_day_cowork?: ClaudeOAuthUsageWindow | null;
+  seven_day_omelette?: ClaudeOAuthUsageWindow | null;
+  tangelo?: ClaudeOAuthUsageWindow | null;
+  iguana_necktie?: ClaudeOAuthUsageWindow | null;
+  omelette_promotional?: ClaudeOAuthUsageWindow | null;
+  extra_usage?: ClaudeOAuthExtraUsage | null;
 }
 
 export async function runClaudeBrowserOAuthFlow(): Promise<{ tokens: ClaudeOAuthTokens }> {
@@ -234,6 +263,21 @@ export async function fetchClaudeOAuthRoles(accessToken: string): Promise<Claude
     throw new Error(`Claude OAuth roles failed (${res.status}): ${await res.text()}`);
   }
   return res.json() as Promise<ClaudeOAuthRoles>;
+}
+
+export async function fetchClaudeOAuthUsage(accessToken: string): Promise<ClaudeOAuthUsage> {
+  const res = await claudeFetch(CLAUDE_OAUTH_USAGE_URL, {
+    method: "GET",
+    headers: authHeaders(accessToken, {
+      "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER,
+      "Content-Type": "application/json",
+      "User-Agent": "claude-cli/2.1.158 (external, cli)",
+    }),
+  }, "Claude OAuth usage");
+  if (!res.ok) {
+    throw new Error(`Claude OAuth usage failed (${res.status}): ${await res.text()}`);
+  }
+  return res.json() as Promise<ClaudeOAuthUsage>;
 }
 
 async function postClaudeToken(body: Record<string, string>): Promise<ClaudeOAuthTokenResponse> {

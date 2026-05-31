@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeProvider } from "./ClaudeProvider.js";
 
 const createMock = vi.fn().mockResolvedValue({
@@ -24,6 +24,10 @@ vi.mock("@anthropic-ai/sdk", () => {
 describe("ClaudeProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("passes config systemPrompt to generation requests", async () => {
@@ -105,6 +109,98 @@ describe("ClaudeProvider", () => {
       },
       { type: "text", text: "Be concise." },
     ]);
+  });
+
+  it("reads Claude OAuth usage status", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          account: { email: "user@example.com" },
+          organization: {
+            name: "Test Org",
+            organization_type: "claude_pro",
+            billing_type: "stripe_subscription",
+            rate_limit_tier: "default_claude_ai",
+            has_extra_usage_enabled: true,
+            subscription_status: "active",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          organization_name: "Test Org",
+          organization_role: "admin",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          five_hour: {
+            utilization: 44,
+            resets_at: "2026-05-31T17:39:59.859397+00:00",
+          },
+          seven_day: {
+            utilization: 9,
+            resets_at: "2026-06-06T11:59:59.859419+00:00",
+          },
+          seven_day_oauth_apps: null,
+          seven_day_opus: null,
+          seven_day_sonnet: null,
+          extra_usage: {
+            is_enabled: true,
+            monthly_limit: 4250,
+            used_credits: 0,
+            utilization: null,
+            currency: "EUR",
+            disabled_reason: null,
+          },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "oauth-access-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+
+    const status = await provider.getStatus();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.anthropic.com/api/oauth/usage",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          accept: "application/json, text/plain, */*",
+          Authorization: "Bearer oauth-access-token",
+          "anthropic-beta": "oauth-2025-04-20",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.158 (external, cli)",
+        }),
+      }),
+    );
+    expect(status.account).toBe("user@example.com");
+    expect(status.subscription).toBe("pro");
+    expect(status.tier).toBe("default_claude_ai");
+    expect(status.quotas).toEqual([
+      {
+        label: "5h limit",
+        remaining: "56% available (44% used)",
+        resetTime: "2026-05-31T17:39:59.859397+00:00",
+        tokenType: "5h limit",
+      },
+      {
+        label: "weekly limit",
+        remaining: "91% available (9% used)",
+        resetTime: "2026-06-06T11:59:59.859419+00:00",
+        tokenType: "weekly limit",
+      },
+    ]);
+    expect(status.notes).toContain("extra usage enabled");
+    expect(status.notes).toContain("extra usage: enabled, monthly limit 4250 EUR, used 0 EUR");
   });
 
   it("normalizes OpenAPI boolean exclusive minimums for Claude tools", async () => {
