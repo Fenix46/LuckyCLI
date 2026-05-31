@@ -263,13 +263,13 @@ export function App({
         abortControllerRef.current?.abort();
         return;
       }
-      if (key.leftArrow || _in === "h") {
+      if (key.leftArrow || key.upArrow || _in === "h" || _in === "k") {
         setSelectedApprovalIndex(
           (prev) => (prev - 1 + approvalOptions.length) % approvalOptions.length,
         );
         return;
       }
-      if (key.rightArrow || _in === "l" || key.tab) {
+      if (key.rightArrow || key.downArrow || _in === "l" || _in === "j" || key.tab) {
         setSelectedApprovalIndex((prev) => (prev + 1) % approvalOptions.length);
         return;
       }
@@ -836,24 +836,13 @@ export function App({
       </Box>
 
       {approvalRequest ? (
-        <Box flexDirection="column" paddingLeft={2} marginY={0.5}>
-          <Text bold color={activeTheme.warning}>⚠️ Permission Required</Text>
-          <Text>{approvalSummary(approvalRequest)}</Text>
-          <Box marginLeft={2} marginY={0.2}>
-            <Text color={activeTheme.muted}>{approvalDetails(approvalRequest)}</Text>
-          </Box>
-          <Box flexDirection="row" gap={1} marginTop={0.5}>
-            {approvalOptions.map((option, index) => (
-              <ApprovalOptionView
-                key={option}
-                option={option}
-                selected={index === selectedApprovalIndex}
-                theme={activeTheme}
-              />
-            ))}
-          </Box>
-          <Text color={activeTheme.muted}>left/right select | enter confirm | esc reject</Text>
-        </Box>
+        <ApprovalRequestView
+          request={approvalRequest}
+          selectedIndex={selectedApprovalIndex}
+          options={approvalOptions}
+          theme={activeTheme}
+          width={messageWidth}
+        />
       ) : null}
 
       {modelPicker.open ? (
@@ -1286,6 +1275,67 @@ function UsageBar({
   );
 }
 
+function ApprovalRequestView({
+  request,
+  selectedIndex,
+  options,
+  theme,
+  width,
+}: {
+  request: ApprovalRequest;
+  selectedIndex: number;
+  options: readonly ("allow" | "always" | "deny")[];
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
+  const detail = approvalDisplay(request, width);
+  const panelWidth = Math.max(48, Math.min(width, 104));
+  return (
+    <Box flexDirection="column" paddingLeft={2} marginY={0.5} width={panelWidth}>
+      <Box flexDirection="row">
+        <Text bold color={theme.warning}>Permission required</Text>
+        <Text color={theme.muted}> · {request.name}</Text>
+      </Box>
+
+      <Box marginTop={0.3}>
+        <Text>{detail.question}</Text>
+      </Box>
+
+      {detail.target ? (
+        <Box marginTop={0.2} flexDirection="row">
+          <Text color={theme.muted}>Target: </Text>
+          <Text color="white">{detail.target}</Text>
+        </Box>
+      ) : null}
+
+      {detail.preview.length > 0 ? (
+        <Box flexDirection="column" marginTop={0.5} paddingLeft={2}>
+          {detail.preview.map((line, index) => (
+            <Text key={index} color={line.color === "added" ? theme.success : line.color === "removed" ? theme.error : theme.muted}>
+              {line.text}
+            </Text>
+          ))}
+        </Box>
+      ) : null}
+
+      <Box flexDirection="column" marginTop={0.7}>
+        {options.map((option, index) => (
+          <ApprovalOptionView
+            key={option}
+            option={option}
+            selected={index === selectedIndex}
+            theme={theme}
+          />
+        ))}
+      </Box>
+
+      <Box marginTop={0.3}>
+        <Text color={theme.muted}>Arrows or h/j/k/l to select · Enter approve · Esc reject</Text>
+      </Box>
+    </Box>
+  );
+}
+
 function ApprovalOptionView({
   option,
   selected,
@@ -1297,42 +1347,121 @@ function ApprovalOptionView({
 }): React.JSX.Element {
   const label =
     option === "allow" ? "Allow once" : option === "always" ? "Allow always" : "Reject";
+  const description =
+    option === "allow"
+      ? "Run this tool call"
+      : option === "always"
+        ? "Remember this exact request for this session"
+        : "Block it and continue";
   const color = option === "deny" ? theme.error : option === "always" ? theme.accent : theme.success;
   return (
-    <Box paddingX={1}>
+    <Box flexDirection="row">
       <Text bold={selected} color={selected ? color : theme.muted}>
-        {selected ? "[ " : "  "}
-        {label}
-        {selected ? " ]" : "  "}
+        {selected ? "› " : "  "}
+        {label.padEnd(12)}
       </Text>
+      <Text color={selected ? "white" : theme.muted}>{description}</Text>
     </Box>
   );
 }
 
-function approvalSummary(request: ApprovalRequest): string {
-  if (request.name === "exec") {
-    const command = inputString(request.input, "command");
-    return command ? `Run shell command: ${command}` : "Run shell command";
-  }
-  if (request.name === "edit_file") {
-    const path = inputString(request.input, "path");
-    return path ? `Edit file: ${path}` : "Edit file";
-  }
-  if (request.name === "write_file") {
-    const path = inputString(request.input, "path");
-    return path ? `Write file: ${path}` : "Write file";
-  }
-  return `Run tool: ${request.name}`;
+interface ApprovalDisplay {
+  question: string;
+  target?: string;
+  preview: { text: string; color?: "added" | "removed" | "muted" }[];
 }
 
-function approvalDetails(request: ApprovalRequest): string {
-  const raw = JSON.stringify(request.input, null, 2) ?? "";
-  const details = raw.length > 1200 ? `${raw.slice(0, 1200)}\n[truncated]` : raw;
-  return [
-    details,
-    "",
-    "Allow always applies to this exact tool request for the current session.",
-  ].join("\n");
+function approvalDisplay(request: ApprovalRequest, width: number): ApprovalDisplay {
+  const previewWidth = Math.max(32, Math.min(width - 8, 96));
+  if (request.name === "exec") {
+    const command = inputString(request.input, "command");
+    return {
+      question: "Run this shell command?",
+      preview: command ? codePreview(command, previewWidth, 5) : [],
+    };
+  }
+
+  if (request.name === "edit_file") {
+    const path = inputString(request.input, "path");
+    const oldString = inputString(request.input, "oldString");
+    const newString = inputString(request.input, "newString");
+    return {
+      question: "Apply this edit?",
+      ...(path ? { target: path } : {}),
+      preview: editPreview(oldString, newString, previewWidth),
+    };
+  }
+
+  if (request.name === "write_file") {
+    const path = inputString(request.input, "path");
+    const content = inputString(request.input, "content");
+    return {
+      question: "Write this file?",
+      ...(path ? { target: path } : {}),
+      preview: content ? codePreview(content, previewWidth, 8) : [],
+    };
+  }
+
+  return {
+    question: `Run ${request.name}?`,
+    preview: objectPreview(request.input, previewWidth),
+  };
+}
+
+function editPreview(
+  oldString: string | undefined,
+  newString: string | undefined,
+  width: number,
+): { text: string; color?: "added" | "removed" | "muted" }[] {
+  const lines: { text: string; color?: "added" | "removed" | "muted" }[] = [];
+  if (oldString) {
+    lines.push({ text: "Remove:", color: "muted" });
+    lines.push(...codePreview(oldString, width - 2, 5, "- ", "removed"));
+  }
+  if (newString) {
+    if (lines.length > 0) lines.push({ text: "", color: "muted" });
+    lines.push({ text: "Add:", color: "muted" });
+    lines.push(...codePreview(newString, width - 2, 5, "+ ", "added"));
+  }
+  return lines.length > 0 ? lines : [{ text: "No preview available", color: "muted" }];
+}
+
+function codePreview(
+  value: string,
+  width: number,
+  maxLines: number,
+  prefix = "  ",
+  color: "added" | "removed" | "muted" = "muted",
+): { text: string; color?: "added" | "removed" | "muted" }[] {
+  const normalized = value.replace(/\t/g, "  ");
+  const rawLines = normalized.split("\n");
+  const visibleLines = rawLines.slice(0, maxLines);
+  const lines = visibleLines.flatMap((line) =>
+    wrapText(`${prefix}${line || " "}`, width).map((wrapped) => ({ text: wrapped, color })),
+  );
+  if (rawLines.length > maxLines) {
+    lines.push({ text: `${prefix}… ${rawLines.length - maxLines} more lines`, color: "muted" });
+  }
+  return lines;
+}
+
+function objectPreview(
+  input: unknown,
+  width: number,
+): { text: string; color?: "added" | "removed" | "muted" }[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return [];
+  }
+  return Object.entries(input as Record<string, unknown>)
+    .slice(0, 8)
+    .map(([key, value]) => {
+      const rendered =
+        typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+      return {
+        text: `  ${key}: ${truncateSingleLine(rendered, width - key.length - 4)}`,
+        color: "muted" as const,
+      };
+    });
 }
 
 function inputString(input: unknown, key: string): string | undefined {
@@ -1823,6 +1952,12 @@ function preview(value: unknown, max = 120): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
   const flat = s.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+function truncateSingleLine(value: string, max: number): string {
+  const safeMax = Math.max(8, max);
+  const flat = value.replace(/\s+/g, " ").trim();
+  return flat.length > safeMax ? `${flat.slice(0, safeMax - 1)}…` : flat;
 }
 
 /**
