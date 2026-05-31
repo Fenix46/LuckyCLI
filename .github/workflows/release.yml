@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, so git-cliff can build the changelog
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -42,10 +44,17 @@ jobs:
           shasum -a 256 lucky-* > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: dist-bin/*
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.content }}
           fail_on_unmatched_files: true

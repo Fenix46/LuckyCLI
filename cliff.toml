@@ -1,0 +1,38 @@
+# git-cliff configuration — builds the release changelog from conventional
+# commits (feat:, fix:, build: ...). Used by the Release workflow.
+# Docs: https://git-cliff.org/docs/configuration
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="\\n") | first | upper_first }} ({{ commit.id | truncate(length=7, end="") }})
+{%- endfor %}
+{% endfor %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->🚀 Features" },
+  { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
+  { message = "^perf", group = "<!-- 2 -->⚡ Performance" },
+  { message = "^refactor", group = "<!-- 3 -->🚜 Refactor" },
+  { message = "^doc", group = "<!-- 4 -->📚 Documentation" },
+  { message = "^build", group = "<!-- 5 -->🧰 Build & Tooling" },
+  { message = "^ci", group = "<!-- 5 -->🧰 Build & Tooling" },
+  { message = "^test", group = "<!-- 6 -->🧪 Testing" },
+  { message = "^style", group = "<!-- 7 -->🎨 Styling" },
+  { message = "^chore", group = "<!-- 8 -->🧹 Chores" },
+  { message = ".*", group = "<!-- 9 -->📦 Other" },
+]
+filter_commits = false
+tag_pattern = "v[0-9]*"
+topo_order = false
+sort_commits = "newest"
