@@ -143,6 +143,8 @@ export function App({
   }, []);
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
+  const streamingFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingStreamingRef = useRef("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [busyFrame, setBusyFrame] = useState(0);
@@ -206,6 +208,14 @@ export function App({
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (streamingFlushTimerRef.current) {
+        clearTimeout(streamingFlushTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!busy || startedAt === null) {
       setElapsedSeconds(0);
       return;
@@ -217,7 +227,7 @@ export function App({
   }, [busy, startedAt]);
 
   useEffect(() => {
-    if (!busy) {
+    if (!busy || streaming) {
       setBusyFrame(0);
       return;
     }
@@ -669,7 +679,28 @@ export function App({
       setStartedAt(Date.now());
 
       let assistantBuf = "";
+      const publishStreaming = () => {
+        if (streamingFlushTimerRef.current) {
+          clearTimeout(streamingFlushTimerRef.current);
+          streamingFlushTimerRef.current = null;
+        }
+        if (pendingStreamingRef.current) {
+          setStreaming(pendingStreamingRef.current);
+          pendingStreamingRef.current = "";
+        }
+      };
+      const scheduleStreaming = () => {
+        pendingStreamingRef.current = assistantBuf;
+        if (streamingFlushTimerRef.current) return;
+        streamingFlushTimerRef.current = setTimeout(() => {
+          streamingFlushTimerRef.current = null;
+          if (!pendingStreamingRef.current) return;
+          setStreaming(pendingStreamingRef.current);
+          pendingStreamingRef.current = "";
+        }, 60);
+      };
       const flushAssistant = () => {
+        publishStreaming();
         if (!assistantBuf.trim()) return;
         const text = assistantBuf;
         assistantBuf = "";
@@ -686,7 +717,7 @@ export function App({
           handleEvent(event, {
             onText: (delta) => {
               assistantBuf += delta;
-              setStreaming(assistantBuf);
+              scheduleStreaming();
             },
             onToolStart: (name, rawInput) => {
               flushAssistant();
@@ -738,6 +769,7 @@ export function App({
           });
         }
       } finally {
+        publishStreaming();
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
