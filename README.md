@@ -19,6 +19,31 @@
 > **no recorded fixtures or end-to-end runs against the live APIs yet**. See the
 > roadmap.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Fenix46/LuckyCLI/main/install.sh | bash
+```
+
+This downloads the prebuilt `lucky` binary for your platform (macOS and Linux,
+Intel or ARM) into `~/.local/bin` — no Node.js required. Then run:
+
+```bash
+lucky
+```
+
+Options: set `LUCKY_INSTALL_DIR` to install elsewhere, or `LUCKY_VERSION=v0.1.0`
+to pin a version. On Windows, download `lucky-windows-x64.exe` from the
+[releases page](https://github.com/Fenix46/LuckyCLI/releases).
+
+### From source
+
+```bash
+git clone https://github.com/Fenix46/LuckyCLI.git && cd LuckyCLI
+npm install && npm run build
+npm link --workspace @luckycli/cli   # exposes `lucky` globally
+```
+
 ## Architecture
 
 Everything speaks one **canonical message format** (`packages/core/src/providers/types.ts`). Each
