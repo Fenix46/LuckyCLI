@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
-import { resolveInsideCwd } from "../path.js";
+import { resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 
 export const writeFileTool = defineTool({
@@ -14,8 +14,9 @@ export const writeFileTool = defineTool({
     content: z.string().describe("Full contents to write."),
   }),
   async execute({ path, content }, ctx) {
-    const abs = resolveInsideCwd(ctx.cwd, path);
-    await mkdir(dirname(abs), { recursive: true });
+    const target = resolveInsideCwd(ctx.cwd, path);
+    await mkdir(dirname(target), { recursive: true });
+    const abs = await resolveWritableInsideCwd(ctx.cwd, path);
     await writeFile(abs, content, "utf8");
     return { content: `Wrote ${content.length} chars to ${path}` };
   },

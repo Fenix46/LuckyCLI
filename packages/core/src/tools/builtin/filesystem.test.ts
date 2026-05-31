@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -82,6 +82,22 @@ describe("filesystem tools", () => {
     ).resolves.toMatchObject({ isError: true });
     await expect(
       registry.execute("list_dir", { path: ".." }, { cwd: root }),
+    ).resolves.toMatchObject({ isError: true });
+  });
+
+  it("rejects symlinks that resolve outside cwd", async () => {
+    await writeFile(join(outside, "secret.txt"), "secret", "utf8");
+    await symlink(join(outside, "secret.txt"), join(root, "secret-link.txt"));
+
+    await expect(
+      registry.execute("read_file", { path: "secret-link.txt" }, { cwd: root }),
+    ).resolves.toMatchObject({ isError: true });
+    await expect(
+      registry.execute(
+        "write_file",
+        { path: "secret-link.txt", content: "bad" },
+        { cwd: root },
+      ),
     ).resolves.toMatchObject({ isError: true });
   });
 });

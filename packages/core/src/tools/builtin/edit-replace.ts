@@ -17,7 +17,7 @@ export type Replacer = (
 ) => Generator<string, void, unknown>;
 
 // Similarity thresholds for the block-anchor fallback matching.
-const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0.0;
+const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0.5;
 const MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD = 0.3;
 
 /** Levenshtein edit distance, used to score block-anchor candidates. */

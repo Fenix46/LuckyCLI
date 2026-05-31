@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -90,5 +90,31 @@ describe("edit_file tool", () => {
       { cwd: root },
     );
     expect(result.isError).toBe(true);
+  });
+
+  it("rejects symlinks that resolve outside cwd", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "lucky-edit-outside-"));
+    try {
+      await writeFile(join(outside, "f.ts"), "const a = 1;\n", "utf8");
+      await symlink(join(outside, "f.ts"), join(root, "link.ts"));
+
+      const result = await registry.execute(
+        "edit_file",
+        { path: "link.ts", oldString: "a = 1", newString: "a = 2" },
+        { cwd: root },
+      );
+
+      expect(result.isError).toBe(true);
+      await expect(readFile(join(outside, "f.ts"), "utf8")).resolves.toBe("const a = 1;\n");
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("does not replace a block when only anchors match", () => {
+    const content = "start\nactual critical content\nend\n";
+    expect(() =>
+      replace(content, "start\ncompletely different content\nend", "replacement"),
+    ).toThrow(/not found/i);
   });
 });

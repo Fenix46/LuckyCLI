@@ -183,12 +183,14 @@ export function Root({
 
   return (
     <App
+      key={resumeSession?.id ?? "fresh"}
       agent={runtime.agent}
       meta={{ provider: runtime.provider, model: runtime.model }}
       approvalRequest={approvalRequest}
       setApprovalRequest={setApprovalRequest}
       onTriggerSetup={() => setRuntime(null)}
       onChangeModel={onChangeModel}
+      onTriggerResume={() => setPicking(true)}
       {...(resumeSession ? { resumed: resumeSession } : {})}
     />
   );

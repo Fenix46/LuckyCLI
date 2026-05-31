@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { resolveInsideCwd } from "../path.js";
+import { resolveExistingInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 import { replace } from "./edit-replace.js";
 
@@ -26,7 +26,7 @@ export const editFileTool = defineTool({
   }),
   async execute({ path, oldString, newString, replaceAll }, ctx) {
     try {
-      const abs = resolveInsideCwd(ctx.cwd, path);
+      const abs = await resolveExistingInsideCwd(ctx.cwd, path);
       const original = await readFile(abs, "utf8");
       const updated = replace(original, oldString, newString, replaceAll ?? false);
       await writeFile(abs, updated, "utf8");

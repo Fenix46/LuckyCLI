@@ -52,6 +52,7 @@ export {
   createSessionId,
   deleteSession,
   deriveTitle,
+  isValidSessionId,
   latestSession,
   listSessions,
   loadSession,

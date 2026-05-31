@@ -15,12 +15,15 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Message, ProviderId } from "../providers/types.js";
+
+const SESSION_ID_RE = /^ses_[a-z0-9]+_[a-z0-9]+$/;
 
 /** Listing-friendly summary of a session, without the message payload. */
 export interface SessionMeta {
@@ -49,7 +52,18 @@ export function sessionsDirPath(): string {
 }
 
 export function sessionFilePath(id: string): string {
+  assertValidSessionId(id);
   return join(sessionsDirPath(), `${id}.json`);
+}
+
+export function isValidSessionId(id: string): boolean {
+  return SESSION_ID_RE.test(id);
+}
+
+function assertValidSessionId(id: string): void {
+  if (!isValidSessionId(id)) {
+    throw new Error("Invalid session id.");
+  }
 }
 
 /** A short, time-sortable, collision-resistant session id. */
@@ -73,18 +87,25 @@ export function deriveTitle(messages: Message[]): string | undefined {
 }
 
 export function saveSession(session: Session): void {
+  assertValidSessionId(session.id);
   mkdirSync(sessionsDirPath(), { recursive: true });
   const file = sessionFilePath(session.id);
-  writeFileSync(file, `${JSON.stringify(session, null, 2)}\n`, "utf8");
+  const tmp = join(
+    sessionsDirPath(),
+    `.${session.id}.${process.pid}.${Date.now()}.tmp`,
+  );
+  writeFileSync(tmp, `${JSON.stringify(session, null, 2)}\n`, "utf8");
   try {
-    chmodSync(file, 0o600);
+    chmodSync(tmp, 0o600);
   } catch {
     // best-effort on platforms without POSIX permissions
   }
+  renameSync(tmp, file);
 }
 
 export function loadSession(id: string): Session | undefined {
   try {
+    if (!isValidSessionId(id)) return undefined;
     const file = sessionFilePath(id);
     if (!existsSync(file)) return undefined;
     return JSON.parse(readFileSync(file, "utf8")) as Session;
@@ -106,11 +127,13 @@ export function listSessions(): SessionMeta[] {
   const metas: SessionMeta[] = [];
   for (const name of files) {
     if (!name.endsWith(".json")) continue;
+    const fileId = name.slice(0, -".json".length);
+    if (!isValidSessionId(fileId)) continue;
     try {
       const session = JSON.parse(
         readFileSync(join(dir, name), "utf8"),
       ) as Session;
-      if (!session.id) continue;
+      if (session.id !== fileId || !isValidSessionId(session.id)) continue;
       metas.push({
         id: session.id,
         ...(session.title ? { title: session.title } : {}),
@@ -135,6 +158,7 @@ export function latestSession(): SessionMeta | undefined {
 
 export function deleteSession(id: string): boolean {
   try {
+    if (!isValidSessionId(id)) return false;
     const file = sessionFilePath(id);
     if (!existsSync(file)) return false;
     rmSync(file);

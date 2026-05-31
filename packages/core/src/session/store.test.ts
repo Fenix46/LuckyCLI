@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,10 +7,12 @@ import {
   createSessionId,
   deleteSession,
   deriveTitle,
+  isValidSessionId,
   latestSession,
   listSessions,
   loadSession,
   saveSession,
+  sessionsDirPath,
   type Session,
 } from "./store.js";
 
@@ -90,5 +92,24 @@ describe("session store", () => {
   it("ignores empty session directories", () => {
     expect(listSessions()).toEqual([]);
     expect(latestSession()).toBeUndefined();
+  });
+
+  it("rejects invalid session ids", () => {
+    expect(isValidSessionId("ses_abc_123")).toBe(true);
+    expect(isValidSessionId("../secret")).toBe(false);
+    expect(loadSession("../secret")).toBeUndefined();
+    expect(deleteSession("../secret")).toBe(false);
+    expect(() => saveSession(makeSession({ id: "../secret" }))).toThrow(/invalid session id/i);
+  });
+
+  it("skips session files whose payload id does not match the file name", async () => {
+    await mkdir(sessionsDirPath(), { recursive: true });
+    await writeFile(
+      `${sessionsDirPath()}/ses_abc_123.json`,
+      JSON.stringify(makeSession({ id: "ses_def_456" })),
+      "utf8",
+    );
+
+    expect(listSessions()).toEqual([]);
   });
 });

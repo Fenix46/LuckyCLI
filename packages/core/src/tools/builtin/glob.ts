@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { resolveInsideCwd } from "../path.js";
+import { resolveExistingInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 import { matchGlob, walkFiles } from "./fs-search.js";
 
@@ -20,7 +20,7 @@ export const globTool = defineTool({
       .describe("Directory to search in, relative to the working directory (default '.')."),
   }),
   async execute({ pattern, path = "." }, ctx) {
-    const root = resolveInsideCwd(ctx.cwd, path);
+    const root = await resolveExistingInsideCwd(ctx.cwd, path);
     const matches: { relPath: string; mtimeMs: number }[] = [];
     for await (const file of walkFiles(root, ctx.signal)) {
       if (matchGlob(pattern, file.relPath)) {

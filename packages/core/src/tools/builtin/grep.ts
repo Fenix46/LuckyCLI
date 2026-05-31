@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { z } from "zod";
-import { resolveInsideCwd } from "../path.js";
+import { resolveExistingInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 import { matchGlob, walkFiles } from "./fs-search.js";
 
@@ -41,7 +41,7 @@ export const grepTool = defineTool({
       return { content: `Invalid regular expression: ${message}`, isError: true };
     }
 
-    const root = resolveInsideCwd(ctx.cwd, path);
+    const root = await resolveExistingInsideCwd(ctx.cwd, path);
     const hits: { relPath: string; line: number; text: string; mtimeMs: number }[] = [];
     let truncated = false;
 
@@ -50,11 +50,13 @@ export const grepTool = defineTool({
 
       let buf: Buffer;
       try {
+        const info = await stat(file.absPath);
+        if (info.size > MAX_FILE_BYTES) continue;
         buf = await readFile(file.absPath);
       } catch {
         continue;
       }
-      if (buf.byteLength > MAX_FILE_BYTES || looksBinary(buf)) continue;
+      if (looksBinary(buf)) continue;
 
       const lines = buf.toString("utf8").split("\n");
       for (let i = 0; i < lines.length; i++) {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -76,6 +76,29 @@ describe("glob and grep tools", () => {
   it("returns an error on an invalid regex", async () => {
     const result = await registry.execute("grep", { pattern: "(" }, { cwd: root });
     expect(result.isError).toBe(true);
+  });
+
+  it("rejects search roots that are symlinks outside cwd", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "lucky-search-outside-"));
+    try {
+      await writeFile(join(outside, "secret.ts"), "const secret = true;\n", "utf8");
+      await symlink(outside, join(root, "outside-link"));
+
+      await expect(
+        registry.execute("grep", { pattern: "secret", path: "outside-link" }, { cwd: root }),
+      ).resolves.toMatchObject({ isError: true });
+      await expect(
+        registry.execute("glob", { pattern: "*.ts", path: "outside-link" }, { cwd: root }),
+      ).resolves.toMatchObject({ isError: true });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("skips files larger than the grep byte limit", async () => {
+    await writeFile(join(root, "src", "huge.ts"), `${"x".repeat(1024 * 1024 + 1)}needle`, "utf8");
+    const result = await registry.execute("grep", { pattern: "needle" }, { cwd: root });
+    expect(result.content).not.toContain("huge.ts");
   });
 
   it("tools are readonly", () => {

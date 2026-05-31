@@ -49,6 +49,7 @@ interface AppProps {
   setApprovalRequest: (req: ApprovalRequest | null) => void;
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
+  onTriggerResume: () => void;
   /** A session loaded via --continue/--resume, replayed into the transcript. */
   resumed?: Session;
 }
@@ -78,6 +79,7 @@ const ALL_SLASH_COMMANDS = [
   { name: "/context", desc: "Show model context window and usage" },
   { name: "/compact", desc: "Summarize older chat history now" },
   { name: "/sessions", desc: "List saved sessions (resume with: lucky --resume <id>)" },
+  { name: "/resume", desc: "Pick a saved session to resume" },
   { name: "/setup", desc: "Switch model provider or change settings" },
   { name: "/provider", desc: "Alias for /setup" },
   { name: "/config", desc: "Show active provider and model info" },
@@ -93,6 +95,7 @@ export function App({
   setApprovalRequest,
   onTriggerSetup,
   onChangeModel,
+  onTriggerResume,
   resumed,
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
@@ -419,6 +422,19 @@ export function App({
         setInput("");
         return;
       }
+      if (text === "/resume") {
+        if (listSessions().length === 0) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: "no saved sessions to resume" },
+          ]);
+          setInput("");
+          return;
+        }
+        onTriggerResume();
+        setInput("");
+        return;
+      }
       if (text === "/context") {
         try {
           const status = await agent.contextStatus();
@@ -448,6 +464,7 @@ export function App({
           const result = await agent.compactNow();
           const status = await agent.contextStatus();
           setContextStatus(status);
+          persistSession();
           setItems((prev) => [
             ...prev,
             {
@@ -649,7 +666,7 @@ export function App({
         persistSession();
       }
     },
-    [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, selectModel, selectTheme, persistSession],
+    [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, onTriggerResume, selectModel, selectTheme, persistSession],
   );
 
   const transcriptHeight = Math.max(6, terminalSize.height - 10);
