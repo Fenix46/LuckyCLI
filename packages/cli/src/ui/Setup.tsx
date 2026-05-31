@@ -5,9 +5,11 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   PROVIDER_CATALOG,
   listProviders,
+  runClaudeBrowserOAuthFlow,
   runOpenAiBrowserOAuthFlow,
   startOAuthFlow,
   openBrowser,
+  type ClaudeOAuthTokens,
   type OpenAiOAuthTokens,
   type ProviderCredentials,
   type ProviderId,
@@ -94,7 +96,9 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthTokens, setOauthTokens] = useState<{ accessToken: string; refreshToken?: string } | null>(null);
+  const [claudeOAuthTokens, setClaudeOAuthTokens] = useState<ClaudeOAuthTokens | null>(null);
   const [openAiOAuthTokens, setOpenAiOAuthTokens] = useState<OpenAiOAuthTokens | null>(null);
+  const claudeOAuthStartedRef = useRef(false);
   const googleOAuthStartedRef = useRef(false);
   const openAiOAuthStartedRef = useRef(false);
 
@@ -104,6 +108,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     if (
       selectedAuthMethod?.kind === "oauth" &&
       step === "credential" &&
+      !claudeOAuthStartedRef.current &&
       !googleOAuthStartedRef.current &&
       !openAiOAuthStartedRef.current
     ) {
@@ -122,6 +127,23 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
           .catch((err) => {
             setOauthLoading(false);
             setOauthError(`Authentication failed: ${err instanceof Error ? err.message : String(err)}`);
+          });
+        return;
+      }
+
+      if (selectedProviderId === "claude") {
+        if (claudeOAuthStartedRef.current) return;
+        claudeOAuthStartedRef.current = true;
+        runClaudeBrowserOAuthFlow()
+          .then(({ tokens }) => {
+            setClaudeOAuthTokens(tokens);
+            setStep("model");
+            setOauthLoading(false);
+          })
+          .catch((err) => {
+            setOauthLoading(false);
+            setOauthError(`Authentication failed: ${err instanceof Error ? err.message : String(err)}`);
+            claudeOAuthStartedRef.current = false;
           });
         return;
       }
@@ -176,7 +198,9 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     setOauthUrl(null);
     setOauthError(null);
     setOauthTokens(null);
+    setClaudeOAuthTokens(null);
     setOpenAiOAuthTokens(null);
+    claudeOAuthStartedRef.current = false;
     googleOAuthStartedRef.current = false;
     openAiOAuthStartedRef.current = false;
   }
@@ -187,7 +211,9 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     setOauthUrl(null);
     setOauthError(null);
     setOauthTokens(null);
+    setClaudeOAuthTokens(null);
     setOpenAiOAuthTokens(null);
+    claudeOAuthStartedRef.current = false;
     googleOAuthStartedRef.current = false;
     openAiOAuthStartedRef.current = false;
     setStep("credential");
@@ -220,7 +246,17 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
 
     let credentials: ProviderCredentials;
     if (selectedProviderId === "claude") {
-      credentials = { type: "claude", apiKey: secret.trim() };
+      if (selectedAuthMethod.kind === "oauth") {
+        if (!claudeOAuthTokens?.accessToken) {
+          setOauthError("Authentication is incomplete. Please restart setup and try again.");
+          setStep("credential");
+          setCredSubStep("oauth_code");
+          return;
+        }
+        credentials = { type: "claude", authMethod: "oauth", ...claudeOAuthTokens };
+      } else {
+        credentials = { type: "claude", authMethod: "api_key", apiKey: secret.trim() };
+      }
     } else if (selectedProviderId === "openai") {
       credentials = { type: "openai", apiKey: secret.trim() };
     } else if (selectedProviderId === "openai-oauth") {
@@ -362,8 +398,10 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
                   <Text color="yellow">⏳ Starting secure loopback callback server...</Text>
                 ) : (
                   <Box flexDirection="column">
-                    {selectedProviderId === "openai-oauth" ? (
-                      <Text color="gray">› Browser opened on auth.openai.com. Complete ChatGPT login.</Text>
+                    {selectedProviderId === "openai-oauth" || selectedProviderId === "claude" ? (
+                      <Text color="gray">
+                        › Browser opened on {selectedProviderId === "claude" ? "claude.com" : "auth.openai.com"}. Complete login.
+                      </Text>
                     ) : (
                       <>
                         <Text color="gray">› Please open the authorization URL in your browser to log in:</Text>

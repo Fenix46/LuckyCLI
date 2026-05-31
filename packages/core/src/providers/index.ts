@@ -26,7 +26,14 @@ export function registerBuiltinProviders(): void {
   registered = true;
 
   registerProviderFactory("claude", (c) =>
-    new ClaudeProvider(c as ClaudeCredentials),
+    new ClaudeProvider(c as ClaudeCredentials, (credentials) => {
+      const cfg = loadStoredConfig();
+      cfg.credentials = {
+        ...cfg.credentials,
+        claude: credentials,
+      };
+      saveStoredConfig(cfg);
+    }),
   );
   registerProviderFactory("openai", (c) =>
     new OpenAiProvider(c as OpenAiCredentials),
@@ -63,6 +70,8 @@ export {
 export type { AuthMethod, ProviderCatalogEntry } from "./catalog.js";
 export { runOpenAiBrowserOAuthFlow } from "./impl/openai-oauth/oauthFlow.js";
 export type { OpenAiOAuthTokens } from "./impl/openai-oauth/OpenAiOAuthProvider.js";
+export { runClaudeBrowserOAuthFlow } from "./impl/claude/oauth.js";
+export type { ClaudeOAuthTokens } from "./impl/claude/oauth.js";
 export {
   getProvider,
   getRegisteredProviderIds,

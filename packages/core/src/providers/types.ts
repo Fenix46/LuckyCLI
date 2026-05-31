@@ -169,7 +169,19 @@ export interface ProviderStatus {
 
 export interface ClaudeCredentials {
   type: "claude";
-  apiKey: string;
+  authMethod?: "api_key" | "oauth";
+  apiKey?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  scopes?: string[];
+  accountUuid?: string;
+  email?: string;
+  organizationUuid?: string;
+  organizationName?: string;
+  subscriptionType?: "pro" | "max" | "team" | "enterprise";
+  rateLimitTier?: string;
+  billingType?: string;
 }
 
 export interface OpenAiCredentials {

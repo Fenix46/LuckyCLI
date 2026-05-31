@@ -98,7 +98,15 @@ export function credentialsFromEnv(
 ): ProviderCredentials {
   switch (provider) {
     case "claude":
-      return { type: "claude", apiKey: requireEnv(env, "ANTHROPIC_API_KEY") };
+      if (env.ANTHROPIC_AUTH_TOKEN) {
+        return {
+          type: "claude",
+          authMethod: "oauth",
+          accessToken: env.ANTHROPIC_AUTH_TOKEN,
+          ...(env.ANTHROPIC_REFRESH_TOKEN ? { refreshToken: env.ANTHROPIC_REFRESH_TOKEN } : {}),
+        };
+      }
+      return { type: "claude", authMethod: "api_key", apiKey: requireEnv(env, "ANTHROPIC_API_KEY") };
     case "openai":
       return {
         type: "openai",

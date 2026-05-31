@@ -46,6 +46,26 @@ describe("ClaudeProvider", () => {
     );
   });
 
+  it("uses Anthropic bearer auth for Claude OAuth credentials", async () => {
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "oauth-access-token",
+      refreshToken: "oauth-refresh-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+
+    await provider.generate(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      { model: "claude-test" },
+    );
+
+    expect(Anthropic).toHaveBeenCalledWith({
+      authToken: "oauth-access-token",
+      defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
+    });
+  });
+
   it("combines config and message system prompts", async () => {
     const provider = new ClaudeProvider({ type: "claude", apiKey: "test-key" });
 

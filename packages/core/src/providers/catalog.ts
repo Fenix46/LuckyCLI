@@ -46,6 +46,12 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
         kind: "apiKey",
         hint: "Anthropic API key (console.anthropic.com)",
       },
+      {
+        id: "oauth",
+        displayName: "Claude Browser Login",
+        kind: "oauth",
+        hint: "Use a Claude Pro/Max/Team/Enterprise subscription account",
+      },
     ],
   },
   openai: {

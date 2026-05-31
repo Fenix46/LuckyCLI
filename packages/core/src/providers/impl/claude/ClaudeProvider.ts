@@ -19,21 +19,34 @@ import type {
   TextPart,
   TokenUsage,
 } from "../../types.js";
+import {
+  CLAUDE_OAUTH_BETA_HEADER,
+  fetchClaudeOAuthProfile,
+  fetchClaudeOAuthRoles,
+  refreshClaudeOAuthToken,
+  subscriptionType,
+  type ClaudeOAuthTokens,
+} from "./oauth.js";
 
 const INFO: ProviderInfo = providerInfo("claude");
 
 export class ClaudeProvider implements IProvider {
   readonly info = INFO;
-  private readonly client: Anthropic;
+  private client: Anthropic;
+  private refreshPromise: Promise<ClaudeOAuthTokens> | undefined;
 
-  constructor(credentials: ClaudeCredentials) {
-    this.client = new Anthropic({ apiKey: credentials.apiKey });
+  constructor(
+    private credentials: ClaudeCredentials,
+    private readonly onTokensRefreshed?: (credentials: ClaudeCredentials) => void,
+  ) {
+    this.client = this.createClient(credentials);
   }
 
   async generate(
     messages: Message[],
     config: GenerationConfig,
   ): Promise<GenerationResponse> {
+    await this.ensureFreshToken();
     const { system, messages: anthropicMessages } = toAnthropic(
       messages,
       config.systemPrompt,
@@ -55,6 +68,7 @@ export class ClaudeProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): AsyncGenerator<StreamChunk> {
+    await this.ensureFreshToken();
     const { system, messages: anthropicMessages } = toAnthropic(
       messages,
       config.systemPrompt,
@@ -123,6 +137,7 @@ export class ClaudeProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): Promise<TokenUsage | undefined> {
+    await this.ensureFreshToken();
     const { system, messages: anthropicMessages } = toAnthropic(
       messages,
       config.systemPrompt,
@@ -137,6 +152,7 @@ export class ClaudeProvider implements IProvider {
 
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     try {
+      await this.ensureFreshToken();
       await this.client.messages.create({
         model: INFO.defaultModel,
         max_tokens: 1,
@@ -149,12 +165,91 @@ export class ClaudeProvider implements IProvider {
   }
 
   async getStatus(): Promise<ProviderStatus> {
+    if (this.credentials.authMethod === "oauth") {
+      const credentials = await this.ensureFreshToken();
+      const [profile, roles] = credentials.accessToken
+        ? await Promise.all([
+            fetchClaudeOAuthProfile(credentials.accessToken).catch(() => undefined),
+            fetchClaudeOAuthRoles(credentials.accessToken).catch(() => undefined),
+          ])
+        : [undefined, undefined];
+      const sub =
+        subscriptionType(profile?.organization?.organization_type) ??
+        credentials.subscriptionType;
+      const tier = profile?.organization?.rate_limit_tier ?? credentials.rateLimitTier;
+      return {
+        provider: this.info.id,
+        displayName: this.info.displayName,
+        authType: "oauth",
+        ...(profile?.account?.email ?? credentials.email
+          ? { account: profile?.account?.email ?? credentials.email }
+          : {}),
+        ...(profile?.organization?.name ?? roles?.organization_name ?? credentials.organizationName
+          ? { project: profile?.organization?.name ?? roles?.organization_name ?? credentials.organizationName }
+          : {}),
+        ...(sub ? { subscription: sub } : {}),
+        ...(tier ?? sub ? { tier: tier ?? sub } : {}),
+        notes: [
+          profile?.organization?.subscription_status
+            ? `subscription status: ${profile.organization.subscription_status}`
+            : undefined,
+          profile?.organization?.billing_type ?? credentials.billingType
+            ? `billing: ${profile?.organization?.billing_type ?? credentials.billingType}`
+            : undefined,
+          profile?.organization?.has_extra_usage_enabled === true
+            ? "extra usage enabled"
+            : undefined,
+          roles?.organization_role ? `organization role: ${roles.organization_role}` : undefined,
+          roles?.workspace_role ? `workspace role: ${roles.workspace_role}` : undefined,
+          sub ? undefined : "Claude OAuth account does not report a Pro/Max/Team/Enterprise subscription.",
+        ].filter((note): note is string => Boolean(note)),
+      };
+    }
+
     return {
       provider: this.info.id,
       displayName: this.info.displayName,
       authType: "api key",
       notes: ["Account, subscription, and provider quota windows are not exposed by this provider API."],
     };
+  }
+
+  private createClient(credentials: ClaudeCredentials): Anthropic {
+    if (credentials.authMethod === "oauth") {
+      if (!credentials.accessToken) {
+        throw new Error("Claude OAuth credentials are missing an access token.");
+      }
+      return new Anthropic({
+        authToken: credentials.accessToken,
+        defaultHeaders: { "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER },
+      });
+    }
+
+    if (!credentials.apiKey) {
+      throw new Error("Claude API key credentials are missing an API key.");
+    }
+    return new Anthropic({ apiKey: credentials.apiKey });
+  }
+
+  private async ensureFreshToken(): Promise<ClaudeCredentials> {
+    if (this.credentials.authMethod !== "oauth") return this.credentials;
+    if (!this.credentials.expiresAt || this.credentials.expiresAt - Date.now() >= 5 * 60 * 1000) {
+      return this.credentials;
+    }
+    if (!this.credentials.refreshToken) return this.credentials;
+
+    this.refreshPromise ??= refreshClaudeOAuthToken(this.credentials.refreshToken)
+      .then((tokens) => {
+        this.credentials = { ...this.credentials, ...tokens, type: "claude", authMethod: "oauth" };
+        this.client = this.createClient(this.credentials);
+        this.onTokensRefreshed?.(this.credentials);
+        return tokens;
+      })
+      .finally(() => {
+        this.refreshPromise = undefined;
+      });
+    await this.refreshPromise;
+    return this.credentials;
   }
 }
 
