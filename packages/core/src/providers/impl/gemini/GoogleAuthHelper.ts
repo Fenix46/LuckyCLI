@@ -243,7 +243,12 @@ export function getBrowserOpenCommands(
   env: NodeJS.ProcessEnv = process.env,
 ): BrowserOpenCommand[] {
   if (platform === "darwin") return [{ command: "open", args: [] }];
-  if (platform === "win32") return [{ command: "cmd", args: ["/c", "start", ""] }];
+  if (platform === "win32") {
+    // Do NOT use `cmd /c start`: cmd treats the `&` in the OAuth URL's query
+    // string as a command separator, truncating it and dropping params such as
+    // client_id. rundll32 receives the URL as a single argv element, untouched.
+    return [{ command: "rundll32", args: ["url.dll,FileProtocolHandler"] }];
+  }
   if (isWsl(env)) return [{ command: "wslview", args: [] }, ...linuxBrowserOpenCommands()];
   return linuxBrowserOpenCommands();
 }

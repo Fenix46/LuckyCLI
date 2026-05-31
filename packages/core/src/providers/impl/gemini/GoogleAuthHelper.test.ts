@@ -6,9 +6,9 @@ describe("getBrowserOpenCommands", () => {
     expect(getBrowserOpenCommands("darwin")).toEqual([{ command: "open", args: [] }]);
   });
 
-  it("uses cmd start on Windows", () => {
+  it("uses rundll32 on Windows so the URL's & is not truncated by cmd", () => {
     expect(getBrowserOpenCommands("win32")).toEqual([
-      { command: "cmd", args: ["/c", "start", ""] },
+      { command: "rundll32", args: ["url.dll,FileProtocolHandler"] },
     ]);
   });
 
