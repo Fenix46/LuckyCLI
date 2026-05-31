@@ -1,3 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import * as tls from "node:tls";
 import type { IProvider } from "../../IProvider.js";
 import type {
   ContentPart,
@@ -30,6 +34,11 @@ const INFO: ProviderInfo = {
   supportsVision: true,
   supportsTools: true,
 };
+
+const CHATGPT_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage";
+const CHATGPT_USAGE_USER_AGENT =
+  "codex-tui/0.135.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.135.0)";
+let chatGptUsageCaLoaded = false;
 
 type ResponsesInputItem =
   | {
@@ -77,6 +86,40 @@ interface ResponsesStreamEvent {
   usage?: { input_tokens: number; output_tokens: number };
   response?: {
     usage?: { input_tokens?: number; output_tokens?: number } | null;
+  };
+}
+
+interface ChatGptUsageWindow {
+  used_percent?: number;
+  limit_window_seconds?: number;
+  reset_after_seconds?: number;
+  reset_at?: number;
+}
+
+interface ChatGptUsageResponse {
+  user_id?: string;
+  account_id?: string;
+  email?: string;
+  plan_type?: string;
+  rate_limit?: {
+    allowed?: boolean;
+    limit_reached?: boolean;
+    primary_window?: ChatGptUsageWindow;
+    secondary_window?: ChatGptUsageWindow;
+  };
+  credits?: {
+    has_credits?: boolean;
+    unlimited?: boolean;
+    overage_limit_reached?: boolean;
+    balance?: string;
+  };
+  spend_control?: {
+    reached?: boolean;
+    individual_limit?: string | null;
+  };
+  rate_limit_reached_type?: string | null;
+  rate_limit_reset_credits?: {
+    available_count?: number;
   };
 }
 
@@ -211,15 +254,38 @@ export class OpenAiOAuthProvider implements IProvider {
 
   async getStatus(): Promise<ProviderStatus> {
     const tokens = await this.ensureFreshToken();
-    return {
+    const base = {
       provider: this.info.id,
       displayName: this.info.displayName,
       authType: "oauth",
       ...(tokens.accountId ? { account: tokens.accountId } : {}),
-      notes: [
-        "ChatGPT OAuth account id is available when provided by auth.",
-        "Subscription and rolling quota windows are not exposed by the local provider adapter.",
-      ],
+    };
+
+    let usage: ChatGptUsageResponse | undefined;
+    try {
+      usage = await fetchChatGptUsage(tokens);
+    } catch (e) {
+      return {
+        ...base,
+        notes: [
+          "ChatGPT usage status is not available from the wham usage endpoint.",
+          `Usage endpoint error: ${describeError(e)}`,
+        ],
+      };
+    }
+
+    const quotas = [
+      quotaFromWindow("5h limit", usage.rate_limit?.primary_window),
+      quotaFromWindow("weekly limit", usage.rate_limit?.secondary_window),
+    ].filter((quota): quota is NonNullable<typeof quota> => Boolean(quota));
+
+    const notes = usageNotes(usage);
+    return {
+      ...base,
+      ...(usage.email ?? tokens.accountId ? { account: usage.email ?? tokens.accountId } : {}),
+      ...(usage.plan_type ? { subscription: usage.plan_type, tier: usage.plan_type } : {}),
+      ...(quotas.length ? { quotas } : {}),
+      ...(notes.length ? { notes } : {}),
     };
   }
 
@@ -248,6 +314,99 @@ export class OpenAiOAuthProvider implements IProvider {
       });
     return this.refreshPromise;
   }
+}
+
+async function fetchChatGptUsage(tokens: OpenAiOAuthTokens): Promise<ChatGptUsageResponse> {
+  ensureChatGptUsageCa();
+  const res = await fetch(CHATGPT_USAGE_ENDPOINT, {
+    method: "GET",
+    headers: {
+      accept: "*/*",
+      Authorization: `Bearer ${tokens.access}`,
+      "User-Agent": CHATGPT_USAGE_USER_AGENT,
+      ...(tokens.accountId ? { "chatgpt-account-id": tokens.accountId } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`ChatGPT usage endpoint failed (${res.status}): ${await res.text()}`);
+  }
+  return res.json() as Promise<ChatGptUsageResponse>;
+}
+
+function ensureChatGptUsageCa(): void {
+  if (chatGptUsageCaLoaded) return;
+  chatGptUsageCaLoaded = true;
+
+  const proxy = process.env.https_proxy ?? process.env.HTTPS_PROXY ?? "";
+  if (!/https?:\/\/(127\.0\.0\.1|localhost):8000\b/.test(proxy)) return;
+
+  const httpToolkitCa = join(homedir(), "Library", "Preferences", "httptoolkit", "ca.pem");
+  const extraCaPaths = [
+    ...(process.env.NODE_EXTRA_CA_CERTS ? [process.env.NODE_EXTRA_CA_CERTS] : []),
+    httpToolkitCa,
+  ];
+  const extraCerts = extraCaPaths
+    .filter((path) => existsSync(path))
+    .map((path) => readFileSync(path, "utf8"));
+
+  if (!extraCerts.length || !tls.setDefaultCACertificates || !tls.getCACertificates) return;
+  tls.setDefaultCACertificates([...tls.getCACertificates("default"), ...extraCerts]);
+}
+
+function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause;
+  if (cause instanceof Error && cause.message) return `${error.message}: ${cause.message}`;
+  if (cause && typeof cause === "object" && "message" in cause) {
+    return `${error.message}: ${String((cause as { message: unknown }).message)}`;
+  }
+  return error.message;
+}
+
+function quotaFromWindow(label: string, window: ChatGptUsageWindow | undefined) {
+  if (!window) return undefined;
+  const usedPercent = clampPercent(window.used_percent);
+  return {
+    label,
+    ...(usedPercent !== undefined
+      ? { remaining: `${100 - usedPercent}% available (${usedPercent}% used)` }
+      : {}),
+    ...(window.reset_at ? { resetTime: formatUnixSeconds(window.reset_at) } : {}),
+    tokenType: label,
+  };
+}
+
+function clampPercent(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) return undefined;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function formatUnixSeconds(value: number): string | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  return new Date(value * 1000).toISOString();
+}
+
+function usageNotes(usage: ChatGptUsageResponse): string[] {
+  const notes: string[] = [];
+  if (usage.rate_limit?.allowed === false) notes.push("ChatGPT usage is currently not allowed.");
+  if (usage.rate_limit?.limit_reached) notes.push("ChatGPT rate limit is currently reached.");
+  if (usage.rate_limit_reached_type) {
+    notes.push(`rate limit reached type: ${usage.rate_limit_reached_type}`);
+  }
+  if (usage.credits) {
+    const creditParts = [
+      usage.credits.unlimited ? "unlimited credits" : undefined,
+      usage.credits.has_credits ? "credits available" : "no credits",
+      usage.credits.balance !== undefined ? `balance ${usage.credits.balance}` : undefined,
+      usage.credits.overage_limit_reached ? "overage limit reached" : undefined,
+    ].filter(Boolean);
+    if (creditParts.length) notes.push(`credits: ${creditParts.join(", ")}`);
+  }
+  if (usage.spend_control?.reached) notes.push("spend control limit reached.");
+  if (usage.rate_limit_reset_credits?.available_count !== undefined) {
+    notes.push(`rate limit reset credits: ${usage.rate_limit_reset_credits.available_count}`);
+  }
+  return notes;
 }
 
 function buildRequestBody(

@@ -219,4 +219,79 @@ describe("OpenAiOAuthProvider", () => {
       },
     ]);
   });
+
+  it("reads ChatGPT OAuth usage status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        email: "user@example.com",
+        plan_type: "plus",
+        rate_limit: {
+          allowed: true,
+          limit_reached: false,
+          primary_window: {
+            used_percent: 1,
+            reset_at: 1780254390,
+          },
+          secondary_window: {
+            used_percent: 41,
+            reset_at: 1780585340,
+          },
+        },
+        credits: {
+          has_credits: false,
+          unlimited: false,
+          overage_limit_reached: false,
+          balance: "0",
+        },
+        rate_limit_reset_credits: {
+          available_count: 0,
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60 * 60 * 1000,
+      accountId: "account-1",
+    });
+
+    const status = await provider.getStatus();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chatgpt.com/backend-api/wham/usage",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          accept: "*/*",
+          Authorization: "Bearer access-token",
+          "User-Agent":
+            "codex-tui/0.135.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.135.0)",
+          "chatgpt-account-id": "account-1",
+        }),
+      }),
+    );
+    expect(status.account).toBe("user@example.com");
+    expect(status.subscription).toBe("plus");
+    expect(status.tier).toBe("plus");
+    expect(status.quotas).toEqual([
+      {
+        label: "5h limit",
+        remaining: "99% available (1% used)",
+        resetTime: "2026-05-31T19:06:30.000Z",
+        tokenType: "5h limit",
+      },
+      {
+        label: "weekly limit",
+        remaining: "59% available (41% used)",
+        resetTime: "2026-06-04T15:02:20.000Z",
+        tokenType: "weekly limit",
+      },
+    ]);
+    expect(status.notes).toContain("credits: no credits, balance 0");
+    expect(status.notes).toContain("rate limit reset credits: 0");
+  });
 });
