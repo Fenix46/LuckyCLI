@@ -27,9 +27,19 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
 
   if (sessions.length === 0) {
     return (
-      <Box flexDirection="column" paddingX={2} paddingY={1}>
-        <Text color="yellow">No saved sessions to resume.</Text>
-        <Text color="gray" dimColor>Press Esc to start a new session.</Text>
+      <Box
+        flexDirection="column"
+        paddingX={2}
+        paddingY={1}
+        width="100%"
+      >
+        <Text bold color="yellow">⏪ RESUME A SESSION</Text>
+        <Box marginTop={1}>
+          <Text color="gray">No saved sessions were found on this machine.</Text>
+        </Box>
+        <Box marginTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5}>
+          <Text color="gray" dimColor italic>Press Esc to start a fresh new session instead.</Text>
+        </Box>
       </Box>
     );
   }
@@ -41,14 +51,19 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
   }));
 
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1}>
+    <Box
+      flexDirection="column"
+      paddingX={2}
+      paddingY={1}
+      width="100%"
+    >
       <Text bold color="cyan">
         ⏪ RESUME A SESSION
       </Text>
-      <Text color="gray" dimColor>
-        ↑/↓ to choose · Enter to resume · Esc to start fresh
+      <Text color="gray">
+        Choose a saved session to restore your conversation context and continue collaborating.
       </Text>
-      <Box marginTop={1} flexDirection="column">
+      <Box marginY={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5} flexDirection="column">
         <SelectInput
           items={items}
           onSelect={(item) => {
@@ -57,6 +72,11 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
             else onCancel();
           }}
         />
+      </Box>
+      <Box borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5}>
+        <Text color="gray" dimColor italic>
+          💡 Use ↑/↓ to choose · Enter to resume · Esc to start fresh
+        </Text>
       </Box>
     </Box>
   );

@@ -68,11 +68,12 @@ interface Theme {
 }
 
 const THEMES: Theme[] = [
-  { id: "neon", name: "Neon Cyan", primary: "cyan", accent: "blue", success: "green", warning: "yellow", muted: "gray", error: "red" },
-  { id: "cyberpunk", name: "Cyberpunk", primary: "yellow", accent: "cyan", success: "green", warning: "red", muted: "gray", error: "red" },
-  { id: "dracula", name: "Dracula", primary: "magenta", accent: "red", success: "green", warning: "yellow", muted: "gray", error: "red" },
-  { id: "matrix", name: "Matrix", primary: "green", accent: "green", success: "green", warning: "yellow", muted: "gray", error: "red" },
-  { id: "minimal", name: "Minimal", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white" }
+  { id: "matrix", name: "Digital Matrix (CRT)", primary: "#00ff00", accent: "#008f11", success: "#00ff00", warning: "#ffff00", muted: "#003300", error: "#ff0000" },
+  { id: "amber", name: "DEC Amber Mainframe", primary: "#ffb000", accent: "#ff8000", success: "#ffb000", warning: "#ff4500", muted: "#553300", error: "#ff0000" },
+  { id: "cyberpunk", name: "Netrunner Deck 2077", primary: "#fcee0a", accent: "#00f0ff", success: "#39ff14", warning: "#ff0055", muted: "#555555", error: "#ff0055" },
+  { id: "dracula", name: "Dracula Tactical", primary: "#ff79c6", accent: "#bd93f9", success: "#50fa7b", warning: "#f1fa8c", muted: "#6272a4", error: "#ff5555" },
+  { id: "nord", name: "Tactical Frost Node", primary: "#88c0d0", accent: "#81a1c1", success: "#a3be8c", warning: "#ebcb8b", muted: "#4c566a", error: "#bf616a" },
+  { id: "minimal", name: "Legacy Monochrome", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white" }
 ];
 
 const ALL_SLASH_COMMANDS = [
@@ -129,6 +130,11 @@ export function App({
     }
   }, [agent, meta.provider, meta.model]);
   const [input, setInput] = useState("");
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const handleInputChange = useCallback((val: string) => {
+    setInput(val);
+    setScrollOffset(0);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -333,6 +339,28 @@ export function App({
           setInput(completed);
           setSelectedCommandIndex(0);
         }
+        return;
+      }
+    }
+
+    // 4b. Interactive Scrollback (when idle and no pickers/menus are active)
+    if (
+      !busy &&
+      !approvalRequest &&
+      !modelPicker.open &&
+      !themePicker.open &&
+      !showSlashMenu
+    ) {
+      if (key.upArrow || key.pageUp) {
+        setScrollOffset((prev) => Math.min(items.length - 1, prev + 1));
+        return;
+      }
+      if (key.downArrow || key.pageDown) {
+        setScrollOffset((prev) => Math.max(0, prev - 1));
+        return;
+      }
+      if (key.escape) {
+        setScrollOffset(0);
         return;
       }
     }
@@ -716,10 +744,11 @@ export function App({
     },
     [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, onTriggerResume, selectModel, selectTheme, persistSession],
   );
-
-  const transcriptHeight = Math.max(6, terminalSize.height - 10);
-  const visibleItems = items.slice(-transcriptHeight);
-  const hiddenItems = items.length - visibleItems.length;
+  // Render the entire chat transcript inline to leverage native terminal scrollback
+  const visibleItems = items;
+  const hiddenItemsAbove = 0;
+  const hiddenItemsBelow = 0;
+  
   const status = approvalRequest ? "approval required" : busy ? `thinking ${elapsedSeconds}s` : "ready";
   const messageWidth = Math.max(32, terminalSize.width - 16);
   const thinkingFrames = ["-", "\\", "|", "/"];
@@ -729,34 +758,34 @@ export function App({
   return (
     <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
       <Box
-        borderStyle="single"
-        borderColor={activeTheme.accent}
-        paddingX={1}
+        flexDirection="row"
         justifyContent="space-between"
         width="100%"
+        marginBottom={1}
+        paddingBottom={0.2}
       >
-        <Text bold color={activeTheme.accent}>LuckyCLI</Text>
-        <Text color={activeTheme.muted}>
-          {meta.provider} / {meta.model}
-        </Text>
+        <Box flexDirection="row" gap={1}>
+          <Text bold color={activeTheme.primary}>lucky ›</Text>
+          <Text color={activeTheme.success}>connected</Text>
+        </Box>
+        <Box flexDirection="row" gap={1}>
+          <Text color={activeTheme.muted}>{meta.provider} / {meta.model}</Text>
+        </Box>
       </Box>
 
-      <Box flexDirection="column" marginY={1} minHeight={Math.min(transcriptHeight, 8)}>
-        {hiddenItems > 0 ? (
-          <Box marginBottom={1}>
-            <Text color={activeTheme.muted}>... {hiddenItems} older message{hiddenItems === 1 ? "" : "s"} hidden</Text>
-          </Box>
-        ) : null}
+      <Box flexDirection="column" marginY={0.5}>
         {visibleItems.length === 0 && !streaming && !busy ? (
           <Box marginY={1}>
-            <Text color={activeTheme.muted}>Type a prompt, or use / for commands.</Text>
+            <Text color={activeTheme.muted}>lucky › Input instruction payload or type / for command directory...</Text>
           </Box>
         ) : null}
+        
         {visibleItems.map((item, i) => (
           <Box key={i} marginY={0.5}>
             <ItemView item={item} theme={activeTheme} width={messageWidth} />
           </Box>
         ))}
+        
         {streaming ? (
           <Box marginY={0.5}>
             <ItemView
@@ -768,20 +797,20 @@ export function App({
         ) : busy && !approvalRequest ? (
           <Box marginY={0.5}>
             <Text color={activeTheme.muted}>
-              lucky    {thinkingFrame} thinking{thinkingDots} {elapsedSeconds}s
+              ● lucky › thinking... ({elapsedSeconds}s elapsed)
             </Text>
           </Box>
         ) : null}
       </Box>
 
       {approvalRequest ? (
-        <Box flexDirection="column" borderStyle="single" borderColor={activeTheme.warning} paddingX={1} marginY={1}>
-          <Text bold color={activeTheme.warning}>Permission Required</Text>
+        <Box flexDirection="column" paddingLeft={2} marginY={0.5}>
+          <Text bold color={activeTheme.warning}>⚠️ Permission Required</Text>
           <Text>{approvalSummary(approvalRequest)}</Text>
-          <Box marginLeft={2} marginY={0.5}>
+          <Box marginLeft={2} marginY={0.2}>
             <Text color={activeTheme.muted}>{approvalDetails(approvalRequest)}</Text>
           </Box>
-          <Box flexDirection="row" gap={1} marginTop={1}>
+          <Box flexDirection="row" gap={1} marginTop={0.5}>
             {approvalOptions.map((option, index) => (
               <ApprovalOptionView
                 key={option}
@@ -798,115 +827,117 @@ export function App({
       {modelPicker.open ? (
         <Box
           flexDirection="column"
-          borderStyle="single"
-          borderColor={activeTheme.accent}
-          paddingX={1}
-          paddingY={0.5}
+          paddingLeft={2}
           marginBottom={0.5}
           width="100%"
         >
           <Text bold color={activeTheme.accent}>
-            Models for {PROVIDER_CATALOG[meta.provider].displayName}
+            🤖 SELECT MODEL FOR {PROVIDER_CATALOG[meta.provider].displayName.toUpperCase()}
           </Text>
-          {modelPicker.items.length > 0 ? (
-            modelPicker.items.map((model, idx) => (
-              <Box key={model} flexDirection="row">
-                <Text color={idx === selectedModelIndex ? activeTheme.accent : "gray"}>
-                  {idx === selectedModelIndex ? "› " : "  "}
-                </Text>
-                <Text bold={model === meta.model} color={idx === selectedModelIndex ? activeTheme.accent : "white"}>
-                  {model === meta.model ? "* " : "  "}
-                  {model}
-                </Text>
-              </Box>
-            ))
-          ) : (
-            <Text color={activeTheme.muted}>No matching model. Type /model {"<model-id>"}.</Text>
-          )}
-          <Box marginTop={0.5}>
-            <Text color={activeTheme.muted}>
-              up/down navigate | enter switch | type to filter
-            </Text>
+          <Box flexDirection="column" marginTop={0.2}>
+            {modelPicker.items.length > 0 ? (
+              modelPicker.items.map((model, idx) => (
+                <Box key={model} flexDirection="row">
+                  <Text color={idx === selectedModelIndex ? activeTheme.accent : "gray"}>
+                    {idx === selectedModelIndex ? "❯ " : "  "}
+                  </Text>
+                  <Text bold={model === meta.model} color={idx === selectedModelIndex ? activeTheme.primary : "white"}>
+                    {model === meta.model ? "★ " : "  "}
+                    {model}
+                  </Text>
+                </Box>
+              ))
+            ) : (
+              <Text color={activeTheme.warning}>No matching model. Type /model {"<model-id>"}.</Text>
+            )}
           </Box>
         </Box>
       ) : themePicker.open ? (
         <Box
           flexDirection="column"
-          borderStyle="single"
-          borderColor={activeTheme.accent}
-          paddingX={1}
-          paddingY={0.5}
+          paddingLeft={2}
           marginBottom={0.5}
           width="100%"
         >
-          <Text bold color={activeTheme.accent}>Themes</Text>
-          {themePicker.items.length > 0 ? (
-            themePicker.items.map((theme, idx) => (
-              <Box key={theme.id} flexDirection="row">
-                <Text color={idx === selectedThemeIndex ? activeTheme.accent : "gray"}>
-                  {idx === selectedThemeIndex ? "› " : "  "}
-                </Text>
-                <Text bold={theme.id === activeTheme.id} color={idx === selectedThemeIndex ? activeTheme.accent : "white"}>
-                  {theme.id === activeTheme.id ? "* " : "  "}
-                  {theme.id.padEnd(10)} {theme.name}
-                </Text>
-              </Box>
-            ))
-          ) : (
-            <Text color={activeTheme.muted}>No matching theme. Type /theme.</Text>
-          )}
-          <Box marginTop={0.5}>
-            <Text color={activeTheme.muted}>
-              up/down navigate | enter apply | type to filter
-            </Text>
+          <Text bold color={activeTheme.accent}>🎨 CHOOSE INTERFACE THEME</Text>
+          <Box flexDirection="column" marginTop={0.2}>
+            {themePicker.items.length > 0 ? (
+              themePicker.items.map((theme, idx) => (
+                <Box key={theme.id} flexDirection="row">
+                  <Text color={idx === selectedThemeIndex ? activeTheme.accent : "gray"}>
+                    {idx === selectedThemeIndex ? "❯ " : "  "}
+                  </Text>
+                  <Text bold={theme.id === activeTheme.id} color={idx === selectedThemeIndex ? activeTheme.primary : "white"}>
+                    {theme.id === activeTheme.id ? "★ " : "  "}
+                    {theme.id.padEnd(12)}
+                  </Text>
+                  <Text color={idx === selectedThemeIndex ? "white" : activeTheme.muted}>
+                    ┃ {theme.name}
+                  </Text>
+                </Box>
+              ))
+            ) : (
+              <Text color={activeTheme.warning}>No matching theme. Type /theme.</Text>
+            )}
           </Box>
         </Box>
       ) : showSlashMenu && filteredCommands.length > 0 ? (
         <Box
           flexDirection="column"
-          borderStyle="single"
-          borderColor={activeTheme.accent}
-          paddingX={1}
-          paddingY={0.5}
+          paddingLeft={2}
           marginBottom={0.5}
           width="100%"
         >
-          <Text bold color={activeTheme.accent}>Commands</Text>
-          {filteredCommands.map((cmd, idx) => (
-            <Box key={cmd.name} flexDirection="row">
-              <Text color={idx === selectedCommandIndex ? activeTheme.accent : "gray"}>
-                {idx === selectedCommandIndex ? "› " : "  "}
-              </Text>
-              <Text bold color={idx === selectedCommandIndex ? activeTheme.accent : "white"}>
-                {cmd.name.padEnd(10)}
-              </Text>
-              <Text color={activeTheme.muted}> {cmd.desc}</Text>
-            </Box>
-          ))}
-          <Box marginTop={0.5}>
-            <Text color={activeTheme.muted}>up/down navigate | tab/enter select</Text>
+          <Text bold color={activeTheme.accent}>📂 AVAILABLE SLASH COMMANDS</Text>
+          <Box flexDirection="column" marginTop={0.2}>
+            {filteredCommands.map((cmd, idx) => (
+              <Box key={cmd.name} flexDirection="row">
+                <Text color={idx === selectedCommandIndex ? activeTheme.accent : "gray"}>
+                  {idx === selectedCommandIndex ? "❯ " : "  "}
+                </Text>
+                <Text bold color={idx === selectedCommandIndex ? activeTheme.primary : "white"}>
+                  {cmd.name.padEnd(12)}
+                </Text>
+                <Text color={idx === selectedCommandIndex ? "white" : activeTheme.muted}>
+                  {idx === selectedCommandIndex ? "┃ " : "┆ "}
+                  {cmd.desc}
+                </Text>
+              </Box>
+            ))}
           </Box>
         </Box>
       ) : null}
 
       <Box
         flexDirection="row"
-        borderStyle="single"
-        borderColor={busy ? activeTheme.success : activeTheme.primary}
-        paddingX={1}
+        paddingX={0}
         width="100%"
+        marginTop={0.5}
       >
-        <Text bold color={busy ? activeTheme.success : activeTheme.primary}>› </Text>
-        <TextInput value={input} onChange={setInput} onSubmit={submit} />
+        <Text bold color={busy ? activeTheme.success : activeTheme.primary}>
+          {busy ? "⏳ lucky › " : "you › "}
+        </Text>
+        <TextInput value={input} onChange={handleInputChange} onSubmit={submit} />
       </Box>
 
-      <Box width="100%" paddingX={1} justifyContent="space-between" marginTop={0.5}>
-        <Text color={approvalRequest ? activeTheme.warning : activeTheme.muted}>{status}</Text>
-        <Text color={activeTheme.muted}>
-          tokens {tokenUsage.input + tokenUsage.output} | in {tokenUsage.input} | out {tokenUsage.output}
-          {" | "}
-          ctx {formatContextFooter(contextStatus)}
-        </Text>
+      <Box width="100%" paddingX={0} justifyContent="space-between" marginTop={0.2}>
+        <Box flexDirection="row" gap={1}>
+          {busy && (
+            <Text color={activeTheme.muted}>
+              ⏳ thinking for {elapsedSeconds}s...
+            </Text>
+          )}
+          {scrollOffset > 0 && (
+            <Text bold color={activeTheme.warning}>
+              📜 scrollback: {scrollOffset} msgs up (esc to reset)
+            </Text>
+          )}
+        </Box>
+        <Box flexDirection="row" gap={1}>
+          <Text color={activeTheme.muted} dimColor>
+            tokens: {tokenUsage.input + tokenUsage.output} ({tokenUsage.input} in / {tokenUsage.output} out) ┃ ctx: {formatContextFooter(contextStatus)}
+          </Text>
+        </Box>
       </Box>
     </Box>
   );
@@ -923,33 +954,67 @@ function ItemView({
 }): React.JSX.Element {
   switch (item.kind) {
     case "user":
-      return <LabeledBlock label="you" color={theme.primary} text={item.text} width={width} />;
-    case "assistant":
-      return <LabeledBlock label="lucky" color={theme.success} text={item.text} width={width} />;
-    case "error":
-      return <LabeledBlock label="error" color={theme.error} text={item.text} width={width} />;
-    case "tool":
-      const toolText =
-        item.output === undefined
-          ? `${item.name}(${item.input}) -> running`
-          : `${item.name}(${item.input}) -> ${item.error ? "error: " : ""}${item.output}`;
       return (
-        <LabeledBlock
-          label="tool"
-          color={item.error ? theme.error : theme.muted}
-          text={toolText}
-          width={width}
-          indent={2}
-        />
+        <Box flexDirection="column" marginY={0.2}>
+          <Box flexDirection="row" marginBottom={0.1}>
+            <Text bold color={theme.primary}>you</Text>
+            <Text color={theme.muted}> › </Text>
+          </Box>
+          <Box paddingLeft={2}>
+            {parseMarkdownToReact(item.text, theme)}
+          </Box>
+        </Box>
       );
+    case "assistant":
+      return (
+        <Box flexDirection="column" marginY={0.2}>
+          <Box flexDirection="row" marginBottom={0.1}>
+            <Text bold color={theme.success}>● lucky</Text>
+            <Text color={theme.muted}> › </Text>
+          </Box>
+          <Box paddingLeft={2}>
+            {parseMarkdownToReact(item.text, theme)}
+          </Box>
+        </Box>
+      );
+    case "error":
+      return (
+        <Box flexDirection="column" marginY={0.2}>
+          <Box flexDirection="row" marginBottom={0.1}>
+            <Text bold color={theme.error}>▲ error</Text>
+            <Text color={theme.muted}> › </Text>
+          </Box>
+          <Box paddingLeft={2}>
+            <Text color={theme.error}>{item.text}</Text>
+          </Box>
+        </Box>
+      );
+    case "tool": {
+      const isRunning = item.output === undefined;
+      const toolColor = item.error ? theme.error : theme.muted;
+      const statusSymbol = item.error ? "❌" : isRunning ? "⎔" : "✔";
+      return (
+        <Box flexDirection="row" paddingLeft={2} marginY={0.1} gap={1}>
+          <Text color={toolColor}>{statusSymbol}</Text>
+          <Text dimColor={!item.error} color={toolColor} italic>
+            tool call: {item.name}({item.input}) {isRunning ? "..." : ""}
+          </Text>
+        </Box>
+      );
+    }
     case "command":
       return (
-        <LabeledBlock
-          label="system"
-          color={theme.accent}
-          text={formatCommandRows(item.title, item.rows)}
-          width={width}
-        />
+        <Box flexDirection="column" paddingLeft={2} marginY={0.2}>
+          <Text bold color={theme.accent}>ℹ {item.title}</Text>
+          <Box flexDirection="column" paddingLeft={2} marginTop={0.1}>
+            {item.rows.map((row, idx) => (
+              <Box key={idx} flexDirection="row">
+                <Text color={theme.muted}>{row.label.padEnd(12)}: </Text>
+                <Text color="white">{row.value}</Text>
+              </Box>
+            ))}
+          </Box>
+        </Box>
       );
   }
 }
@@ -1009,36 +1074,234 @@ function inputString(input: unknown, key: string): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function LabeledBlock({
-  label,
-  color,
-  text,
-  width,
-  indent = 0,
-}: {
-  label: string;
-  color: string;
+interface Block {
+  type: "paragraph" | "code" | "list" | "header";
   text: string;
-  width: number;
-  indent?: number;
-}): React.JSX.Element {
-  const labelWidth = 9;
-  const lines = wrapText(text, width);
+  codeLines?: string[];
+  language?: string;
+  level?: number;
+}
+
+function parseMessageIntoBlocks(text: string): Block[] {
+  const lines = text.split("\n");
+  const blocks: Block[] = [];
+  let currentCodeBlock: { language: string; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      if (currentCodeBlock) {
+        blocks.push({
+          type: "code",
+          text: "",
+          codeLines: currentCodeBlock.lines,
+          language: currentCodeBlock.language,
+        });
+        currentCodeBlock = null;
+      } else {
+        const lang = line.trim().slice(3).trim();
+        currentCodeBlock = { language: lang || "code", lines: [] };
+      }
+      continue;
+    }
+
+    if (currentCodeBlock) {
+      currentCodeBlock.lines.push(line);
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (!trimmed) {
+      blocks.push({ type: "paragraph", text: "" });
+      continue;
+    }
+
+    const headerMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (headerMatch) {
+      blocks.push({
+        type: "header",
+        text: headerMatch[2] ?? "",
+        level: headerMatch[1]?.length ?? 1,
+      });
+      continue;
+    }
+
+    const listMatch = line.match(/^(\s*(?:[-*+]|\d+[.)])\s+)(.*)$/);
+    if (listMatch) {
+      blocks.push({
+        type: "list",
+        text: line,
+      });
+      continue;
+    }
+
+    blocks.push({
+      type: "paragraph",
+      text: line,
+    });
+  }
+
+  if (currentCodeBlock) {
+    blocks.push({
+      type: "code",
+      text: "",
+      codeLines: currentCodeBlock.lines,
+      language: currentCodeBlock.language,
+    });
+  }
+
+  return blocks;
+}
+
+function parseInlineMarkdown(text: string, theme: Theme): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const tokens = text.split(regex);
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token) continue;
+
+    if (token.startsWith("**") && token.endsWith("**")) {
+      parts.push(
+        <Text key={i} bold color={theme.accent}>
+          {token.slice(2, -2)}
+        </Text>
+      );
+    } else if (token.startsWith("`") && token.endsWith("`")) {
+      parts.push(
+        <Text key={i} color="yellow">
+          {token.slice(1, -1)}
+        </Text>
+      );
+    } else {
+      parts.push(<Text key={i}>{token}</Text>);
+    }
+  }
+
+  return parts.length > 0 ? parts : [text];
+}
+
+function pushWrappedLines(text: string, width: number): string[] {
+  const output: string[] = [];
+  pushWrapped(output, text, width);
+  return output;
+}
+
+function highlightCodeLine(line: string, language: string, theme: Theme): React.ReactNode[] {
+  const lowercaseLang = language.toLowerCase();
+  
+  let commentMatch = null;
+  if (lowercaseLang === "python" || lowercaseLang === "bash" || lowercaseLang === "sh" || lowercaseLang === "yaml" || lowercaseLang === "dockerfile") {
+    commentMatch = line.match(/^(.*?)(#.*)$/);
+  } else {
+    commentMatch = line.match(/^(.*?)(\/\/.*)$/);
+  }
+  
+  if (commentMatch) {
+    const codePart = commentMatch[1] ?? "";
+    const commentPart = commentMatch[2] ?? "";
+    return [
+      ...highlightCodeCode(codePart, lowercaseLang, theme),
+      <Text key="comment" color={theme.muted} italic>{commentPart}</Text>
+    ];
+  }
+  
+  return highlightCodeCode(line, lowercaseLang, theme);
+}
+
+function highlightCodeCode(code: string, language: string, theme: Theme): React.ReactNode[] {
+  const keywords = /\b(const|let|var|function|return|import|export|from|class|extends|if|else|for|while|do|switch|case|break|continue|try|catch|finally|async|await|def|import|as|from|print|in|is|not|and|or|elif|try|except|with|lambda)\b/g;
+  const builtins = /\b(string|number|boolean|any|void|unknown|never|null|undefined|true|false|self|this|Object|Array|Promise|console)\b/g;
+  const numbers = /\b(\d+(?:\.\d+)?)\b/g;
+
+  const stringRegex = /(["'`].*?["'`])/g;
+  const stringTokens = code.split(stringRegex);
+  const elements: React.ReactNode[] = [];
+
+  stringTokens.forEach((token, idx) => {
+    if ((token.startsWith('"') && token.endsWith('"')) ||
+        (token.startsWith("'") && token.endsWith("'")) ||
+        (token.startsWith("`") && token.endsWith("`"))) {
+      elements.push(<Text key={`str-${idx}`} color="green">{token}</Text>);
+    } else {
+      const subTokens = token.split(/(\s+|\b)/);
+      subTokens.forEach((subToken, subIdx) => {
+        const key = `sub-${idx}-${subIdx}`;
+        if (subToken.match(keywords)) {
+          elements.push(<Text key={key} color={theme.primary} bold>{subToken}</Text>);
+        } else if (subToken.match(builtins)) {
+          elements.push(<Text key={key} color={theme.accent}>{subToken}</Text>);
+        } else if (subToken.match(numbers)) {
+          elements.push(<Text key={key} color="magenta">{subToken}</Text>);
+        } else {
+          elements.push(<Text key={key}>{subToken}</Text>);
+        }
+      });
+    }
+  });
+
+  return elements;
+}
+
+function parseMarkdownToReact(text: string, theme: Theme): React.JSX.Element {
+  const blocks = parseMessageIntoBlocks(text);
 
   return (
-    <Box flexDirection="column" marginLeft={indent}>
-      {lines.map((line, index) => (
-        <Box key={index} flexDirection="row">
-          <Box width={labelWidth}>
-            {index === 0 ? (
-              <Text bold color={color}>{label}</Text>
-            ) : (
-              <Text> </Text>
-            )}
+    <Box flexDirection="column">
+      {blocks.map((block, blockIdx) => {
+        if (block.type === "code" && block.codeLines) {
+          return (
+            <Box key={blockIdx} flexDirection="column" marginY={0.5} paddingLeft={2}>
+              <Box marginBottom={0.2}>
+                <Text bold dimColor color={theme.accent}>
+                  ⌨ {block.language?.toUpperCase() || "CODE"}
+                </Text>
+              </Box>
+              <Box flexDirection="column">
+                {block.codeLines.map((line, lineIdx) => (
+                  <Text key={lineIdx}>
+                    {highlightCodeLine(line, block.language || "code", theme)}
+                  </Text>
+                ))}
+              </Box>
+            </Box>
+          );
+        }
+
+        if (block.type === "header") {
+          const headerPrefix = "#".repeat(block.level || 1) + " ";
+          return (
+            <Box key={blockIdx} marginY={0.5}>
+              <Text bold underline color={theme.primary}>
+                {headerPrefix}
+                {block.text}
+              </Text>
+            </Box>
+          );
+        }
+
+        if (block.type === "list") {
+          return (
+            <Box key={blockIdx} paddingLeft={2} marginY={0.1}>
+              <Text>
+                {parseInlineMarkdown(block.text, theme)}
+              </Text>
+            </Box>
+          );
+        }
+
+        if (!block.text.trim()) {
+          return <Box key={blockIdx} height={0.5} />;
+        }
+
+        return (
+          <Box key={blockIdx} marginY={0.2}>
+            <Text>
+              {parseInlineMarkdown(block.text, theme)}
+            </Text>
           </Box>
-          <Text color={color}>{line}</Text>
-        </Box>
-      ))}
+        );
+      })}
     </Box>
   );
 }

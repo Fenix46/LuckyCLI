@@ -35,6 +35,48 @@ const WELCOME_LOGO = `
  |_____| \\____/ \\____|_|\\_\\   |_|  \\____|_____|___|
 `;
 
+function WizardProgressBar({ currentStep }: { currentStep: Step }): React.JSX.Element {
+  const steps = [
+    { key: "company", label: "SELECT_PROVIDER" },
+    { key: "authMethod", label: "CHOOSE_AUTH" },
+    { key: "credential", label: "INPUT_CREDENTIALS" },
+    { key: "model", label: "LOCK_MODEL" },
+  ] as const;
+
+  const currentIdx = steps.findIndex((x) => x.key === currentStep);
+
+  return (
+    <Box flexDirection="column" marginY={1} width="100%">
+      <Box flexDirection="row" gap={1} marginBottom={0.5}>
+        {steps.map((s, idx) => {
+          const isCurrent = s.key === currentStep;
+          const isPast = currentIdx > idx;
+          const label = `STAGE_0${idx + 1}:${s.label}`;
+          const color = isCurrent ? "yellow" : isPast ? "green" : "gray";
+          return (
+            <Box key={s.key} flexDirection="row">
+              <Text bold={isCurrent} color={color}>
+                {isCurrent ? `▶ [${label}]` : isPast ? `✔ [${label}]` : `  [${label}]`}
+              </Text>
+              {idx < steps.length - 1 && (
+                <Text color="gray">{" ═ "}</Text>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+      <Box flexDirection="row" gap={1}>
+        <Text color="cyan">DECK SYSTEM STACK INIT: </Text>
+        <Text color="green">
+          {"█".repeat((currentIdx + 1) * 8)}
+          {"░".repeat((4 - (currentIdx + 1)) * 8)}
+          {` ${Math.round(((currentIdx + 1) / 4) * 100)}%`}
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
 export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const [step, setStep] = useState<Step>("company");
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
@@ -232,7 +274,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const catalogEntry = selectedProviderId ? PROVIDER_CATALOG[selectedProviderId] : null;
 
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1}>
+    <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
       {/* ASCII Splash Logo */}
       <Text bold color="cyan">
         {WELCOME_LOGO}
@@ -243,12 +285,27 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         </Text>
       </Box>
 
-      {/* Main Wizard Area */}
-      <Box flexDirection="column" marginTop={1}>
+      {/* Horizontal Step-by-Step Progress Bar */}
+      <WizardProgressBar currentStep={step} />
+
+      {/* Main Wizard Area Wrapped in a Card */}
+      <Box
+        flexDirection="column"
+        borderStyle="single"
+        borderTop={true}
+        borderBottom={false}
+        borderLeft={false}
+        borderRight={false}
+        borderColor="gray"
+        paddingTop={1}
+        marginTop={0.5}
+        width="100%"
+      >
         {step === "company" && (
           <Box flexDirection="column">
             <Text bold color="cyan">🔐 SELECT PROVIDER COMPANY</Text>
-            <Box marginTop={0.5} flexDirection="column">
+            <Text color="gray" dimColor>Select the cloud or local service you want to use:</Text>
+            <Box marginTop={1} flexDirection="column">
               <SelectInput
                 items={companyItems}
                 onSelect={onSelectCompany}
@@ -261,7 +318,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
           <Box flexDirection="column">
             <Text bold color="cyan">🔑 SELECT LOGIN METHOD</Text>
             <Text color="gray" dimColor>Select how you want to authenticate with {selectedCompany}:</Text>
-            <Box marginTop={0.5} flexDirection="column">
+            <Box marginTop={1} flexDirection="column">
               <SelectInput
                 items={PROVIDER_CATALOG[selectedProviderId].authMethods.map((m) => ({
                   key: m.id,
@@ -277,9 +334,10 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
         {step === "credential" && selectedAuthMethod && (
           <Box flexDirection="column">
             <Text bold color="cyan">⚙️ ENTER CREDENTIALS</Text>
+            <Text color="gray" dimColor>Provide connection parameters for authentication:</Text>
 
             {credSubStep === "input" && (
-              <Box flexDirection="column" marginTop={0.5}>
+              <Box flexDirection="column" marginTop={1}>
                 <Box flexDirection="row">
                   <Text bold color="cyan">
                     {selectedAuthMethod.kind === "apiKey" ? "API Key" : "Base URL"}{" "}
@@ -292,14 +350,14 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
                     {...(selectedAuthMethod.kind === "apiKey" ? { mask: "*" } : {})}
                   />
                 </Box>
-                <Box marginTop={1}>
+                <Box marginTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5}>
                   <Text dimColor color="gray">Press [Enter] to submit credentials</Text>
                 </Box>
               </Box>
             )}
 
             {credSubStep === "oauth_code" && (
-              <Box flexDirection="column" marginTop={0.5}>
+              <Box flexDirection="column" marginTop={1}>
                 {oauthLoading ? (
                   <Text color="yellow">⏳ Starting secure loopback callback server...</Text>
                 ) : (
@@ -314,11 +372,11 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
                         </Box>
                       </>
                     )}
-                    <Box marginTop={0.5}>
+                    <Box marginTop={1}>
                       <Text bold color="yellow">⏳ Waiting for browser callback... (Automatic login)</Text>
                     </Box>
                     {oauthError && (
-                      <Box marginTop={0.5}>
+                      <Box marginTop={1}>
                         <Text color="red">❌ {oauthError}</Text>
                       </Box>
                     )}
@@ -328,7 +386,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
             )}
 
             {credSubStep === "project" && (
-              <Box flexDirection="column" marginTop={0.5}>
+              <Box flexDirection="column" marginTop={1}>
                 <Box flexDirection="row">
                   <Text bold color="cyan">
                     {selectedAuthMethod.kind === "oauth"
@@ -341,14 +399,14 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
                     onSubmit={onSubmitProject}
                   />
                 </Box>
-                <Box marginTop={1}>
+                <Box marginTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5}>
                   <Text dimColor color="gray">Press [Enter] to continue</Text>
                 </Box>
               </Box>
             )}
 
             {credSubStep === "region" && (
-              <Box flexDirection="column" marginTop={0.5}>
+              <Box flexDirection="column" marginTop={1}>
                 <Box flexDirection="row">
                   <Text bold color="cyan">
                     GCP Region (default: us-central1):{" "}
@@ -359,7 +417,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
                     onSubmit={onSubmitRegion}
                   />
                 </Box>
-                <Box marginTop={1}>
+                <Box marginTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5}>
                   <Text dimColor color="gray">Press [Enter] to continue</Text>
                 </Box>
               </Box>
@@ -371,7 +429,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
           <Box flexDirection="column">
             <Text bold color="cyan">🤖 SELECT ACTIVE MODEL</Text>
             <Text color="gray" dimColor>Choose the default LLM model to use:</Text>
-            <Box marginTop={0.5} flexDirection="column">
+            <Box marginTop={1} flexDirection="column">
               <SelectInput
                 items={catalogEntry.availableModels.map((m) => ({
                   key: m,
