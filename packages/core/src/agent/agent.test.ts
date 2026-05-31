@@ -98,6 +98,20 @@ async function collect(it: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
   return out;
 }
 
+function toolCallStep(id: string): StreamChunk[] {
+  return [
+    {
+      toolCall: {
+        type: "tool_call",
+        id,
+        name: "echo",
+        arguments: { value: id },
+      },
+    },
+    { finishReason: "tool_calls" },
+  ];
+}
+
 describe("Agent loop", () => {
   it("streams text and finishes a simple turn", async () => {
     const provider = new ScriptedProvider([
@@ -222,6 +236,23 @@ describe("Agent loop", () => {
       isError: false,
       content: "echoed:x",
     });
+  });
+
+  it("allows long tool exploration turns by default", async () => {
+    const provider = new ScriptedProvider([
+      ...Array.from({ length: 12 }, (_, index) => toolCallStep(`t${index}`)),
+      [{ textDelta: "done" }, { finishReason: "stop" }],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+    });
+
+    const events = await collect(agent.send("inspect the project"));
+
+    expect(events.at(-1)?.type).toBe("turn_end");
+    expect(events.some((event) => event.type === "error")).toBe(false);
   });
 
   it("compacts old turns before sending when context pressure is high", async () => {

@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import os from "node:os";
 import React, { useCallback, useState, useEffect, useRef } from "react";
@@ -74,12 +74,59 @@ interface Theme {
 }
 
 const THEMES: Theme[] = [
-  { id: "matrix", name: "Digital Matrix (CRT)", primary: "#00ff00", accent: "#008f11", success: "#00ff00", warning: "#ffff00", muted: "#003300", error: "#ff0000" },
-  { id: "amber", name: "DEC Amber Mainframe", primary: "#ffb000", accent: "#ff8000", success: "#ffb000", warning: "#ff4500", muted: "#553300", error: "#ff0000" },
-  { id: "cyberpunk", name: "Netrunner Deck 2077", primary: "#fcee0a", accent: "#00f0ff", success: "#39ff14", warning: "#ff0055", muted: "#555555", error: "#ff0055" },
-  { id: "dracula", name: "Dracula Tactical", primary: "#ff79c6", accent: "#bd93f9", success: "#50fa7b", warning: "#f1fa8c", muted: "#6272a4", error: "#ff5555" },
-  { id: "nord", name: "Tactical Frost Node", primary: "#88c0d0", accent: "#81a1c1", success: "#a3be8c", warning: "#ebcb8b", muted: "#4c566a", error: "#bf616a" },
-  { id: "minimal", name: "Legacy Monochrome", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white" }
+  {
+    id: "lucky-dark",
+    name: "Lucky Dark",
+    primary: "#d77757",
+    accent: "#8aa4ff",
+    success: "#6bd17b",
+    warning: "#d9a441",
+    muted: "#6f7787",
+    error: "#ff6b7a",
+  },
+  {
+    id: "lucky-light",
+    name: "Lucky Light",
+    primary: "#a94f35",
+    accent: "#3f63d8",
+    success: "#2f7d42",
+    warning: "#8a641c",
+    muted: "#6b7280",
+    error: "#b4233f",
+  },
+  {
+    id: "terminal-dark",
+    name: "Terminal Dark",
+    primary: "#88c0d0",
+    accent: "#b48ead",
+    success: "#a3be8c",
+    warning: "#ebcb8b",
+    muted: "#667085",
+    error: "#bf616a",
+  },
+  {
+    id: "terminal-ansi",
+    name: "ANSI Portable",
+    primary: "cyan",
+    accent: "blueBright",
+    success: "green",
+    warning: "yellow",
+    muted: "gray",
+    error: "redBright",
+  },
+  {
+    id: "daltonized-dark",
+    name: "Daltonized Dark",
+    primary: "#f0c75e",
+    accent: "#6aa7ff",
+    success: "#56b4e9",
+    warning: "#e69f00",
+    muted: "#7f8797",
+    error: "#ff7f7f",
+  },
+  { id: "minimal", name: "Legacy Monochrome", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white" },
+  { id: "matrix", name: "Digital Matrix (CRT)", primary: "#00ff00", accent: "#008f11", success: "#00ff00", warning: "#ffff00", muted: "#335533", error: "#ff5555" },
+  { id: "amber", name: "DEC Amber Mainframe", primary: "#ffb000", accent: "#ff8000", success: "#ffd166", warning: "#ff4500", muted: "#806033", error: "#ff5555" },
 ];
 
 const ALL_SLASH_COMMANDS = [
@@ -136,10 +183,8 @@ export function App({
     }
   }, [agent, meta.provider, meta.model]);
   const [input, setInput] = useState("");
-  const [scrollOffset, setScrollOffset] = useState(0);
   const handleInputChange = useCallback((val: string) => {
     setInput(val);
-    setScrollOffset(0);
   }, []);
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
@@ -147,7 +192,6 @@ export function App({
   const pendingStreamingRef = useRef("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [busyFrame, setBusyFrame] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Persistent Theme System
@@ -225,17 +269,6 @@ export function App({
     }, 500);
     return () => clearInterval(timer);
   }, [busy, startedAt]);
-
-  useEffect(() => {
-    if (!busy || streaming) {
-      setBusyFrame(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setBusyFrame((frame) => frame + 1);
-    }, 200);
-    return () => clearInterval(timer);
-  }, [busy]);
 
   // Slash commands navigation
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -355,28 +388,6 @@ export function App({
           setInput(completed);
           setSelectedCommandIndex(0);
         }
-        return;
-      }
-    }
-
-    // 4b. Interactive Scrollback (when idle and no pickers/menus are active)
-    if (
-      !busy &&
-      !approvalRequest &&
-      !modelPicker.open &&
-      !themePicker.open &&
-      !showSlashMenu
-    ) {
-      if (key.upArrow || key.pageUp) {
-        setScrollOffset((prev) => Math.min(items.length - 1, prev + 1));
-        return;
-      }
-      if (key.downArrow || key.pageDown) {
-        setScrollOffset((prev) => Math.max(0, prev - 1));
-        return;
-      }
-      if (key.escape) {
-        setScrollOffset(0);
         return;
       }
     }
@@ -782,21 +793,30 @@ export function App({
     },
     [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, onTriggerResume, selectModel, selectTheme, persistSession],
   );
-  // Render the entire chat transcript inline to leverage native terminal scrollback
-  const visibleItems = items;
-  const hiddenItemsAbove = 0;
-  const hiddenItemsBelow = 0;
+  const lastItem = items.at(-1);
+  const liveTail =
+    lastItem?.kind === "tool" && lastItem.output === undefined
+      ? lastItem
+      : undefined;
+  const staticItems = liveTail ? items.slice(0, -1) : items;
+  const visibleStreaming = streaming
+    ? streaming.slice(0, streaming.lastIndexOf("\n") + 1) || streaming
+    : "";
   
-  const status = approvalRequest ? "approval required" : busy ? `thinking ${elapsedSeconds}s` : "ready";
   const messageWidth = Math.max(32, terminalSize.width - 16);
-  const thinkingFrames = ["-", "\\", "|", "/"];
-  const thinkingFrame = thinkingFrames[busyFrame % thinkingFrames.length] ?? "-";
-  const thinkingDots = ".".repeat((busyFrame % 4) + 1).padEnd(4, " ");
 
   return (
     <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
+      <Static items={staticItems}>
+        {(item, index) => (
+          <Box key={`static-${index}`} marginY={0.5}>
+            <ItemView item={item} theme={activeTheme} width={messageWidth} />
+          </Box>
+        )}
+      </Static>
+
       <Box flexDirection="column" marginY={0.5}>
-        {visibleItems.length === 0 && !streaming && !busy ? (
+        {staticItems.length === 0 && !liveTail && !visibleStreaming && !busy ? (
           <Box flexDirection="column" marginY={1}>
             <IntroBanner
               theme={activeTheme}
@@ -811,16 +831,16 @@ export function App({
           </Box>
         ) : null}
         
-        {visibleItems.map((item, i) => (
-          <Box key={i} marginY={0.5}>
-            <ItemView item={item} theme={activeTheme} width={messageWidth} />
+        {liveTail ? (
+          <Box marginY={0.5}>
+            <ItemView item={liveTail} theme={activeTheme} width={messageWidth} />
           </Box>
-        ))}
+        ) : null}
         
-        {streaming ? (
+        {visibleStreaming ? (
           <Box marginY={0.5}>
             <ItemView
-              item={{ kind: "assistant", text: streaming }}
+              item={{ kind: "assistant", text: visibleStreaming }}
               theme={activeTheme}
               width={messageWidth}
             />
@@ -960,11 +980,6 @@ export function App({
           {busy && (
             <Text color={activeTheme.muted}>
               ⏳ thinking for {elapsedSeconds}s...
-            </Text>
-          )}
-          {scrollOffset > 0 && (
-            <Text bold color={activeTheme.warning}>
-              📜 scrollback: {scrollOffset} msgs up (esc to reset)
             </Text>
           )}
         </Box>

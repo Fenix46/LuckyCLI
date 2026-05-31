@@ -13,6 +13,8 @@ import { modelInfo } from "../providers/catalog.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
+const DEFAULT_MAX_STEPS = 40;
+
 export interface AgentConfig {
   provider: IProvider;
   model: string;
@@ -76,7 +78,7 @@ export class Agent {
     this.cwd = cfg.cwd ?? process.cwd();
     this.temperature = cfg.temperature;
     this.maxTokens = cfg.maxTokens;
-    this.maxSteps = cfg.maxSteps ?? 10;
+    this.maxSteps = cfg.maxSteps ?? DEFAULT_MAX_STEPS;
     this.compaction = {
       enabled: cfg.compaction?.enabled ?? true,
       thresholdRatio: cfg.compaction?.thresholdRatio ?? 0.75,
