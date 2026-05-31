@@ -944,13 +944,19 @@ export function App({
   );
 }
 
-/** Lucky's pixel mascot, drawn with block-glyphs (all single-width). */
+/**
+ * Lucky's mascot: the lucky black cat with pointy ears and a four-leaf clover,
+ * hugging a terminal. Drawn so every row lines up in a monospace font.
+ */
 const MASCOT = [
-  "▛▀▀▀▀▀▀▀▜",
-  "▌ ▆   ▆ ▐",
-  "▌       ▐",
-  "▙▄▄▄▄▄▄▄▟",
-  "  ▘ ▘ ▘  ",
+  "  /\\     /\\     ☘",
+  " /  \\___/  \\",
+  "(   ●   ●   )",
+  " \\    ▾    /",
+  "  )       (",
+  " [ >_      ]",
+  " [ $_      ]",
+  "  ‾‾‾‾‾‾‾‾‾",
 ];
 
 /**
@@ -994,7 +1000,7 @@ function IntroBanner({
           </Text>
           <Box flexDirection="column" marginY={1}>
             {MASCOT.map((line, i) => (
-              <Text key={i} color={theme.accent}>
+              <Text key={i} color={theme.success}>
                 {line}
               </Text>
             ))}

@@ -1,7 +1,13 @@
-# lucky
+<h1 align="center">LuckyCLI</h1>
 
-A modern, multi-provider terminal AI agent. Built in TypeScript, designed so the
-agent logic, tools and CLI never know which model provider is behind them.
+<p align="center">
+  <img src="assets/mascot.png" alt="LuckyCLI mascot — a lucky black cat hugging a terminal" width="200">
+</p>
+
+<p align="center">
+  A modern, multi-provider terminal AI agent. Built in TypeScript, designed so
+  the agent logic, tools and CLI never know which model provider is behind them.
+</p>
 
 > Status: **working MVP.** The architecture is complete and type-safe, the build
 > and unit suite are green, and the Ink-based REPL is interactive. Five provider
