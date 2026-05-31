@@ -1,5 +1,6 @@
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
+import os from "node:os";
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
   PROVIDER_CATALOG,
@@ -19,6 +20,9 @@ import {
   saveSession,
   saveStoredConfig,
 } from "@luckycli/core";
+
+/** Shown in the opening banner. Keep in sync with packages/cli/package.json. */
+const APP_VERSION = "0.1.0";
 
 interface AppMeta {
   provider: ProviderId;
@@ -757,26 +761,19 @@ export function App({
 
   return (
     <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
-      <Box
-        flexDirection="row"
-        justifyContent="space-between"
-        width="100%"
-        marginBottom={1}
-        paddingBottom={0.2}
-      >
-        <Box flexDirection="row" gap={1}>
-          <Text bold color={activeTheme.primary}>lucky ›</Text>
-          <Text color={activeTheme.success}>connected</Text>
-        </Box>
-        <Box flexDirection="row" gap={1}>
-          <Text color={activeTheme.muted}>{meta.provider} / {meta.model}</Text>
-        </Box>
-      </Box>
-
       <Box flexDirection="column" marginY={0.5}>
         {visibleItems.length === 0 && !streaming && !busy ? (
-          <Box marginY={1}>
-            <Text color={activeTheme.muted}>lucky › Input instruction payload or type / for command directory...</Text>
+          <Box flexDirection="column" marginY={1}>
+            <IntroBanner
+              theme={activeTheme}
+              provider={meta.provider}
+              model={meta.model}
+            />
+            <Box marginTop={1}>
+              <Text color={activeTheme.muted}>
+                lucky › Input instruction payload or type / for command directory...
+              </Text>
+            </Box>
           </Box>
         ) : null}
         
@@ -945,6 +942,111 @@ export function App({
       </Box>
     </Box>
   );
+}
+
+/** Lucky's pixel mascot, drawn with block-glyphs (all single-width). */
+const MASCOT = [
+  "▛▀▀▀▀▀▀▀▜",
+  "▌ ▆   ▆ ▐",
+  "▌       ▐",
+  "▙▄▄▄▄▄▄▄▟",
+  "  ▘ ▘ ▘  ",
+];
+
+/**
+ * The opening banner shown on a fresh session — a bordered welcome card with a
+ * mascot and provider info on the left, and a tips / what's-new panel on the
+ * right, in the spirit of Claude Code's startup box.
+ */
+function IntroBanner({
+  theme,
+  provider,
+  model,
+}: {
+  theme: Theme;
+  provider: ProviderId;
+  model: string;
+}): React.JSX.Element {
+  const name = firstName(os.userInfo().username);
+  const providerName = PROVIDER_CATALOG[provider].displayName;
+  const cwd = prettyCwd(process.cwd());
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.accent}
+      paddingX={2}
+      paddingY={1}
+    >
+      <Box marginBottom={1}>
+        <Text bold color={theme.primary}>
+          LuckyCLI{" "}
+        </Text>
+        <Text color={theme.muted}>v{APP_VERSION}</Text>
+      </Box>
+
+      <Box flexDirection="row">
+        {/* Left: greeting + mascot + context */}
+        <Box flexDirection="column" marginRight={3}>
+          <Text bold color={theme.success}>
+            Welcome back {name}!
+          </Text>
+          <Box flexDirection="column" marginY={1}>
+            {MASCOT.map((line, i) => (
+              <Text key={i} color={theme.accent}>
+                {line}
+              </Text>
+            ))}
+          </Box>
+          <Text color={theme.muted}>
+            {providerName} · {model}
+          </Text>
+          <Text color={theme.muted}>multi-provider terminal agent</Text>
+          <Text color={theme.muted}>{cwd}</Text>
+        </Box>
+
+        {/* Right: tips + what's new, divided by a vertical rule */}
+        <Box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor={theme.muted}
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          paddingLeft={3}
+        >
+          <Text bold color={theme.warning}>
+            Tips for getting started
+          </Text>
+          <Text color={theme.muted}>Type / to open the command directory</Text>
+          <Text color={theme.muted}>Run /model to switch model</Text>
+          <Text color={theme.muted}>Run /status to check your provider</Text>
+
+          <Box marginTop={1}>
+            <Text bold color={theme.warning}>
+              What's new
+            </Text>
+          </Box>
+          <Text color={theme.muted}>Resume sessions with --continue / --resume</Text>
+          <Text color={theme.muted}>Single-binary install · no Node required</Text>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+/** Extract a friendly first name from a system username. */
+function firstName(username: string): string {
+  const cleaned = username.replace(/[._-]/g, " ").trim();
+  const first = cleaned.split(" ")[0] ?? username;
+  return first.charAt(0).toUpperCase() + first.slice(1);
+}
+
+/** Shorten an absolute path by collapsing the home directory to `~`. */
+function prettyCwd(cwd: string): string {
+  const home = os.homedir();
+  return cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
 }
 
 function ItemView({
