@@ -4,6 +4,7 @@ import type {
   FinishReason,
   ModelInfo,
   Message,
+  ProviderStatus,
   TextPart,
   ToolCallPart,
   TokenUsage,
@@ -96,6 +97,16 @@ export class Agent {
 
   async contextStatus(): Promise<ContextStatus> {
     return this.contextStatusFor(this.history);
+  }
+
+  async providerStatus(): Promise<ProviderStatus> {
+    if (this.provider.getStatus) return this.provider.getStatus();
+    return {
+      provider: this.provider.info.id,
+      displayName: this.provider.info.displayName,
+      authType: "unknown",
+      notes: ["Provider does not expose account or quota status."],
+    };
   }
 
   async compactNow(): Promise<CompactionResult> {

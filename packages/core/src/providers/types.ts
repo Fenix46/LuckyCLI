@@ -143,6 +143,28 @@ export interface ModelInfo {
   source?: "official" | "provider" | "local" | "unknown";
 }
 
+// ─── Provider runtime status ────────────────────────────────────────────────
+
+export interface ProviderQuotaStatus {
+  label: string;
+  remaining?: string;
+  resetTime?: string;
+  modelId?: string;
+  tokenType?: string;
+}
+
+export interface ProviderStatus {
+  provider: ProviderId;
+  displayName: string;
+  authType: string;
+  account?: string;
+  project?: string;
+  subscription?: string;
+  tier?: string;
+  quotas?: ProviderQuotaStatus[];
+  notes?: string[];
+}
+
 // ─── Provider credentials (discriminated by provider id) ─────────────────────
 
 export interface ClaudeCredentials {

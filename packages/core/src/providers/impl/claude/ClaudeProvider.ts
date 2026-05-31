@@ -14,6 +14,7 @@ import type {
   GenerationResponse,
   Message,
   ProviderInfo,
+  ProviderStatus,
   StreamChunk,
   TextPart,
   TokenUsage,
@@ -145,6 +146,15 @@ export class ClaudeProvider implements IProvider {
     } catch (e) {
       return { ok: false, error: String(e) };
     }
+  }
+
+  async getStatus(): Promise<ProviderStatus> {
+    return {
+      provider: this.info.id,
+      displayName: this.info.displayName,
+      authType: "api key",
+      notes: ["Account, subscription, and provider quota windows are not exposed by this provider API."],
+    };
   }
 }
 

@@ -21,6 +21,7 @@ import type {
   GenerationResponse,
   Message,
   ProviderInfo,
+  ProviderStatus,
   StreamChunk,
   TokenUsage,
 } from "../../types.js";
@@ -216,6 +217,54 @@ export class GeminiProvider implements IProvider {
     } catch (e) {
       return { ok: false, error: String(e) };
     }
+  }
+
+  async getStatus(): Promise<ProviderStatus> {
+    const authType = this.credentials.authMethod ?? "api_key";
+    if (!this.codeAssistClient) {
+      return {
+        provider: this.info.id,
+        displayName: this.info.displayName,
+        authType: authType === "vertex" ? "vertex ai" : "api key",
+        ...(this.credentials.projectId ? { project: this.credentials.projectId } : {}),
+        notes: [
+          authType === "vertex"
+            ? "Vertex AI account and quota windows are managed by Google Cloud and are not exposed here."
+            : "Gemini API key account, subscription, and rolling quota windows are not exposed by this provider API.",
+        ],
+      };
+    }
+
+    const status = await this.codeAssistClient.getStatus();
+    const creditNotes = status.credits?.map(
+      (credit) =>
+        `credit ${credit.creditType ?? "unknown"}: ${credit.creditAmount ?? "unknown"}`,
+    );
+    return {
+      provider: this.info.id,
+      displayName: this.info.displayName,
+      authType: "oauth",
+      ...(status.account ? { account: status.account } : {}),
+      ...(status.project ? { project: status.project } : {}),
+      ...(status.subscription ? { subscription: status.subscription } : {}),
+      ...(status.tier ? { tier: status.tier } : {}),
+      ...(status.quotas
+        ? {
+            quotas: status.quotas.map((bucket, index) => ({
+              label: bucket.tokenType ?? bucket.modelId ?? `bucket ${index + 1}`,
+              ...(bucket.remainingAmount
+                ? { remaining: bucket.remainingAmount }
+                : bucket.remainingFraction !== undefined
+                  ? { remaining: `${Math.round(bucket.remainingFraction * 100)}%` }
+                  : {}),
+              ...(bucket.resetTime ? { resetTime: bucket.resetTime } : {}),
+              ...(bucket.modelId ? { modelId: bucket.modelId } : {}),
+              ...(bucket.tokenType ? { tokenType: bucket.tokenType } : {}),
+            })),
+          }
+        : {}),
+      notes: [...(status.notes ?? []), ...(creditNotes ?? [])],
+    };
   }
 
 }

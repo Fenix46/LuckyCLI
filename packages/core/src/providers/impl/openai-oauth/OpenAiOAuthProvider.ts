@@ -6,6 +6,7 @@ import type {
   Message,
   OpenAiOAuthCredentials,
   ProviderInfo,
+  ProviderStatus,
   StreamChunk,
   TextPart,
   TokenUsage,
@@ -206,6 +207,20 @@ export class OpenAiOAuthProvider implements IProvider {
     } catch (e) {
       return { ok: false, error: String(e) };
     }
+  }
+
+  async getStatus(): Promise<ProviderStatus> {
+    const tokens = await this.ensureFreshToken();
+    return {
+      provider: this.info.id,
+      displayName: this.info.displayName,
+      authType: "oauth",
+      ...(tokens.accountId ? { account: tokens.accountId } : {}),
+      notes: [
+        "ChatGPT OAuth account id is available when provided by auth.",
+        "Subscription and rolling quota windows are not exposed by the local provider adapter.",
+      ],
+    };
   }
 
   private async authHeaders(): Promise<Record<string, string>> {

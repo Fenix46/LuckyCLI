@@ -8,6 +8,7 @@ import type {
   GenerationResponse,
   Message,
   ProviderInfo,
+  ProviderStatus,
   StreamChunk,
   TokenUsage,
 } from "./types.js";
@@ -41,4 +42,7 @@ export interface IProvider {
 
   /** Check reachability and credential validity. */
   healthCheck(): Promise<{ ok: boolean; error?: string }>;
+
+  /** Optional provider-specific auth/account/quota snapshot for /status. */
+  getStatus?(): Promise<ProviderStatus>;
 }

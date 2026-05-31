@@ -7,6 +7,7 @@ import {
   type AgentEvent,
   type ContextStatus,
   type Message,
+  type ProviderStatus,
   type ProviderId,
   type Session,
   type ToolApproval,
@@ -77,6 +78,7 @@ const THEMES: Theme[] = [
 const ALL_SLASH_COMMANDS = [
   { name: "/help", desc: "Show all available slash commands" },
   { name: "/model", desc: "Switch model for the active provider" },
+  { name: "/status", desc: "Show provider auth, account, quota and context status" },
   { name: "/context", desc: "Show model context window and usage" },
   { name: "/compact", desc: "Summarize older chat history now" },
   { name: "/sessions", desc: "List saved sessions (resume with: lucky --resume <id>)" },
@@ -472,6 +474,33 @@ export function App({
             {
               kind: "error",
               text: error instanceof Error ? error.message : "failed to read context status",
+            },
+          ]);
+        }
+        setInput("");
+        return;
+      }
+      if (text === "/status") {
+        try {
+          const [providerStatus, status] = await Promise.all([
+            agent.providerStatus(),
+            agent.contextStatus(),
+          ]);
+          setContextStatus(status);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "Status",
+              rows: statusRows(providerStatus, status),
+            },
+          ]);
+        } catch (error) {
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "error",
+              text: error instanceof Error ? error.message : "failed to read provider status",
             },
           ]);
         }
@@ -1172,6 +1201,65 @@ function contextRows(status: ContextStatus): CommandRow[] {
     { label: "counter", value: status.tokenCounter },
     { label: "source", value: status.source ?? "unknown" },
   ];
+}
+
+function statusRows(
+  provider: ProviderStatus,
+  context: ContextStatus,
+): CommandRow[] {
+  const rows: CommandRow[] = [
+    { label: "provider", value: `${provider.displayName} (${provider.provider})` },
+    { label: "login", value: provider.authType },
+    { label: "account", value: provider.account ?? "not available" },
+    { label: "project", value: provider.project ?? "not applicable" },
+    { label: "subscription", value: provider.subscription ?? "not available" },
+    { label: "tier", value: provider.tier ?? "not available" },
+    {
+      label: "context",
+      value:
+        context.usedTokens !== undefined && context.usableTokens
+          ? `${formatNumber(context.usedTokens)} / ${formatNumber(context.usableTokens)} tokens`
+          : context.contextWindow
+            ? `${formatNumber(context.contextWindow)} token window`
+            : "unknown",
+    },
+    {
+      label: "ctx pressure",
+      value: context.ratio !== undefined ? `${Math.round(context.ratio * 100)}%` : "unknown",
+    },
+  ];
+
+  if (provider.quotas?.length) {
+    rows.push(
+      ...provider.quotas.map((quota) => ({
+        label: "quota",
+        value: [
+          quota.label,
+          quota.remaining ? `remaining ${quota.remaining}` : undefined,
+          quota.resetTime ? `resets ${quota.resetTime}` : undefined,
+          quota.modelId ? `model ${quota.modelId}` : undefined,
+        ]
+          .filter(Boolean)
+          .join(" | "),
+      })),
+    );
+  } else {
+    rows.push(
+      { label: "5h limit", value: "not available" },
+      { label: "weekly limit", value: "not available" },
+    );
+  }
+
+  if (provider.notes?.length) {
+    rows.push(
+      ...provider.notes.map((note) => ({
+        label: "note",
+        value: note,
+      })),
+    );
+  }
+
+  return rows;
 }
 
 function formatContextFooter(status: ContextStatus | null): string {

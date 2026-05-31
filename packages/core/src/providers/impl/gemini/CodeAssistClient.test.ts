@@ -149,6 +149,50 @@ describe("CodeAssistClient", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("returns account, tier and quota buckets for status", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          currentTier: { id: "standard-tier", name: "Standard" },
+          cloudaicompanionProject: "p1",
+          paidTier: {
+            id: "google-one-ai-premium",
+            name: "Google One AI Premium",
+            availableCredits: [
+              { creditType: "GOOGLE_ONE_AI", creditAmount: "500" },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ email: "user@example.com" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          buckets: [
+            {
+              tokenType: "rolling_5h",
+              remainingAmount: "42",
+              resetTime: "2026-05-31T12:00:00Z",
+            },
+          ],
+        }),
+      );
+
+    const client = new CodeAssistClient(() => "access-token");
+    const status = await client.getStatus();
+
+    expect(status.account).toBe("user@example.com");
+    expect(status.project).toBe("p1");
+    expect(status.tier).toBe("Google One AI Premium");
+    expect(status.subscription).toBe("Google One AI Premium");
+    expect(status.credits?.[0]?.creditAmount).toBe("500");
+    expect(status.quotas?.[0]?.tokenType).toBe("rolling_5h");
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+    );
+    expect(fetchMock.mock.calls[2][0]).toContain(":retrieveUserQuota");
+  });
 });
 
 function jsonResponse(body: unknown): Response {

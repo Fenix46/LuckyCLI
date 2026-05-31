@@ -16,6 +16,7 @@ import type {
   Message,
   OpenAiCredentials,
   ProviderInfo,
+  ProviderStatus,
   StreamChunk,
   TextPart,
   TokenUsage,
@@ -137,6 +138,18 @@ export class OpenAiProvider implements IProvider {
     } catch (e) {
       return { ok: false, error: String(e) };
     }
+  }
+
+  async getStatus(): Promise<ProviderStatus> {
+    return {
+      provider: this.info.id,
+      displayName: this.info.displayName,
+      authType: this.info.id === "ollama" ? "local" : "api key",
+      notes:
+        this.info.id === "ollama"
+          ? ["Local provider; account, subscription, and remote quota windows do not apply."]
+          : ["Account, subscription, and rolling quota windows are not exposed by this provider API."],
+    };
   }
 }
 

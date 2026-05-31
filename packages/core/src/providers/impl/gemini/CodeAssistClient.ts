@@ -36,6 +36,11 @@ interface GeminiUserTier {
   availableCredits?: Array<Record<string, unknown>>;
 }
 
+interface Credits {
+  creditType?: string;
+  creditAmount?: string;
+}
+
 interface IneligibleTier {
   reasonCode?: string;
   reasonMessage?: string;
@@ -80,6 +85,31 @@ interface CodeAssistGenerateResponse {
 
 interface CodeAssistCountTokensResponse {
   totalTokens?: number;
+}
+
+interface RetrieveUserQuotaResponse {
+  buckets?: Array<{
+    remainingAmount?: string;
+    remainingFraction?: number;
+    resetTime?: string;
+    tokenType?: string;
+    modelId?: string;
+  }>;
+}
+
+interface GoogleUserInfo {
+  email?: string;
+  name?: string;
+}
+
+export interface CodeAssistStatus {
+  account?: string;
+  project?: string;
+  tier?: string;
+  subscription?: string;
+  credits?: Credits[];
+  quotas?: RetrieveUserQuotaResponse["buckets"];
+  notes?: string[];
 }
 
 export interface CodeAssistGenerateRequest {
@@ -174,6 +204,31 @@ export class CodeAssistClient {
       model,
     );
     return { totalTokens: response.totalTokens ?? 0 };
+  }
+
+  async getStatus(): Promise<CodeAssistStatus> {
+    const user = await this.getUser();
+    const [account, quotas] = await Promise.all([
+      this.fetchUserInfo().catch(() => undefined),
+      this.retrieveQuota(user.projectId).catch(() => undefined),
+    ]);
+    return {
+      ...(account?.email ? { account: account.email } : {}),
+      project: user.projectId,
+      ...(user.userTierName || user.userTier
+        ? { tier: user.userTierName ?? user.userTier }
+        : {}),
+      ...(user.paidTier?.name || user.paidTier?.id
+        ? { subscription: user.paidTier.name ?? user.paidTier.id }
+        : {}),
+      ...(user.paidTier?.availableCredits
+        ? { credits: user.paidTier.availableCredits }
+        : {}),
+      ...(quotas?.buckets ? { quotas: quotas.buckets } : {}),
+      ...(!quotas?.buckets
+        ? { notes: ["Code Assist quota buckets are not available from this account/endpoint."] }
+        : {}),
+    };
   }
 
   private async getUser(): Promise<CodeAssistUser> {
@@ -273,6 +328,21 @@ export class CodeAssistClient {
       signal,
     });
     return readJsonResponse<T>(res, "getOperation");
+  }
+
+  private async retrieveQuota(projectId: string): Promise<RetrieveUserQuotaResponse> {
+    return this.post<RetrieveUserQuotaResponse>("retrieveUserQuota", {
+      project: projectId,
+      userAgent: "luckycli/0.1.0",
+    });
+  }
+
+  private async fetchUserInfo(): Promise<GoogleUserInfo> {
+    const res = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: { Authorization: `Bearer ${await this.accessToken()}` },
+    });
+    if (!res.ok) throw new Error(`Google userinfo failed (${res.status})`);
+    return (await res.json()) as GoogleUserInfo;
   }
 
   private async streamingPost<T>(
