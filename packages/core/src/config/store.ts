@@ -21,6 +21,11 @@ export interface StoredConfig {
   provider?: ProviderId;
   model?: string;
   theme?: string;
+  update?: {
+    lastCheckedAt?: number;
+    latestVersion?: string;
+    releaseUrl?: string;
+  };
   /** Saved credentials per provider, so switching doesn't re-prompt. */
   credentials?: Partial<Record<ProviderId, ProviderCredentials>>;
 }

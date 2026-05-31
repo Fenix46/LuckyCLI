@@ -21,6 +21,7 @@ import {
   saveSession,
   saveStoredConfig,
 } from "@luckycli/core";
+import { checkForUpdate, updateRows } from "../update.js";
 
 /** Shown in the opening banner. Keep in sync with packages/cli/package.json. */
 const APP_VERSION = "0.1.0";
@@ -134,6 +135,7 @@ const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
   { name: "/status", desc: "Show provider auth, account, quota and context status" },
   { name: "/context", desc: "Show model context window and usage" },
+  { name: "/update", desc: "Check for a newer LuckyCLI release" },
   { name: "/compact", desc: "Summarize older chat history now" },
   { name: "/sessions", desc: "List saved sessions (resume with: lucky --resume <id>)" },
   { name: "/resume", desc: "Pick a saved session to resume" },
@@ -269,6 +271,29 @@ export function App({
     }, 500);
     return () => clearInterval(timer);
   }, [busy, startedAt]);
+
+  useEffect(() => {
+    if (process.env.LUCKY_DISABLE_UPDATE_CHECK === "1") return;
+    let cancelled = false;
+    checkForUpdate(APP_VERSION)
+      .then((info) => {
+        if (cancelled || !info.updateAvailable) return;
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "command",
+            title: "Update Available",
+            rows: updateRows(info),
+          },
+        ]);
+      })
+      .catch(() => {
+        // Background update checks are best-effort. /update surfaces failures.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Slash commands navigation
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -556,6 +581,29 @@ export function App({
             {
               kind: "error",
               text: error instanceof Error ? error.message : "failed to read provider status",
+            },
+          ]);
+        }
+        setInput("");
+        return;
+      }
+      if (text === "/update") {
+        try {
+          const info = await checkForUpdate(APP_VERSION, { force: true });
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: info.updateAvailable ? "Update Available" : "Update",
+              rows: updateRows(info),
+            },
+          ]);
+        } catch (error) {
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "error",
+              text: error instanceof Error ? error.message : "failed to check for updates",
             },
           ]);
         }
