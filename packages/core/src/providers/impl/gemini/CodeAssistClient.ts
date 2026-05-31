@@ -7,13 +7,19 @@ import {
 } from "@google/genai";
 import {
   classifyCodeAssistError,
+  CodeAssistIneligibleTierError,
+  CodeAssistInvalidProjectError,
+  CodeAssistProjectRequiredError,
   CodeAssistRequestError,
+  CodeAssistValidationError,
 } from "./CodeAssistErrors.js";
 
 const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 const CODE_ASSIST_API_VERSION = "v1internal";
 const USER_TIER_FREE = "free-tier";
 const USER_TIER_LEGACY = "legacy-tier";
+const USER_TIER_STANDARD = "standard-tier";
+const VALIDATION_REQUIRED = "VALIDATION_REQUIRED";
 
 interface ClientMetadata {
   ideType?: string;
@@ -27,9 +33,11 @@ interface GeminiUserTier {
   name?: string;
   isDefault?: boolean;
   hasOnboardedPreviously?: boolean;
+  availableCredits?: Array<Record<string, unknown>>;
 }
 
 interface IneligibleTier {
+  reasonCode?: string;
   reasonMessage?: string;
   validationUrl?: string;
 }
@@ -39,6 +47,7 @@ interface LoadCodeAssistResponse {
   allowedTiers?: GeminiUserTier[] | null;
   ineligibleTiers?: IneligibleTier[] | null;
   cloudaicompanionProject?: string | null;
+  paidTier?: GeminiUserTier | null;
 }
 
 interface LongRunningOperationResponse {
@@ -53,6 +62,10 @@ interface LongRunningOperationResponse {
 
 interface CodeAssistUser {
   projectId: string;
+  userTier?: string;
+  userTierName?: string;
+  paidTier?: GeminiUserTier;
+  hasOnboardedPreviously?: boolean;
 }
 
 interface CodeAssistGenerateResponse {
@@ -175,9 +188,7 @@ export class CodeAssistClient {
       undefined;
 
     if (projectId && /^\d+$/.test(projectId)) {
-      throw new Error(
-        "GOOGLE_CLOUD_PROJECT must be a string project ID, not a numeric project number.",
-      );
+      throw new CodeAssistInvalidProjectError(projectId);
     }
 
     const metadata = metadataFor(projectId);
@@ -185,10 +196,21 @@ export class CodeAssistClient {
       cloudaicompanionProject: projectId,
       metadata,
     });
+    validateLoadCodeAssist(load);
 
     if (load.currentTier) {
       const resolvedProject = load.cloudaicompanionProject ?? projectId;
-      if (resolvedProject) return { projectId: resolvedProject };
+      if (resolvedProject) {
+        return {
+          projectId: resolvedProject,
+          userTier:
+            load.paidTier?.id ?? load.currentTier.id ?? USER_TIER_STANDARD,
+          userTierName: load.paidTier?.name ?? load.currentTier.name,
+          paidTier: load.paidTier ?? undefined,
+          hasOnboardedPreviously:
+            load.currentTier.hasOnboardedPreviously ?? true,
+        };
+      }
       throwIneligibleOrProjectError(load);
     }
 
@@ -205,8 +227,15 @@ export class CodeAssistClient {
 
     const operation = await this.waitForOperation(onboard);
     const onboardedProject = operation.response?.cloudaicompanionProject?.id;
-    if (onboardedProject) return { projectId: onboardedProject };
-    if (projectId) return { projectId };
+    const fallbackProject = onboardedProject ?? projectId;
+    if (fallbackProject) {
+      return {
+        projectId: fallbackProject,
+        userTier: tier.id ?? USER_TIER_STANDARD,
+        userTierName: tier.name,
+        hasOnboardedPreviously: tier.hasOnboardedPreviously ?? false,
+      };
+    }
 
     throwIneligibleOrProjectError(load);
   }
@@ -323,6 +352,20 @@ function defaultTier(load: LoadCodeAssistResponse): GeminiUserTier {
   );
 }
 
+function validateLoadCodeAssist(load: LoadCodeAssistResponse): void {
+  const validationTier = load.ineligibleTiers?.find(
+    (tier) => tier.reasonCode === VALIDATION_REQUIRED && tier.validationUrl,
+  );
+  if (!load.currentTier && validationTier?.validationUrl) {
+    throw new CodeAssistValidationError(
+      validationTier.reasonMessage
+        ? `Google account validation is required: ${validationTier.reasonMessage}`
+        : "Google account validation is required.",
+      validationTier.validationUrl,
+    );
+  }
+}
+
 function throwIneligibleOrProjectError(load: LoadCodeAssistResponse): never {
   const messages = load.ineligibleTiers
     ?.map((tier) =>
@@ -330,11 +373,9 @@ function throwIneligibleOrProjectError(load: LoadCodeAssistResponse): never {
     )
     .filter(Boolean);
   if (messages?.length) {
-    throw new Error(messages.join("\n"));
+    throw new CodeAssistIneligibleTierError(messages);
   }
-  throw new Error(
-    "This Google account requires GOOGLE_CLOUD_PROJECT or GOOGLE_CLOUD_PROJECT_ID for Code Assist.",
-  );
+  throw new CodeAssistProjectRequiredError();
 }
 
 async function readJsonResponse<T>(

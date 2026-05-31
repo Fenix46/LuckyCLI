@@ -49,6 +49,31 @@ export class CodeAssistValidationError extends Error {
   }
 }
 
+export class CodeAssistProjectRequiredError extends Error {
+  constructor() {
+    super(
+      "This Google account requires GOOGLE_CLOUD_PROJECT or GOOGLE_CLOUD_PROJECT_ID for Code Assist.",
+    );
+    this.name = "CodeAssistProjectRequiredError";
+  }
+}
+
+export class CodeAssistInvalidProjectError extends Error {
+  constructor(readonly projectId: string) {
+    super(
+      `Invalid Google Cloud Project ID "${projectId}". Set GOOGLE_CLOUD_PROJECT to the string project ID, not the numeric project number.`,
+    );
+    this.name = "CodeAssistInvalidProjectError";
+  }
+}
+
+export class CodeAssistIneligibleTierError extends Error {
+  constructor(readonly reasons: string[]) {
+    super(reasons.join("\n"));
+    this.name = "CodeAssistIneligibleTierError";
+  }
+}
+
 export function classifyCodeAssistError(error: unknown): unknown {
   if (!(error instanceof CodeAssistRequestError)) return error;
 
