@@ -333,7 +333,7 @@ export class CodeAssistClient {
   private async retrieveQuota(projectId: string): Promise<RetrieveUserQuotaResponse> {
     return this.post<RetrieveUserQuotaResponse>("retrieveUserQuota", {
       project: projectId,
-      userAgent: "luckycli/0.1.0",
+      userAgent: "luckycli/0.1.1",
     });
   }
 
@@ -365,7 +365,7 @@ export class CodeAssistClient {
   private async headers(): Promise<Record<string, string>> {
     return {
       "Content-Type": "application/json",
-      "User-Agent": "luckycli/0.1.0",
+      "User-Agent": "luckycli/0.1.1",
       Authorization: `Bearer ${await this.accessToken()}`,
     };
   }

@@ -51,7 +51,7 @@ async function fetchPublicUrl(
     redirect: "manual",
     signal,
     headers: {
-      "User-Agent": "luckycli/0.1.0",
+      "User-Agent": "luckycli/0.1.1",
     },
   });
 
