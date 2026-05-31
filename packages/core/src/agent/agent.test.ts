@@ -162,6 +162,68 @@ describe("Agent loop", () => {
     });
   });
 
+  it("denies a tool when approval rejects it", async () => {
+    const provider = new ScriptedProvider([
+      [
+        {
+          toolCall: {
+            type: "tool_call",
+            id: "t1",
+            name: "echo",
+            arguments: { value: "x" },
+          },
+        },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "done" }, { finishReason: "stop" }],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+      approveTool: () => "deny",
+    });
+
+    const events = await collect(agent.send("use the tool"));
+    const toolEnd = events.find((e) => e.type === "tool_end");
+    expect(toolEnd).toMatchObject({
+      type: "tool_end",
+      isError: true,
+      content: "Tool 'echo' execution was denied by the user.",
+    });
+  });
+
+  it("accepts allow-always approval decisions as approved", async () => {
+    const provider = new ScriptedProvider([
+      [
+        {
+          toolCall: {
+            type: "tool_call",
+            id: "t1",
+            name: "echo",
+            arguments: { value: "x" },
+          },
+        },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "done" }, { finishReason: "stop" }],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+      approveTool: () => "always",
+    });
+
+    const events = await collect(agent.send("use the tool"));
+    const toolEnd = events.find((e) => e.type === "tool_end");
+    expect(toolEnd).toMatchObject({
+      type: "tool_end",
+      isError: false,
+      content: "echoed:x",
+    });
+  });
+
   it("compacts old turns before sending when context pressure is high", async () => {
     const agent = new Agent({
       provider: new CompactingProvider(),

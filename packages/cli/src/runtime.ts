@@ -6,6 +6,7 @@ import {
   type Message,
   type ProviderCredentials,
   type ProviderId,
+  type ToolApproval,
 } from "@luckycli/core";
 
 export interface BuildAgentOptions {
@@ -15,7 +16,7 @@ export interface BuildAgentOptions {
   system: string;
   temperature?: number;
   maxTokens?: number;
-  approveTool?: (name: string, input: unknown) => Promise<boolean> | boolean;
+  approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   /** Prior conversation to resume from (e.g. a loaded session). */
   messages?: Message[];
 }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   loadStoredConfig,
   resolveConfig,
@@ -9,6 +9,7 @@ import {
   type ProviderId,
   type ResolvedConfig,
   type Session,
+  type ToolApproval,
 } from "@luckycli/core";
 import { buildAgent } from "../runtime.js";
 import { App, type ApprovalRequest } from "./App.js";
@@ -43,10 +44,23 @@ export function Root({
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
   const [resumeSession, setResumeSession] = useState<Session | null>(resume ?? null);
   const [picking, setPicking] = useState<boolean>(pickResume === true && !resume);
+  const sessionApprovedTools = useRef<Set<string>>(new Set());
 
   function approveTool(name: string, input: unknown) {
-    return new Promise<boolean>((resolve) => {
-      setApprovalRequest({ name, input, resolve });
+    const key = approvalKey(name, input);
+    if (sessionApprovedTools.current.has(key)) return "allow" satisfies ToolApproval;
+
+    return new Promise<ToolApproval>((resolve) => {
+      setApprovalRequest({
+        name,
+        input,
+        resolve: (decision) => {
+          if (decision === "always") {
+            sessionApprovedTools.current.add(key);
+          }
+          resolve(decision);
+        },
+      });
     });
   }
 
@@ -103,6 +117,7 @@ export function Root({
   function startSession(session: Session) {
     setResumeSession(session);
     setPicking(false);
+    sessionApprovedTools.current.clear();
     const resolved = resolveConfig({
       provider: session.provider,
       model: session.model,
@@ -194,4 +209,18 @@ export function Root({
       {...(resumeSession ? { resumed: resumeSession } : {})}
     />
   );
+}
+
+function approvalKey(name: string, input: unknown): string {
+  return `${name}:${stableStringify(input)}`;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",")}}`;
 }

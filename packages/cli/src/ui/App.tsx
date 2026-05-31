@@ -9,6 +9,7 @@ import {
   type Message,
   type ProviderId,
   type Session,
+  type ToolApproval,
   type TokenUsage,
   createSessionId,
   deriveTitle,
@@ -39,7 +40,7 @@ interface CommandRow {
 export interface ApprovalRequest {
   name: string;
   input: unknown;
-  resolve: (approved: boolean) => void;
+  resolve: (decision: ToolApproval) => void;
 }
 
 interface AppProps {
@@ -222,6 +223,8 @@ export function App({
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const themePicker = getThemePickerState(input, activeTheme.id);
   const [selectedThemeIndex, setSelectedThemeIndex] = useState(0);
+  const approvalOptions = ["allow", "always", "deny"] as const;
+  const [selectedApprovalIndex, setSelectedApprovalIndex] = useState(0);
 
   useEffect(() => {
     setSelectedModelIndex(0);
@@ -231,21 +234,37 @@ export function App({
     setSelectedThemeIndex(0);
   }, [themePicker.query]);
 
+  useEffect(() => {
+    setSelectedApprovalIndex(0);
+  }, [approvalRequest]);
+
   // Ctrl+C exits when idle. Support autocomplete and tool approval.
   useInput((_in, key) => {
     // 1. Tool safety approval has highest precedence
     if (approvalRequest) {
       if (key.ctrl && _in === "c") {
-        approvalRequest.resolve(false);
+        approvalRequest.resolve("deny");
         setApprovalRequest(null);
         abortControllerRef.current?.abort();
         return;
       }
-      if (_in === "y" || _in === "Y") {
-        approvalRequest.resolve(true);
+      if (key.leftArrow || _in === "h") {
+        setSelectedApprovalIndex(
+          (prev) => (prev - 1 + approvalOptions.length) % approvalOptions.length,
+        );
+        return;
+      }
+      if (key.rightArrow || _in === "l" || key.tab) {
+        setSelectedApprovalIndex((prev) => (prev + 1) % approvalOptions.length);
+        return;
+      }
+      if (key.return) {
+        approvalRequest.resolve(approvalOptions[selectedApprovalIndex] ?? "deny");
         setApprovalRequest(null);
-      } else if (_in === "n" || _in === "N" || key.escape) {
-        approvalRequest.resolve(false);
+        return;
+      }
+      if (key.escape) {
+        approvalRequest.resolve("deny");
         setApprovalRequest(null);
       }
       return;
@@ -728,12 +747,22 @@ export function App({
 
       {approvalRequest ? (
         <Box flexDirection="column" borderStyle="single" borderColor={activeTheme.warning} paddingX={1} marginY={1}>
-          <Text bold color={activeTheme.warning}>Tool Approval Required</Text>
-          <Text>The agent wants to run <Text bold color={activeTheme.primary}>{approvalRequest.name}</Text>:</Text>
+          <Text bold color={activeTheme.warning}>Permission Required</Text>
+          <Text>{approvalSummary(approvalRequest)}</Text>
           <Box marginLeft={2} marginY={0.5}>
-            <Text color={activeTheme.muted}>{JSON.stringify(approvalRequest.input, null, 2)}</Text>
+            <Text color={activeTheme.muted}>{approvalDetails(approvalRequest)}</Text>
           </Box>
-          <Text color={activeTheme.warning}>y approve | n deny | esc deny</Text>
+          <Box flexDirection="row" gap={1} marginTop={1}>
+            {approvalOptions.map((option, index) => (
+              <ApprovalOptionView
+                key={option}
+                option={option}
+                selected={index === selectedApprovalIndex}
+                theme={activeTheme}
+              />
+            ))}
+          </Box>
+          <Text color={activeTheme.muted}>left/right select | enter confirm | esc reject</Text>
         </Box>
       ) : null}
 
@@ -894,6 +923,61 @@ function ItemView({
         />
       );
   }
+}
+
+function ApprovalOptionView({
+  option,
+  selected,
+  theme,
+}: {
+  option: "allow" | "always" | "deny";
+  selected: boolean;
+  theme: Theme;
+}): React.JSX.Element {
+  const label =
+    option === "allow" ? "Allow once" : option === "always" ? "Allow always" : "Reject";
+  const color = option === "deny" ? theme.error : option === "always" ? theme.accent : theme.success;
+  return (
+    <Box paddingX={1}>
+      <Text bold={selected} color={selected ? color : theme.muted}>
+        {selected ? "[ " : "  "}
+        {label}
+        {selected ? " ]" : "  "}
+      </Text>
+    </Box>
+  );
+}
+
+function approvalSummary(request: ApprovalRequest): string {
+  if (request.name === "exec") {
+    const command = inputString(request.input, "command");
+    return command ? `Run shell command: ${command}` : "Run shell command";
+  }
+  if (request.name === "edit_file") {
+    const path = inputString(request.input, "path");
+    return path ? `Edit file: ${path}` : "Edit file";
+  }
+  if (request.name === "write_file") {
+    const path = inputString(request.input, "path");
+    return path ? `Write file: ${path}` : "Write file";
+  }
+  return `Run tool: ${request.name}`;
+}
+
+function approvalDetails(request: ApprovalRequest): string {
+  const raw = JSON.stringify(request.input, null, 2) ?? "";
+  const details = raw.length > 1200 ? `${raw.slice(0, 1200)}\n[truncated]` : raw;
+  return [
+    details,
+    "",
+    "Allow always applies to this exact tool request for the current session.",
+  ].join("\n");
+}
+
+function inputString(input: unknown, key: string): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function LabeledBlock({

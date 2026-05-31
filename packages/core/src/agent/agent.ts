@@ -29,10 +29,12 @@ export interface AgentConfig {
     reservedOutputTokens?: number;
   };
   /** Optional callback to approve side-effecting tools before they run. */
-  approveTool?: (name: string, input: unknown) => Promise<boolean> | boolean;
+  approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   /** Prior conversation to resume from. Copied into the history on construction. */
   messages?: Message[];
 }
+
+export type ToolApproval = "allow" | "always" | "deny" | boolean;
 
 interface RequiredCompactionConfig {
   enabled: boolean;
@@ -62,7 +64,7 @@ export class Agent {
   private readonly maxSteps: number;
   private readonly compaction: RequiredCompactionConfig;
   private readonly modelInfo: ModelInfo;
-  private readonly approveTool: ((name: string, input: unknown) => Promise<boolean> | boolean) | undefined;
+  private readonly approveTool: ((name: string, input: unknown) => Promise<ToolApproval> | ToolApproval) | undefined;
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -171,7 +173,8 @@ export class Agent {
         let approved = true;
         if (needsApproval && this.approveTool) {
           try {
-            approved = await this.approveTool(call.name, call.arguments);
+            const decision = await this.approveTool(call.name, call.arguments);
+            approved = decision === true || decision === "allow" || decision === "always";
           } catch {
             approved = false;
           }

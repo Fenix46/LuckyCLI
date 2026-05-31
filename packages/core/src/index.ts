@@ -10,7 +10,7 @@ export * from "./providers/index.js";
 
 // Agent loop.
 export { Agent } from "./agent/agent.js";
-export type { AgentConfig } from "./agent/agent.js";
+export type { AgentConfig, ToolApproval } from "./agent/agent.js";
 export type { AgentEvent, CompactionResult, ContextStatus } from "./agent/types.js";
 
 // Tools.
