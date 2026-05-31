@@ -5,6 +5,10 @@ import {
   type Content,
   CountTokensResponse,
 } from "@google/genai";
+import {
+  classifyCodeAssistError,
+  CodeAssistRequestError,
+} from "./CodeAssistErrors.js";
 
 const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 const CODE_ASSIST_API_VERSION = "v1internal";
@@ -76,6 +80,7 @@ export interface CodeAssistGenerateRequest {
 
 export class CodeAssistClient {
   private user: Promise<CodeAssistUser> | undefined;
+  private readonly sessionId = randomUUID();
 
   constructor(private readonly accessToken: () => Promise<string> | string) {}
 
@@ -98,10 +103,11 @@ export class CodeAssistClient {
           ...(req.generationConfig
             ? { generationConfig: req.generationConfig }
             : {}),
-          session_id: randomUUID(),
+          session_id: this.sessionId,
         },
       },
       req.abortSignal,
+      req.model,
     );
 
     return toGenerateContentResponse(response);
@@ -126,10 +132,11 @@ export class CodeAssistClient {
           ...(req.generationConfig
             ? { generationConfig: req.generationConfig }
             : {}),
-          session_id: randomUUID(),
+          session_id: this.sessionId,
         },
       },
       req.abortSignal,
+      req.model,
     );
 
     for await (const chunk of chunks) {
@@ -151,6 +158,7 @@ export class CodeAssistClient {
         },
       },
       signal,
+      model,
     );
     return { totalTokens: response.totalTokens ?? 0 };
   }
@@ -218,6 +226,7 @@ export class CodeAssistClient {
     method: string,
     body: unknown,
     signal?: AbortSignal,
+    model?: string,
   ): Promise<T> {
     const res = await fetch(this.methodUrl(method), {
       method: "POST",
@@ -225,7 +234,7 @@ export class CodeAssistClient {
       body: JSON.stringify(body),
       signal,
     });
-    return readJsonResponse<T>(res);
+    return readJsonResponse<T>(res, method, model);
   }
 
   private async get<T>(operationName: string, signal?: AbortSignal): Promise<T> {
@@ -234,13 +243,14 @@ export class CodeAssistClient {
       headers: await this.headers(),
       signal,
     });
-    return readJsonResponse<T>(res);
+    return readJsonResponse<T>(res, "getOperation");
   }
 
   private async streamingPost<T>(
     method: string,
     body: unknown,
     signal?: AbortSignal,
+    model?: string,
   ): Promise<AsyncGenerator<T>> {
     const res = await fetch(`${this.methodUrl(method)}?alt=sse`, {
       method: "POST",
@@ -248,7 +258,7 @@ export class CodeAssistClient {
       body: JSON.stringify(body),
       signal,
     });
-    if (!res.ok) await readJsonResponse(res);
+    if (!res.ok) await readJsonResponse(res, method, model ?? bodyModel(body));
     if (!res.body) throw new Error("Code Assist returned an empty stream.");
     return parseSse<T>(res.body);
   }
@@ -327,7 +337,11 @@ function throwIneligibleOrProjectError(load: LoadCodeAssistResponse): never {
   );
 }
 
-async function readJsonResponse<T>(res: Response): Promise<T> {
+async function readJsonResponse<T>(
+  res: Response,
+  method: string,
+  model?: string,
+): Promise<T> {
   const text = await res.text();
   let data: unknown;
   try {
@@ -337,14 +351,22 @@ async function readJsonResponse<T>(res: Response): Promise<T> {
   }
 
   if (!res.ok) {
-    const message =
-      typeof data === "object" && data !== null && "error" in data
-        ? JSON.stringify((data as { error: unknown }).error)
-        : text || res.statusText;
-    throw new Error(`Code Assist request failed (${res.status}): ${message}`);
+    throw classifyCodeAssistError(
+      new CodeAssistRequestError(
+        res.status,
+        data || text || res.statusText,
+        method,
+        model,
+      ),
+    );
   }
 
   return data as T;
+}
+
+function bodyModel(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  return (body as { model?: unknown }).model as string | undefined;
 }
 
 async function* parseSse<T>(

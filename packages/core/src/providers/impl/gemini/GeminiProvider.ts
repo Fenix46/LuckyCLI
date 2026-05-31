@@ -30,17 +30,6 @@ import { CodeAssistClient } from "./CodeAssistClient.js";
 
 const INFO: ProviderInfo = providerInfo("gemini");
 const SYNTHETIC_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
-const GEMINI_2_5_PRO = "gemini-2.5-pro";
-const GEMINI_2_5_FLASH = "gemini-2.5-flash";
-const CODE_ASSIST_FALLBACKS: Record<string, string> = {
-  "gemini-3.1-flash-lite": GEMINI_2_5_FLASH,
-  "gemini-3-flash-preview": GEMINI_2_5_FLASH,
-  "gemini-3.1-pro-preview": GEMINI_2_5_PRO,
-  "gemini-3.1-pro-preview-customtools": GEMINI_2_5_PRO,
-  "gemini-3-pro-preview": GEMINI_2_5_PRO,
-  [GEMINI_2_5_FLASH]: GEMINI_2_5_PRO,
-  [GEMINI_2_5_PRO]: GEMINI_2_5_FLASH,
-};
 
 type CodeAssistPart = Part & { thoughtSignature?: string };
 
@@ -108,13 +97,11 @@ export class GeminiProvider implements IProvider {
   ): Promise<GenerationResponse> {
     const model = config.model || INFO.defaultModel;
     const response = this.codeAssistClient
-      ? await this.withCodeAssistFallback(model, (effectiveModel) =>
-          this.codeAssistClient!.generateContent({
-            model: effectiveModel,
-            contents: toCodeAssistContents(messages),
-            ...codeAssistOptions(config),
-          }),
-        )
+      ? await this.codeAssistClient.generateContent({
+          model,
+          contents: toCodeAssistContents(messages),
+          ...codeAssistOptions(config),
+        })
       : await (async () => {
           await this.ensureValidAuth();
           return this.client.models.generateContent({
@@ -143,7 +130,8 @@ export class GeminiProvider implements IProvider {
   ): AsyncGenerator<StreamChunk> {
     const model = config.model || INFO.defaultModel;
     const stream = this.codeAssistClient
-      ? this.codeAssistStreamWithFallback(model, {
+      ? this.codeAssistClient.generateContentStream({
+          model,
           contents: toCodeAssistContents(messages),
           ...codeAssistOptions(config),
         })
@@ -230,72 +218,6 @@ export class GeminiProvider implements IProvider {
     }
   }
 
-  private async withCodeAssistFallback<T>(
-    model: string,
-    run: (model: string) => Promise<T>,
-  ): Promise<T> {
-    const attempted = new Set<string>();
-    let currentModel = model;
-
-    while (true) {
-      attempted.add(currentModel);
-      try {
-        return await run(currentModel);
-      } catch (err) {
-        const fallback = codeAssistFallbackModel(currentModel);
-        if (
-          !fallback ||
-          attempted.has(fallback) ||
-          !isCodeAssistRateLimit(err)
-        ) {
-          throw err;
-        }
-        currentModel = fallback;
-      }
-    }
-  }
-
-  private async *codeAssistStreamWithFallback(
-    model: string,
-    req: Omit<Parameters<CodeAssistClient["generateContentStream"]>[0], "model">,
-  ): AsyncGenerator<GenerateContentResponse> {
-    const attempted = new Set<string>();
-    let currentModel = model;
-
-    while (true) {
-      attempted.add(currentModel);
-      try {
-        yield* this.codeAssistClient!.generateContentStream({
-          model: currentModel,
-          ...req,
-        });
-        return;
-      } catch (err) {
-        const fallback = codeAssistFallbackModel(currentModel);
-        if (
-          !fallback ||
-          attempted.has(fallback) ||
-          !isCodeAssistRateLimit(err)
-        ) {
-          throw err;
-        }
-        currentModel = fallback;
-      }
-    }
-  }
-}
-
-function codeAssistFallbackModel(model: string): string | undefined {
-  return CODE_ASSIST_FALLBACKS[model];
-}
-
-function isCodeAssistRateLimit(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  return (
-    err.message.includes("Code Assist request failed (429)") ||
-    err.message.includes("RESOURCE_EXHAUSTED") ||
-    err.message.includes("RATE_LIMIT_EXCEEDED")
-  );
 }
 
 function codeAssistOptions(config: GenerationConfig) {

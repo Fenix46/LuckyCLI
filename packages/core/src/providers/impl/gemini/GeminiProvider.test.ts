@@ -131,48 +131,28 @@ describe("GeminiProvider", () => {
     expect(response.content[0]).toEqual({ type: "text", text: "mocked response" });
   });
 
-  it("walks the Code Assist OAuth fallback chain on rate limits", async () => {
+  it("does not silently fall back to another Code Assist model on rate limits", async () => {
     const provider = new GeminiProvider({
       type: "gemini",
       authMethod: "oauth",
       accessToken: "test-access-token",
     });
-    mocks.codeAssistGenerateContent
-      .mockRejectedValueOnce(
-        new Error(
-          'Code Assist request failed (429): {"status":"RESOURCE_EXHAUSTED"}',
-        ),
-      )
-      .mockRejectedValueOnce(
-        new Error(
-          'Code Assist request failed (429): {"reason":"RATE_LIMIT_EXCEEDED"}',
-        ),
-      )
-      .mockResolvedValueOnce({
-        text: "fallback response",
-        candidates: [{ finishReason: "STOP" }],
-      });
+    mocks.codeAssistGenerateContent.mockRejectedValueOnce(
+      new Error(
+        "Code Assist quota exhausted | for gemini-3.1-flash-lite | retry in 28s",
+      ),
+    );
 
-    const response = await provider.generate([], {
-      model: "gemini-3.1-flash-lite",
-    });
+    await expect(
+      provider.generate([], {
+        model: "gemini-3.1-flash-lite",
+      }),
+    ).rejects.toThrow("gemini-3.1-flash-lite");
 
-    expect(mocks.codeAssistGenerateContent).toHaveBeenNthCalledWith(
-      1,
+    expect(mocks.codeAssistGenerateContent).toHaveBeenCalledTimes(1);
+    expect(mocks.codeAssistGenerateContent).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gemini-3.1-flash-lite" }),
     );
-    expect(mocks.codeAssistGenerateContent).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ model: "gemini-2.5-flash" }),
-    );
-    expect(mocks.codeAssistGenerateContent).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({ model: "gemini-2.5-pro" }),
-    );
-    expect(response.content[0]).toEqual({
-      type: "text",
-      text: "fallback response",
-    });
   });
 
   it("maps canonical tool calls and results to Gemini function parts", async () => {
