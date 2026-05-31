@@ -62,8 +62,104 @@ describe("ClaudeProvider", () => {
 
     expect(Anthropic).toHaveBeenCalledWith({
       authToken: "oauth-access-token",
-      defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
+      defaultQuery: { beta: "true" },
+      defaultHeaders: expect.objectContaining({
+        "anthropic-beta": expect.stringContaining("oauth-2025-04-20"),
+        "anthropic-dangerous-direct-browser-access": "true",
+        "anthropic-version": "2023-06-01",
+        "x-app": "cli",
+      }),
     });
+  });
+
+  it("does not call count_tokens for Claude OAuth credentials", async () => {
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "oauth-access-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+
+    await expect(provider.countTokens([], { model: "claude-test" })).resolves.toBeUndefined();
+    expect(countTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("sends Claude Code billing system block for OAuth requests", async () => {
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "oauth-access-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+
+    await provider.generate(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      { model: "claude-test", systemPrompt: "Be concise." },
+    );
+
+    const request = createMock.mock.calls[0]?.[0];
+    expect(request.system).toEqual([
+      {
+        type: "text",
+        text: "x-anthropic-billing-header: cc_version=2.1.158.cea; cc_entrypoint=cli; cch=d1656;",
+      },
+      { type: "text", text: "Be concise." },
+    ]);
+  });
+
+  it("normalizes OpenAPI boolean exclusive minimums for Claude tools", async () => {
+    const provider = new ClaudeProvider({ type: "claude", apiKey: "test-key" });
+
+    await provider.generate([{ role: "user", content: [{ type: "text", text: "run" }] }], {
+      model: "claude-test",
+      tools: [
+        {
+          name: "exec",
+          description: "Run command",
+          parameters: {
+            type: "object",
+            properties: {
+              timeoutMs: {
+                type: "integer",
+                minimum: 0,
+                exclusiveMinimum: true,
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const request = createMock.mock.calls[0]?.[0];
+    expect(request.tools[0].input_schema.properties.timeoutMs).toEqual({
+      type: "integer",
+      exclusiveMinimum: 0,
+    });
+  });
+
+  it("surfaces Anthropic rate-limit response headers", async () => {
+    createMock.mockRejectedValueOnce({
+      status: 429,
+      message: "429 Error",
+      request_id: "req_123",
+      error: { type: "rate_limit_error", message: "Error" },
+      headers: {
+        "anthropic-ratelimit-unified-status": "rejected",
+        "anthropic-ratelimit-unified-5h-status": "rejected",
+        "anthropic-ratelimit-unified-5h-reset": "1780249200",
+        "anthropic-ratelimit-unified-overage-status": "rejected",
+        "anthropic-ratelimit-unified-overage-disabled-reason": "out_of_credits",
+      },
+    });
+    const provider = new ClaudeProvider({ type: "claude", apiKey: "test-key" });
+
+    await expect(
+      provider.generate([{ role: "user", content: [{ type: "text", text: "hi" }] }], {
+        model: "claude-test",
+      }),
+    ).rejects.toThrow(
+      "rate limit: unified rejected | 5h rejected | 5h reset 2026-05-31T17:40:00.000Z | overage rejected | overage reason out_of_credits",
+    );
   });
 
   it("combines config and message system prompts", async () => {

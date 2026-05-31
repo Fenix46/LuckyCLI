@@ -29,6 +29,16 @@ import {
 } from "./oauth.js";
 
 const INFO: ProviderInfo = providerInfo("claude");
+const CLAUDE_CODE_BETA_HEADER = [
+  "claude-code-20250219",
+  CLAUDE_OAUTH_BETA_HEADER,
+  "interleaved-thinking-2025-05-14",
+  "redact-thinking-2026-02-12",
+  "context-management-2025-06-27",
+  "advanced-tool-use-2025-11-20",
+].join(",");
+const CLAUDE_CODE_BILLING_SYSTEM =
+  "x-anthropic-billing-header: cc_version=2.1.158.cea; cc_entrypoint=cli; cch=d1656;";
 
 export class ClaudeProvider implements IProvider {
   readonly info = INFO;
@@ -51,17 +61,21 @@ export class ClaudeProvider implements IProvider {
       messages,
       config.systemPrompt,
     );
-    const response = await this.client.messages.create(
-      {
-        model: config.model || INFO.defaultModel,
-        max_tokens: config.maxTokens ?? 8192,
-        ...(system ? { system } : {}),
-        messages: anthropicMessages,
-        ...buildOptions(config),
-      },
-      { signal: config.abortSignal },
-    );
-    return fromAnthropicResponse(response);
+    try {
+      const response = await this.client.messages.create(
+        {
+          model: config.model || INFO.defaultModel,
+          max_tokens: config.maxTokens ?? 8192,
+          ...this.systemParam(system),
+          messages: anthropicMessages,
+          ...buildOptions(config),
+        },
+        { signal: config.abortSignal },
+      );
+      return fromAnthropicResponse(response);
+    } catch (e) {
+      throw anthropicError(e);
+    }
   }
 
   async *generateStream(
@@ -73,64 +87,68 @@ export class ClaudeProvider implements IProvider {
       messages,
       config.systemPrompt,
     );
-    const stream = this.client.messages.stream(
-      {
-        model: config.model || INFO.defaultModel,
-        max_tokens: config.maxTokens ?? 8192,
-        ...(system ? { system } : {}),
-        messages: anthropicMessages,
-        ...buildOptions(config),
-      },
-      { signal: config.abortSignal },
-    );
+    try {
+      const stream = this.client.messages.stream(
+        {
+          model: config.model || INFO.defaultModel,
+          max_tokens: config.maxTokens ?? 8192,
+          ...this.systemParam(system),
+          messages: anthropicMessages,
+          ...buildOptions(config),
+        },
+        { signal: config.abortSignal },
+      );
 
-    // Accumulate streamed JSON arguments per tool_use block by index.
-    const toolBuffers = new Map<
-      number,
-      { id: string; name: string; json: string }
-    >();
+      // Accumulate streamed JSON arguments per tool_use block by index.
+      const toolBuffers = new Map<
+        number,
+        { id: string; name: string; json: string }
+      >();
 
-    for await (const event of stream) {
-      switch (event.type) {
-        case "content_block_start":
-          if (event.content_block.type === "tool_use") {
-            toolBuffers.set(event.index, {
-              id: event.content_block.id,
-              name: event.content_block.name,
-              json: "",
-            });
-          }
-          break;
-        case "content_block_delta":
-          if (event.delta.type === "text_delta") {
-            yield { textDelta: event.delta.text };
-          } else if (event.delta.type === "input_json_delta") {
+      for await (const event of stream) {
+        switch (event.type) {
+          case "content_block_start":
+            if (event.content_block.type === "tool_use") {
+              toolBuffers.set(event.index, {
+                id: event.content_block.id,
+                name: event.content_block.name,
+                json: "",
+              });
+            }
+            break;
+          case "content_block_delta":
+            if (event.delta.type === "text_delta") {
+              yield { textDelta: event.delta.text };
+            } else if (event.delta.type === "input_json_delta") {
+              const buf = toolBuffers.get(event.index);
+              if (buf) buf.json += event.delta.partial_json;
+            }
+            break;
+          case "content_block_stop": {
             const buf = toolBuffers.get(event.index);
-            if (buf) buf.json += event.delta.partial_json;
+            if (buf) {
+              yield {
+                toolCall: {
+                  type: "tool_call",
+                  id: buf.id,
+                  name: buf.name,
+                  arguments: buf.json ? JSON.parse(buf.json) : {},
+                },
+              };
+              toolBuffers.delete(event.index);
+            }
+            break;
           }
-          break;
-        case "content_block_stop": {
-          const buf = toolBuffers.get(event.index);
-          if (buf) {
-            yield {
-              toolCall: {
-                type: "tool_call",
-                id: buf.id,
-                name: buf.name,
-                arguments: buf.json ? JSON.parse(buf.json) : {},
-              },
-            };
-            toolBuffers.delete(event.index);
-          }
-          break;
+          default:
+            break;
         }
-        default:
-          break;
       }
-    }
 
-    const final = await stream.finalMessage();
-    yield { finishReason: mapStopReason(final.stop_reason), usage: usageOf(final.usage) };
+      const final = await stream.finalMessage();
+      yield { finishReason: mapStopReason(final.stop_reason), usage: usageOf(final.usage) };
+    } catch (e) {
+      throw anthropicError(e);
+    }
   }
 
   async countTokens(
@@ -138,16 +156,21 @@ export class ClaudeProvider implements IProvider {
     config: GenerationConfig,
   ): Promise<TokenUsage | undefined> {
     await this.ensureFreshToken();
+    if (this.credentials.authMethod === "oauth") return undefined;
     const { system, messages: anthropicMessages } = toAnthropic(
       messages,
       config.systemPrompt,
     );
-    const result = await this.client.messages.countTokens({
-      model: config.model || INFO.defaultModel,
-      ...(system ? { system } : {}),
-      messages: anthropicMessages,
-    });
-    return { inputTokens: result.input_tokens, outputTokens: 0 };
+    try {
+      const result = await this.client.messages.countTokens({
+        model: config.model || INFO.defaultModel,
+        ...this.systemParam(system),
+        messages: anthropicMessages,
+      });
+      return { inputTokens: result.input_tokens, outputTokens: 0 };
+    } catch (e) {
+      throw anthropicError(e);
+    }
   }
 
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
@@ -221,7 +244,14 @@ export class ClaudeProvider implements IProvider {
       }
       return new Anthropic({
         authToken: credentials.accessToken,
-        defaultHeaders: { "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER },
+        defaultQuery: { beta: "true" },
+        defaultHeaders: {
+          "anthropic-beta": CLAUDE_CODE_BETA_HEADER,
+          "anthropic-dangerous-direct-browser-access": "true",
+          "anthropic-version": "2023-06-01",
+          "User-Agent": "claude-cli/2.1.158 (external, cli)",
+          "x-app": "cli",
+        },
       });
     }
 
@@ -229,6 +259,20 @@ export class ClaudeProvider implements IProvider {
       throw new Error("Claude API key credentials are missing an API key.");
     }
     return new Anthropic({ apiKey: credentials.apiKey });
+  }
+
+  private systemParam(
+    system: string | undefined,
+  ): { system?: string | Anthropic.Messages.TextBlockParam[] } {
+    if (this.credentials.authMethod !== "oauth") {
+      return system ? { system } : {};
+    }
+
+    const blocks: Anthropic.Messages.TextBlockParam[] = [
+      { type: "text", text: CLAUDE_CODE_BILLING_SYSTEM },
+    ];
+    if (system) blocks.push({ type: "text", text: system });
+    return { system: blocks };
   }
 
   private async ensureFreshToken(): Promise<ClaudeCredentials> {
@@ -265,7 +309,7 @@ function buildOptions(config: GenerationConfig) {
           tools: config.tools.map((t) => ({
             name: t.name,
             description: t.description,
-            input_schema: t.parameters as Anthropic.Messages.Tool["input_schema"],
+            input_schema: toClaudeJsonSchema(t.parameters) as Anthropic.Messages.Tool["input_schema"],
           })),
         }
       : {}),
@@ -387,4 +431,112 @@ function mapStopReason(reason: string | null): FinishReason {
     default:
       return "unknown";
   }
+}
+
+function toClaudeJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  return normalizeJsonSchema(schema) as Record<string, unknown>;
+}
+
+function normalizeJsonSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeJsonSchema);
+  if (!value || typeof value !== "object") return value;
+
+  const input = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(input)) {
+    if (key === "$schema") continue;
+
+    if (key === "exclusiveMinimum" && typeof child === "boolean") {
+      if (child === true && typeof input.minimum === "number") {
+        out.exclusiveMinimum = input.minimum;
+      }
+      continue;
+    }
+
+    if (key === "exclusiveMaximum" && typeof child === "boolean") {
+      if (child === true && typeof input.maximum === "number") {
+        out.exclusiveMaximum = input.maximum;
+      }
+      continue;
+    }
+
+    if (
+      (key === "minimum" && input.exclusiveMinimum === true) ||
+      (key === "maximum" && input.exclusiveMaximum === true)
+    ) {
+      continue;
+    }
+
+    out[key] = normalizeJsonSchema(child);
+  }
+  return out;
+}
+
+function anthropicError(error: unknown): Error {
+  const details = anthropicErrorDetails(error);
+  if (!details) return error instanceof Error ? error : new Error(String(error));
+  return new Error(details);
+}
+
+function anthropicErrorDetails(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const e = error as {
+    status?: number;
+    message?: string;
+    request_id?: string | null;
+    headers?: Record<string, string | undefined>;
+    error?: { type?: string; message?: string };
+  };
+  if (!e.status && !e.message) return undefined;
+
+  const headers = e.headers ?? {};
+  const rateLimitParts = [
+    headerPart(headers, "anthropic-ratelimit-unified-status", "unified"),
+    headerPart(headers, "anthropic-ratelimit-unified-reset", "reset"),
+    headerPart(headers, "anthropic-ratelimit-unified-5h-status", "5h"),
+    headerPart(headers, "anthropic-ratelimit-unified-5h-utilization", "5h used"),
+    headerPart(headers, "anthropic-ratelimit-unified-5h-reset", "5h reset"),
+    headerPart(headers, "anthropic-ratelimit-unified-7d-status", "7d"),
+    headerPart(headers, "anthropic-ratelimit-unified-7d-utilization", "7d used"),
+    headerPart(headers, "anthropic-ratelimit-unified-7d-reset", "7d reset"),
+    headerPart(headers, "anthropic-ratelimit-unified-overage-status", "overage"),
+    headerPart(
+      headers,
+      "anthropic-ratelimit-unified-overage-disabled-reason",
+      "overage reason",
+    ),
+    headerPart(
+      headers,
+      "anthropic-ratelimit-unified-representative-claim",
+      "claim",
+    ),
+  ].filter(Boolean);
+
+  const bodyMessage =
+    e.error?.message && e.error.message !== "Error" ? e.error.message : undefined;
+  return [
+    e.status ? `Anthropic API error (${e.status})` : "Anthropic API error",
+    bodyMessage ?? e.message,
+    e.request_id ? `request ${e.request_id}` : undefined,
+    rateLimitParts.length ? `rate limit: ${rateLimitParts.join(" | ")}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function headerPart(
+  headers: Record<string, string | undefined>,
+  key: string,
+  label: string,
+): string | undefined {
+  const value = headers[key];
+  if (value === undefined) return undefined;
+  if (key.endsWith("-reset")) return `${label} ${formatReset(value)}`;
+  return `${label} ${value}`;
+}
+
+function formatReset(value: string): string {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return value;
+  return new Date(seconds * 1000).toISOString();
 }
