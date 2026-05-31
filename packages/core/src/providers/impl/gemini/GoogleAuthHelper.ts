@@ -1,11 +1,11 @@
 import { OAuth2Client, CodeChallengeMethod } from "google-auth-library";
-import { exec } from "node:child_process";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
 
-const OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
-const OAUTH_CLIENT_SECRET = "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";
+const OAUTH_CLIENT_ID_ENV = "LUCKY_GOOGLE_OAUTH_CLIENT_ID";
+const OAUTH_CLIENT_SECRET_ENV = "LUCKY_GOOGLE_OAUTH_CLIENT_SECRET";
 const OAUTH_SCOPE = [
   "https://www.googleapis.com/auth/cloud-platform",
   "https://www.googleapis.com/auth/userinfo.email",
@@ -69,10 +69,11 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
   });
 
   const redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
+  const clientConfig = getGoogleOAuthClientConfig();
 
   const client = new OAuth2Client({
-    clientId: OAUTH_CLIENT_ID,
-    clientSecret: OAUTH_CLIENT_SECRET,
+    clientId: clientConfig.clientId,
+    clientSecret: clientConfig.clientSecret,
     redirectUri,
   });
 
@@ -170,9 +171,10 @@ function closeServer(server: http.Server): void {
 export async function refreshAccessToken(
   refreshToken: string,
 ): Promise<string> {
+  const clientConfig = getGoogleOAuthClientConfig();
   const client = new OAuth2Client({
-    clientId: OAUTH_CLIENT_ID,
-    clientSecret: OAUTH_CLIENT_SECRET,
+    clientId: clientConfig.clientId,
+    clientSecret: clientConfig.clientSecret,
   });
 
   client.setCredentials({ refresh_token: refreshToken });
@@ -180,17 +182,73 @@ export async function refreshAccessToken(
   return credentials.access_token || "";
 }
 
+function getGoogleOAuthClientConfig(): { clientId: string; clientSecret: string } {
+  const clientId = process.env[OAUTH_CLIENT_ID_ENV];
+  const clientSecret = process.env[OAUTH_CLIENT_SECRET_ENV];
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      `Google OAuth requires ${OAUTH_CLIENT_ID_ENV} and ${OAUTH_CLIENT_SECRET_ENV} to be set.`,
+    );
+  }
+  return { clientId, clientSecret };
+}
+
 /**
  * Opens a URL in the default browser in a cross-platform manner.
  */
 export function openBrowser(url: string): void {
-  const start =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-      ? "start"
-      : "xdg-open";
-  exec(`${start} "${url.replace(/"/g, '\\"')}"`, () => {
-    // best-effort, ignore errors
-  });
+  if (!isBrowserUrl(url)) return;
+
+  const commands = getBrowserOpenCommands(process.platform, process.env);
+  const tryOpen = (index: number): void => {
+    const command = commands[index];
+    if (!command) return;
+
+    const child = spawn(command.command, [...command.args, url], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("error", () => tryOpen(index + 1));
+    child.unref();
+  };
+
+  tryOpen(0);
+}
+
+export interface BrowserOpenCommand {
+  command: string;
+  args: string[];
+}
+
+export function getBrowserOpenCommands(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv = process.env,
+): BrowserOpenCommand[] {
+  if (platform === "darwin") return [{ command: "open", args: [] }];
+  if (platform === "win32") return [{ command: "cmd", args: ["/c", "start", ""] }];
+  if (isWsl(env)) return [{ command: "wslview", args: [] }, ...linuxBrowserOpenCommands()];
+  return linuxBrowserOpenCommands();
+}
+
+function linuxBrowserOpenCommands(): BrowserOpenCommand[] {
+  return [
+    { command: "xdg-open", args: [] },
+    { command: "gio", args: ["open"] },
+    { command: "gnome-open", args: [] },
+    { command: "kde-open", args: [] },
+  ];
+}
+
+function isBrowserUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isWsl(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP);
 }
