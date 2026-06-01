@@ -397,6 +397,68 @@ describe("Agent loop", () => {
     });
   });
 
+  it("treats a mid-stream abort as a clean interruption", async () => {
+    class AbortingProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        yield { textDelta: "partial answer" };
+        const err = new Error("Request was aborted.");
+        err.name = "AbortError";
+        throw err;
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new AbortingProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("do something"));
+    expect(events.some((e) => e.type === "aborted")).toBe(true);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+
+    // History stays consistent: partial assistant text is preserved and the
+    // interruption is recorded so the next turn resumes cleanly.
+    const last = agent.messages.at(-1);
+    expect(last).toMatchObject({
+      role: "user",
+      content: [{ type: "text", text: "[Request interrupted by user]" }],
+    });
+    expect(agent.messages.at(-2)).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "partial answer" }],
+    });
+  });
+
+  it("stops before the next step when the signal is already aborted", async () => {
+    const provider = new ScriptedProvider([toolCallStep("t1")]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+    });
+    const controller = new AbortController();
+    // Abort while the (synchronous, scripted) tool runs by aborting up front;
+    // the loop's between-steps guard should fire before a second stream.
+    const events: AgentEvent[] = [];
+    for await (const e of agent.send("use the tool", controller.signal)) {
+      events.push(e);
+      if (e.type === "tool_end") controller.abort();
+    }
+    expect(events.some((e) => e.type === "aborted")).toBe(true);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+
   it("compacts old turns before sending when context pressure is high", async () => {
     const agent = new Agent({
       provider: new CompactingProvider(),

@@ -44,4 +44,5 @@ export type AgentEvent =
       isError: boolean;
     }
   | { type: "turn_end"; usage?: TokenUsage }
+  | { type: "aborted" }
   | { type: "error"; message: string };

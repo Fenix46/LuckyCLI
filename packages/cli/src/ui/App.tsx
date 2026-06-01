@@ -288,13 +288,18 @@ export function App({
         return;
       }
       if (key.return) {
-        approvalRequest.resolve(approvalOptions[selectedApprovalIndex] ?? "deny");
+        const decision = approvalOptions[selectedApprovalIndex] ?? "deny";
+        approvalRequest.resolve(decision);
         setApprovalRequest(null);
+        // Refusing a tool stops the whole turn, like Esc — the model does not
+        // get to react to the denial and keep working.
+        if (decision === "deny") abortControllerRef.current?.abort();
         return;
       }
       if (key.escape) {
         approvalRequest.resolve("deny");
         setApprovalRequest(null);
+        abortControllerRef.current?.abort();
       }
       return;
     }
@@ -326,6 +331,7 @@ export function App({
       if (key.escape) {
         userQuestionRequest.resolve("User skipped the question.");
         setUserQuestionRequest(null);
+        abortControllerRef.current?.abort();
         return;
       }
       return;
@@ -396,7 +402,13 @@ export function App({
       }
     }
 
-    // 5. Regular Ctrl+C exit
+    // 5. Esc interrupts the running turn (like other coding agents).
+    if (key.escape && busy) {
+      abortControllerRef.current?.abort();
+      return;
+    }
+
+    // 6. Regular Ctrl+C exit
     if (key.ctrl && _in === "c" && busy) {
       abortControllerRef.current?.abort();
       return;
@@ -812,6 +824,13 @@ export function App({
                   output: prev.output + usage.outputTokens,
                 }));
               }
+            },
+            onAborted: () => {
+              flushAssistant();
+              setItems((prev) => [
+                ...prev,
+                { kind: "error", text: "Interrupted by user." },
+              ]);
             },
           });
         }
@@ -1824,6 +1843,7 @@ interface EventHandlers {
   onContext: (status: ContextStatus) => void;
   onCompacted: (result: { beforeTokens?: number; afterTokens?: number; removedMessages: number; keptMessages: number }) => void;
   onTurnEnd: (usage?: TokenUsage) => void;
+  onAborted: () => void;
 }
 
 function handleEvent(event: AgentEvent, h: EventHandlers): void {
@@ -1848,6 +1868,9 @@ function handleEvent(event: AgentEvent, h: EventHandlers): void {
       break;
     case "turn_end":
       h.onTurnEnd(event.usage);
+      break;
+    case "aborted":
+      h.onAborted();
       break;
   }
 }

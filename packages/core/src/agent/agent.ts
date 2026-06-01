@@ -16,6 +16,7 @@ import type { AskUserRequest } from "../tools/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
 const DEFAULT_MAX_STEPS = 40;
+const INTERRUPTED_MARKER = "[Request interrupted by user]";
 
 export interface AgentConfig {
   provider: IProvider;
@@ -146,6 +147,13 @@ export class Agent {
     }
 
     for (let step = 0; step < this.maxSteps; step++) {
+      // Stop cleanly between steps if the user interrupted while tools ran.
+      if (signal?.aborted) {
+        this.finalizeInterrupted();
+        yield { type: "aborted" };
+        return;
+      }
+
       let finishReason: FinishReason = "stop";
       let usage: TokenUsage | undefined;
       const toolCalls: ToolCallPart[] = [];
@@ -165,6 +173,14 @@ export class Agent {
           if (chunk.usage) usage = chunk.usage;
         }
       } catch (err) {
+        // A user-triggered abort surfaces as a provider error mid-stream. Treat
+        // it as a clean interruption: keep whatever was streamed and record the
+        // interruption so the next turn resumes from a consistent transcript.
+        if (isAbortError(err) || signal?.aborted) {
+          this.finalizeInterrupted(textBuf);
+          yield { type: "aborted" };
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         yield { type: "error", message };
         return;
@@ -261,6 +277,23 @@ export class Agent {
       type: "error",
       message: `Reached max steps (${this.maxSteps}) without completing.`,
     };
+  }
+
+  /**
+   * Record a user interruption in the transcript so the next turn resumes from
+   * a consistent state. Any text streamed before the abort is preserved as an
+   * assistant message, followed by an interruption marker — mirroring how a
+   * coding agent leaves the conversation after Esc.
+   */
+  private finalizeInterrupted(partialText?: string): void {
+    const text = partialText?.trim();
+    if (text) {
+      this.history.push({ role: "assistant", content: [{ type: "text", text }] });
+    }
+    this.history.push({
+      role: "user",
+      content: [{ type: "text", text: INTERRUPTED_MARKER }],
+    });
   }
 
   private generationConfig(signal?: AbortSignal) {
@@ -424,6 +457,17 @@ export class Agent {
       Math.min(20_000, this.modelInfo.maxOutputTokens ?? Math.floor(contextWindow * 0.1));
     return Math.max(0, contextWindow - reserved);
   }
+}
+
+/**
+ * Whether an error is an aborted-request signal. Covers the standard
+ * DOMException "AbortError" plus the common shapes SDKs throw on cancellation.
+ */
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { name?: string; message?: string; code?: string };
+  if (e.name === "AbortError" || e.code === "ABORT_ERR") return true;
+  return typeof e.message === "string" && /\baborted?\b/i.test(e.message);
 }
 
 function findRecentTurnStart(messages: Message[], keepRecentTurns: number): number {
