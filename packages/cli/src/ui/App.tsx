@@ -26,7 +26,7 @@ import { checkForUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
 
 /** Shown in the opening banner. Keep in sync with packages/cli/package.json. */
-const APP_VERSION = "0.1.2";
+const APP_VERSION = "0.1.3";
 
 interface AppMeta {
   provider: ProviderId;
