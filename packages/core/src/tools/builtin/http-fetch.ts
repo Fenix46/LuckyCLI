@@ -10,7 +10,8 @@ const MAX_REDIRECTS = 5;
 export const httpFetchTool = defineTool({
   name: "http_fetch",
   description:
-    "Fetch and read the raw text content of a public URL (e.g. to inspect documentation, APIs or pages).",
+    "Fetch and read the text content of a public URL (e.g. to inspect documentation, APIs or pages). " +
+    "HTML pages are converted to readable markdown-like text.",
   readonly: true,
   schema: z.object({
     url: z.string().url().describe("The complete HTTP or HTTPS URL to fetch."),
@@ -27,10 +28,11 @@ export const httpFetchTool = defineTool({
         };
       }
       const { text, truncated } = await readLimitedText(res, MAX_BYTES);
+      const rendered = renderFetchedText(text, res.headers.get("content-type"), new URL(url));
       return {
         content: truncated
-          ? `${text}\n\n[truncated at ${MAX_BYTES} bytes]`
-          : text,
+          ? `${rendered}\n\n[truncated at ${MAX_BYTES} bytes]`
+          : rendered,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -51,7 +53,7 @@ async function fetchPublicUrl(
     redirect: "manual",
     signal,
     headers: {
-      "User-Agent": "luckycli/0.1.1",
+      "User-Agent": "luckycli/0.1.3",
     },
   });
 
@@ -172,4 +174,119 @@ async function readLimitedText(
     offset += chunk.byteLength;
   }
   return { text: new TextDecoder().decode(bytes), truncated };
+}
+
+export function renderFetchedText(
+  text: string,
+  contentType: string | null,
+  url?: URL,
+): string {
+  if (isHtmlContent(text, contentType)) {
+    return htmlToReadableText(text, url).trim() || "(empty HTML document)";
+  }
+  return text;
+}
+
+function isHtmlContent(text: string, contentType: string | null): boolean {
+  const normalized = contentType?.toLowerCase() ?? "";
+  if (normalized.includes("text/html") || normalized.includes("application/xhtml+xml")) {
+    return true;
+  }
+  return /^\s*<(?:!doctype\s+html|html|head|body|main|article|section|div|p|h[1-6])\b/i.test(text);
+}
+
+export function htmlToReadableText(html: string, url?: URL): string {
+  let out = html
+    .replace(/\r\n/g, "\n")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, "")
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "");
+
+  const title = extractTitle(out);
+
+  out = out
+    .replace(/<\s*h1\b[^>]*>([\s\S]*?)<\s*\/h1\s*>/gi, (_m, body) => `\n# ${stripTags(body)}\n\n`)
+    .replace(/<\s*h2\b[^>]*>([\s\S]*?)<\s*\/h2\s*>/gi, (_m, body) => `\n## ${stripTags(body)}\n\n`)
+    .replace(/<\s*h3\b[^>]*>([\s\S]*?)<\s*\/h3\s*>/gi, (_m, body) => `\n### ${stripTags(body)}\n\n`)
+    .replace(/<\s*h[4-6]\b[^>]*>([\s\S]*?)<\s*\/h[4-6]\s*>/gi, (_m, body) => `\n#### ${stripTags(body)}\n\n`)
+    .replace(/<\s*a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\s*\/a\s*>/gi, (_m, href, label) => {
+      const cleanLabel = collapseInlineWhitespace(decodeHtmlEntities(stripTags(label))).trim();
+      const cleanHref = resolveHref(String(href), url);
+      if (!cleanLabel) return cleanHref;
+      if (cleanLabel === cleanHref) return cleanHref;
+      return `${cleanLabel} (${cleanHref})`;
+    })
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\s*\/p\s*>/gi, "\n\n")
+    .replace(/<\s*\/div\s*>/gi, "\n")
+    .replace(/<\s*\/section\s*>/gi, "\n\n")
+    .replace(/<\s*\/article\s*>/gi, "\n\n")
+    .replace(/<\s*\/main\s*>/gi, "\n\n")
+    .replace(/<\s*li\b[^>]*>/gi, "\n- ")
+    .replace(/<\s*\/li\s*>/gi, "")
+    .replace(/<[^>]+>/g, "");
+
+  out = decodeHtmlEntities(out);
+  out = normalizeReadableWhitespace(out);
+
+  if (title && !out.toLowerCase().startsWith(`# ${title.toLowerCase()}`)) {
+    out = `# ${title}\n\n${out}`.trim();
+  }
+  return out;
+}
+
+function extractTitle(html: string): string | undefined {
+  const match = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+  if (!match?.[1]) return undefined;
+  const title = collapseInlineWhitespace(decodeHtmlEntities(stripTags(match[1]))).trim();
+  return title || undefined;
+}
+
+function stripTags(value: string): string {
+  return value.replace(/<[^>]+>/g, "");
+}
+
+function normalizeReadableWhitespace(value: string): string {
+  return value
+    .split("\n")
+    .map((line) => collapseInlineWhitespace(line).trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\s+|\s+$/g, "");
+}
+
+function collapseInlineWhitespace(value: string): string {
+  return value.replace(/[\t \f\v]+/g, " ");
+}
+
+function resolveHref(href: string, base?: URL): string {
+  try {
+    return base ? new URL(href, base).toString() : href;
+  } catch {
+    return href;
+  }
+}
+
+function decodeHtmlEntities(value: string): string {
+  const named: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+  };
+  return value.replace(/&(#x?[0-9a-f]+|[a-z][a-z0-9]+);/gi, (match, entity) => {
+    const raw = String(entity).toLowerCase();
+    if (raw.startsWith("#x")) {
+      const code = Number.parseInt(raw.slice(2), 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    }
+    if (raw.startsWith("#")) {
+      const code = Number.parseInt(raw.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    }
+    return named[raw] ?? match;
+  });
 }
