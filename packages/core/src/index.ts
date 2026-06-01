@@ -15,6 +15,13 @@ export type { AgentEvent, CompactionResult, ContextStatus } from "./agent/types.
 
 // Tools.
 export { ToolRegistry } from "./tools/registry.js";
+export {
+  DEFAULT_TOOL_PERMISSION_POLICY,
+  matchesWildcard,
+  parseToolPermissionPolicyEnv,
+  resolveToolPermission,
+} from "./tools/permissions.js";
+export type { ToolPermission, ToolPermissionPolicy } from "./tools/permissions.js";
 export { defineTool } from "./tools/types.js";
 export type { AskUserRequest, Tool, ToolContext, ToolResult } from "./tools/types.js";
 export {

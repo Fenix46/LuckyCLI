@@ -177,6 +177,69 @@ describe("Agent loop", () => {
     });
   });
 
+  it("denies a tool when permission policy denies it", async () => {
+    const provider = new ScriptedProvider([
+      [
+        {
+          toolCall: {
+            type: "tool_call",
+            id: "t1",
+            name: "echo",
+            arguments: { value: "x" },
+          },
+        },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "done" }, { finishReason: "stop" }],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+      permissions: { echo: "deny" },
+      approveTool: () => "allow",
+    });
+
+    const events = await collect(agent.send("use the tool"));
+    const toolEnd = events.find((e) => e.type === "tool_end");
+    expect(toolEnd).toMatchObject({
+      type: "tool_end",
+      isError: true,
+      content: "Tool 'echo' execution is denied by policy.",
+    });
+  });
+
+  it("denies ask-permission tools when no approval bridge exists", async () => {
+    const provider = new ScriptedProvider([
+      [
+        {
+          toolCall: {
+            type: "tool_call",
+            id: "t1",
+            name: "echo",
+            arguments: { value: "x" },
+          },
+        },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "done" }, { finishReason: "stop" }],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+      permissions: { echo: "ask" },
+    });
+
+    const events = await collect(agent.send("use the tool"));
+    const toolEnd = events.find((e) => e.type === "tool_end");
+    expect(toolEnd).toMatchObject({
+      type: "tool_end",
+      isError: true,
+      content: "Tool 'echo' execution was denied by the user.",
+    });
+  });
+
   it("denies a tool when approval rejects it", async () => {
     const provider = new ScriptedProvider([
       [

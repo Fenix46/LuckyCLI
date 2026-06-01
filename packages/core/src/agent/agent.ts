@@ -10,6 +10,7 @@ import type {
   TokenUsage,
 } from "../providers/types.js";
 import { modelInfo } from "../providers/catalog.js";
+import { resolveToolPermission, type ToolPermissionPolicy } from "../tools/permissions.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { AskUserRequest } from "../tools/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
@@ -32,7 +33,9 @@ export interface AgentConfig {
     keepRecentTurns?: number;
     reservedOutputTokens?: number;
   };
-  /** Optional callback to approve side-effecting tools before they run. */
+  /** Tool permission policy. Supports exact tool names and wildcard patterns. */
+  permissions?: ToolPermissionPolicy;
+  /** Optional callback to approve tools whose resolved permission is ask. */
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   /** Optional bridge used by the ask_user tool to query the human. */
   askUser?: (request: AskUserRequest) => Promise<string>;
@@ -70,6 +73,7 @@ export class Agent {
   private readonly maxSteps: number;
   private readonly compaction: RequiredCompactionConfig;
   private readonly modelInfo: ModelInfo;
+  private readonly permissions: ToolPermissionPolicy | undefined;
   private readonly approveTool: ((name: string, input: unknown) => Promise<ToolApproval> | ToolApproval) | undefined;
   private readonly askUser: ((request: AskUserRequest) => Promise<string>) | undefined;
   private readonly history: Message[] = [];
@@ -92,6 +96,7 @@ export class Agent {
         : {}),
     };
     this.modelInfo = modelInfo(cfg.provider.info.id, cfg.model);
+    this.permissions = cfg.permissions;
     this.approveTool = cfg.approveTool;
     this.askUser = cfg.askUser;
     if (cfg.messages?.length) this.history.push(...cfg.messages);
@@ -186,10 +191,18 @@ export class Agent {
         };
 
         const tool = this.tools.get(call.name);
-        const needsApproval = tool ? !tool.readonly : true;
+        const hasExplicitPolicy = this.permissions !== undefined;
+        const permission = hasExplicitPolicy
+          ? resolveToolPermission(this.permissions, call.name, tool?.readonly ?? false)
+          : tool?.readonly
+            ? "allow"
+            : "ask";
 
-        let approved = true;
-        if (needsApproval && this.approveTool) {
+        // Backward compatibility: without an explicit policy, an ask-level tool
+        // is allowed when no approval bridge exists, matching the original
+        // Agent behavior. With an explicit policy, ask requires approval.
+        let approved = permission === "allow" || (!hasExplicitPolicy && permission === "ask" && !this.approveTool);
+        if (permission === "ask" && this.approveTool) {
           try {
             const decision = await this.approveTool(call.name, call.arguments);
             approved = decision === true || decision === "allow" || decision === "always";
@@ -199,7 +212,12 @@ export class Agent {
         }
 
         let result;
-        if (!approved) {
+        if (permission === "deny") {
+          result = {
+            content: `Tool '${call.name}' execution is denied by policy.`,
+            isError: true,
+          };
+        } else if (!approved) {
           result = {
             content: `Tool '${call.name}' execution was denied by the user.`,
             isError: true,

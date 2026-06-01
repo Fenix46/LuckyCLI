@@ -84,6 +84,7 @@ export function Root({
         model: config.model,
         credentials: config.credentials,
         system: config.system,
+        permissions: config.permissions,
         approveTool,
         askUser,
         ...(config.temperature !== undefined
@@ -108,6 +109,7 @@ export function Root({
         model: result.model,
         credentials: result.credentials,
         system: config.system,
+        permissions: config.permissions,
         approveTool,
         askUser,
         ...(config.temperature !== undefined
@@ -151,6 +153,7 @@ export function Root({
         model: resolved.model,
         credentials: resolved.credentials,
         system: config.system,
+        permissions: config.permissions,
         approveTool,
         askUser,
         ...(config.temperature !== undefined
@@ -184,6 +187,7 @@ export function Root({
         model,
         credentials: runtime.credentials,
         system: config.system,
+        permissions: config.permissions,
         approveTool,
         askUser,
         ...(config.temperature !== undefined

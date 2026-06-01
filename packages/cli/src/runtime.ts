@@ -8,6 +8,7 @@ import {
   type ProviderCredentials,
   type ProviderId,
   type ToolApproval,
+  type ToolPermissionPolicy,
 } from "@luckycli/core";
 
 export interface BuildAgentOptions {
@@ -17,6 +18,7 @@ export interface BuildAgentOptions {
   system: string;
   temperature?: number;
   maxTokens?: number;
+  permissions?: ToolPermissionPolicy;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
   /** Prior conversation to resume from (e.g. a loaded session). */
@@ -35,6 +37,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     model: opts.model,
     tools: defaultToolRegistry(),
     system: opts.system,
+    permissions: opts.permissions,
     approveTool: opts.approveTool,
     askUser: opts.askUser,
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),

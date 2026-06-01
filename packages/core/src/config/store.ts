@@ -16,6 +16,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
+import type { ToolPermissionPolicy } from "../tools/permissions.js";
 
 export interface StoredConfig {
   provider?: ProviderId;
@@ -26,6 +27,8 @@ export interface StoredConfig {
     latestVersion?: string;
     releaseUrl?: string;
   };
+  /** Tool permission policy. Keys can be tool names or wildcard patterns; values are allow/ask/deny. */
+  permissions?: ToolPermissionPolicy;
   /** Saved credentials per provider, so switching doesn't re-prompt. */
   credentials?: Partial<Record<ProviderId, ProviderCredentials>>;
 }

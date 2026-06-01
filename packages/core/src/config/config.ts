@@ -1,6 +1,7 @@
 import { PROVIDER_CATALOG } from "../providers/catalog.js";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import { isProviderId } from "../providers/types.js";
+import { DEFAULT_TOOL_PERMISSION_POLICY, parseToolPermissionPolicyEnv, type ToolPermissionPolicy } from "../tools/permissions.js";
 import { loadStoredConfig, type StoredConfig } from "./store.js";
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -25,6 +26,7 @@ export interface ResolvedConfig {
   temperature?: number;
   maxTokens?: number;
   credentials?: ProviderCredentials;
+  permissions: ToolPermissionPolicy;
   needsSetup: boolean;
 }
 
@@ -60,6 +62,8 @@ export function resolveConfig(
     ? resolveCredentials(provider, stored, env)
     : undefined;
 
+  const envPermissions = parseToolPermissionPolicyEnv(env.LUCKY_TOOL_PERMISSIONS);
+
   return {
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
@@ -69,6 +73,11 @@ export function resolveConfig(
       : {}),
     ...(env.LUCKY_MAX_TOKENS ? { maxTokens: Number(env.LUCKY_MAX_TOKENS) } : {}),
     ...(credentials ? { credentials } : {}),
+    permissions: {
+      ...DEFAULT_TOOL_PERMISSION_POLICY,
+      ...(stored.permissions ?? {}),
+      ...(envPermissions ?? {}),
+    },
     needsSetup: !provider || !credentials,
   };
 }
