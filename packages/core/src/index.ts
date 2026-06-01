@@ -48,6 +48,19 @@ export {
 } from "./config/config.js";
 export type { CliOverrides, ResolvedConfig } from "./config/config.js";
 
+// Prompt assembly — composed from the section files in ./prompts.
+export {
+  buildSystemPrompt,
+  buildSummarizationPrompt,
+  renderEnvironment,
+  IDENTITY_PROMPT,
+  AGENCY_PROMPT,
+  TOOL_USE_PROMPT,
+  ENVIRONMENT_PROMPT_TEMPLATE,
+  SUMMARIZATION_PROMPT,
+} from "./prompts/index.js";
+export type { EnvironmentInfo } from "./prompts/index.js";
+
 // Persistent config store.
 export {
   configFilePath,

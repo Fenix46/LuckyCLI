@@ -2,12 +2,15 @@ import { PROVIDER_CATALOG } from "../providers/catalog.js";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import { isProviderId } from "../providers/types.js";
 import { DEFAULT_TOOL_PERMISSION_POLICY, parseToolPermissionPolicyEnv, type ToolPermissionPolicy } from "../tools/permissions.js";
+import { buildSystemPrompt } from "../prompts/index.js";
 import { loadStoredConfig, type StoredConfig } from "./store.js";
 
-export const DEFAULT_SYSTEM_PROMPT =
-  "You are lucky, a concise and capable terminal coding assistant. " +
-  "Use the available tools to inspect and modify the project when needed. " +
-  "Prefer small, verifiable steps and explain what you do briefly.";
+/**
+ * The default system prompt, composed from the section files in ../prompts.
+ * Per-section env overrides (LUCKY_PROMPT_*) are applied inside buildSystemPrompt;
+ * LUCKY_SYSTEM (handled in resolveConfig) overrides the whole thing.
+ */
+export const DEFAULT_SYSTEM_PROMPT = buildSystemPrompt();
 
 export interface CliOverrides {
   provider?: string;
@@ -67,7 +70,7 @@ export function resolveConfig(
   return {
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
-    system: env.LUCKY_SYSTEM ?? DEFAULT_SYSTEM_PROMPT,
+    system: env.LUCKY_SYSTEM ?? buildSystemPrompt(undefined, env),
     ...(env.LUCKY_TEMPERATURE
       ? { temperature: Number(env.LUCKY_TEMPERATURE) }
       : {}),

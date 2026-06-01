@@ -13,6 +13,7 @@ import { modelInfo } from "../providers/catalog.js";
 import { resolveToolPermission, type ToolPermissionPolicy } from "../tools/permissions.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { AskUserRequest } from "../tools/types.js";
+import { buildSummarizationPrompt } from "../prompts/index.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
 const DEFAULT_MAX_STEPS = 40;
@@ -381,11 +382,7 @@ export class Agent {
 
   private async summarizeMessages(messages: Message[]): Promise<string> {
     const transcript = serializeForSummary(messages);
-    const prompt =
-      "Summarize the earlier conversation for continuing an AI coding session. " +
-      "Preserve user goals, decisions, files changed, commands run, tool results, " +
-      "bugs found, unresolved tasks, and any constraints. Be concise but specific.\n\n" +
-      transcript;
+    const prompt = `${buildSummarizationPrompt()}\n\n${transcript}`;
     const response = await this.provider.generate(
       [{ role: "user", content: [{ type: "text", text: prompt }] }],
       {
