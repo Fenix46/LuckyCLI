@@ -1,5 +1,6 @@
 import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
+import { askUserTool } from "./ask-user.js";
 import { editFileTool } from "./edit-file.js";
 import { execTool } from "./exec.js";
 import { globTool } from "./glob.js";
@@ -22,7 +23,8 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(globTool)
     .register(grepTool)
     .register(httpFetchTool)
-    .register(todoWriteTool);
+    .register(todoWriteTool)
+    .register(askUserTool);
 }
 
 export {
@@ -36,4 +38,5 @@ export {
   grepTool,
   httpFetchTool,
   todoWriteTool,
+  askUserTool,
 };

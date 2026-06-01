@@ -6,6 +6,7 @@ import {
   PROVIDER_CATALOG,
   type Agent,
   type AgentEvent,
+  type AskUserRequest,
   type ContextStatus,
   type Message,
   type ProviderStatus,
@@ -52,11 +53,17 @@ export interface ApprovalRequest {
   resolve: (decision: ToolApproval) => void;
 }
 
+export interface UserQuestionRequest extends AskUserRequest {
+  resolve: (answer: string) => void;
+}
+
 interface AppProps {
   agent: Agent;
   meta: AppMeta;
   approvalRequest: ApprovalRequest | null;
   setApprovalRequest: (req: ApprovalRequest | null) => void;
+  userQuestionRequest: UserQuestionRequest | null;
+  setUserQuestionRequest: (req: UserQuestionRequest | null) => void;
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
   onTriggerResume: () => void;
@@ -86,6 +93,8 @@ export function App({
   meta,
   approvalRequest,
   setApprovalRequest,
+  userQuestionRequest,
+  setUserQuestionRequest,
   onTriggerSetup,
   onChangeModel,
   onTriggerResume,
@@ -240,6 +249,7 @@ export function App({
   const [selectedThemeIndex, setSelectedThemeIndex] = useState(0);
   const approvalOptions = ["allow", "always", "deny"] as const;
   const [selectedApprovalIndex, setSelectedApprovalIndex] = useState(0);
+  const [selectedQuestionOptionIndex, setSelectedQuestionOptionIndex] = useState(0);
 
   useEffect(() => {
     setSelectedModelIndex(0);
@@ -252,6 +262,10 @@ export function App({
   useEffect(() => {
     setSelectedApprovalIndex(0);
   }, [approvalRequest]);
+
+  useEffect(() => {
+    setSelectedQuestionOptionIndex(0);
+  }, [userQuestionRequest]);
 
   // Ctrl+C exits when idle. Support autocomplete and tool approval.
   useInput((_in, key) => {
@@ -285,7 +299,39 @@ export function App({
       return;
     }
 
-    // 2. Interactive model picker navigation
+    // 2. User question from ask_user tool
+    if (userQuestionRequest) {
+      const options = userQuestionRequest.options ?? [];
+      if (key.ctrl && _in === "c") {
+        userQuestionRequest.resolve("User cancelled the question.");
+        setUserQuestionRequest(null);
+        abortControllerRef.current?.abort();
+        return;
+      }
+      if (options.length > 0 && (key.leftArrow || key.upArrow || _in === "h" || _in === "k")) {
+        setSelectedQuestionOptionIndex(
+          (prev) => (prev - 1 + options.length) % options.length,
+        );
+        return;
+      }
+      if (options.length > 0 && (key.rightArrow || key.downArrow || _in === "l" || _in === "j" || key.tab)) {
+        setSelectedQuestionOptionIndex((prev) => (prev + 1) % options.length);
+        return;
+      }
+      if (key.return && options.length > 0 && !userQuestionRequest.allowFreeText) {
+        userQuestionRequest.resolve(options[selectedQuestionOptionIndex] ?? options[0] ?? "");
+        setUserQuestionRequest(null);
+        return;
+      }
+      if (key.escape) {
+        userQuestionRequest.resolve("User skipped the question.");
+        setUserQuestionRequest(null);
+        return;
+      }
+      return;
+    }
+
+    // 3. Interactive model picker navigation
     if (modelPicker.open && modelPicker.items.length > 0) {
       if (key.downArrow) {
         setSelectedModelIndex((prev) => (prev + 1) % modelPicker.items.length);
@@ -411,6 +457,15 @@ export function App({
   const submit = useCallback(
     async (value: string) => {
       const text = value.trim();
+      if (userQuestionRequest) {
+        const answer = text || userQuestionRequest.options?.[selectedQuestionOptionIndex] || "";
+        if (!answer) return;
+        userQuestionRequest.resolve(answer);
+        setUserQuestionRequest(null);
+        setInput("");
+        return;
+      }
+
       if (!text || busy) return;
 
       if (text === "/exit" || text === "/quit") {
@@ -772,7 +827,7 @@ export function App({
         persistSession();
       }
     },
-    [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, onTriggerResume, selectModel, selectTheme, persistSession],
+    [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, onTriggerResume, selectModel, selectTheme, persistSession, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest],
   );
   const lastItem = items.at(-1);
   const liveTail =
@@ -826,7 +881,7 @@ export function App({
               width={messageWidth}
             />
           </Box>
-        ) : busy && !approvalRequest ? (
+        ) : busy && !approvalRequest && !userQuestionRequest ? (
           <Box marginY={0.5}>
             <Text color={activeTheme.muted}>
               ● lucky › thinking... ({elapsedSeconds}s elapsed)
@@ -840,6 +895,15 @@ export function App({
           request={approvalRequest}
           selectedIndex={selectedApprovalIndex}
           options={approvalOptions}
+          theme={activeTheme}
+          width={messageWidth}
+        />
+      ) : null}
+
+      {userQuestionRequest ? (
+        <UserQuestionRequestView
+          request={userQuestionRequest}
+          selectedIndex={selectedQuestionOptionIndex}
           theme={activeTheme}
           width={messageWidth}
         />
@@ -1361,6 +1425,56 @@ function ApprovalOptionView({
         {label.padEnd(12)}
       </Text>
       <Text color={selected ? "white" : theme.muted}>{description}</Text>
+    </Box>
+  );
+}
+
+function UserQuestionRequestView({
+  request,
+  selectedIndex,
+  theme,
+  width,
+}: {
+  request: UserQuestionRequest;
+  selectedIndex: number;
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
+  const options = request.options ?? [];
+  const freeText = request.allowFreeText ?? true;
+  const panelWidth = Math.max(48, Math.min(width, 104));
+  return (
+    <Box flexDirection="column" paddingLeft={2} marginY={0.5} width={panelWidth}>
+      <Box flexDirection="row">
+        <Text bold color={theme.warning}>Question from agent</Text>
+        <Text color={theme.muted}> · ask_user</Text>
+      </Box>
+
+      <Box marginTop={0.3}>
+        <Text>{request.question}</Text>
+      </Box>
+
+      {options.length > 0 ? (
+        <Box flexDirection="column" marginTop={0.7}>
+          {options.map((option, index) => (
+            <Box key={`${option}-${index}`} flexDirection="row">
+              <Text bold={index === selectedIndex} color={index === selectedIndex ? theme.accent : theme.muted}>
+                {index === selectedIndex ? "› " : "  "}
+                {option}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
+
+      <Box marginTop={0.3}>
+        <Text color={theme.muted}>
+          {freeText
+            ? "Type an answer and press Enter"
+            : "Arrows or h/j/k/l to select · Enter answer · Esc skip"}
+          {freeText && options.length > 0 ? " · or press Enter empty to use selected option" : ""}
+        </Text>
+      </Box>
     </Box>
   );
 }

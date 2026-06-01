@@ -3,6 +3,7 @@ import {
   defaultToolRegistry,
   getProvider,
   resetProvider,
+  type AskUserRequest,
   type Message,
   type ProviderCredentials,
   type ProviderId,
@@ -17,6 +18,7 @@ export interface BuildAgentOptions {
   temperature?: number;
   maxTokens?: number;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
+  askUser?: (request: AskUserRequest) => Promise<string>;
   /** Prior conversation to resume from (e.g. a loaded session). */
   messages?: Message[];
 }
@@ -34,6 +36,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     tools: defaultToolRegistry(),
     system: opts.system,
     approveTool: opts.approveTool,
+    askUser: opts.askUser,
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.messages?.length ? { messages: opts.messages } : {}),

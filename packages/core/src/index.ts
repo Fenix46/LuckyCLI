@@ -16,7 +16,7 @@ export type { AgentEvent, CompactionResult, ContextStatus } from "./agent/types.
 // Tools.
 export { ToolRegistry } from "./tools/registry.js";
 export { defineTool } from "./tools/types.js";
-export type { Tool, ToolContext, ToolResult } from "./tools/types.js";
+export type { AskUserRequest, Tool, ToolContext, ToolResult } from "./tools/types.js";
 export {
   defaultToolRegistry,
   execTool,
@@ -29,6 +29,7 @@ export {
   grepTool,
   httpFetchTool,
   todoWriteTool,
+  askUserTool,
 } from "./tools/builtin/index.js";
 
 // Configuration.

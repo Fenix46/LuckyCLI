@@ -1,11 +1,22 @@
 import type { z } from "zod";
 
 /** Context handed to every tool at execution time. */
+export interface AskUserRequest {
+  /** Question to present to the user. */
+  question: string;
+  /** Optional predefined answers the user can pick from. */
+  options?: string[];
+  /** Whether free-form text is accepted. Defaults to true. */
+  allowFreeText?: boolean;
+}
+
 export interface ToolContext {
   /** Working directory the agent is anchored to. */
   cwd: string;
   /** Cancellation signal propagated from the agent loop. */
   signal?: AbortSignal;
+  /** Optional bridge for tools that need to ask the human a question. */
+  askUser?: (request: AskUserRequest) => Promise<string>;
 }
 
 /** Result of running a tool. `content` is always a string fed back to the model. */

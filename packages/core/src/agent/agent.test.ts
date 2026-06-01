@@ -10,6 +10,7 @@ import type {
   TokenUsage,
 } from "../providers/types.js";
 import { ToolRegistry } from "../tools/registry.js";
+import { askUserTool } from "../tools/builtin/ask-user.js";
 import { defineTool } from "../tools/types.js";
 import { Agent } from "./agent.js";
 import type { AgentEvent } from "./types.js";
@@ -253,6 +254,40 @@ describe("Agent loop", () => {
 
     expect(events.at(-1)?.type).toBe("turn_end");
     expect(events.some((event) => event.type === "error")).toBe(false);
+  });
+
+  it("passes askUser bridge to tools", async () => {
+    const provider = new ScriptedProvider([
+      [
+        {
+          toolCall: {
+            type: "tool_call",
+            id: "q1",
+            name: "ask_user",
+            arguments: { question: "Pick one", options: ["A", "B"], allowFreeText: false },
+          },
+        },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "done" }, { finishReason: "stop" }],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(askUserTool),
+      askUser: async (request) => {
+        expect(request.question).toBe("Pick one");
+        return "A";
+      },
+    });
+
+    const events = await collect(agent.send("ask me"));
+    const toolEnd = events.find((e) => e.type === "tool_end");
+    expect(toolEnd).toMatchObject({
+      type: "tool_end",
+      isError: false,
+      content: "User answered: A",
+    });
   });
 
   it("compacts old turns before sending when context pressure is high", async () => {

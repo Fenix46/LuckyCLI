@@ -5,6 +5,7 @@ import {
   saveProviderSetup,
   saveStoredConfig,
   type Agent,
+  type AskUserRequest,
   type ProviderCredentials,
   type ProviderId,
   type ResolvedConfig,
@@ -12,7 +13,7 @@ import {
   type ToolApproval,
 } from "@luckycli/core";
 import { buildAgent } from "../runtime.js";
-import { App, type ApprovalRequest } from "./App.js";
+import { App, type ApprovalRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
 
@@ -42,6 +43,7 @@ export function Root({
   pickResume,
 }: RootProps): React.JSX.Element {
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
+  const [userQuestionRequest, setUserQuestionRequest] = useState<UserQuestionRequest | null>(null);
   const [resumeSession, setResumeSession] = useState<Session | null>(resume ?? null);
   const [picking, setPicking] = useState<boolean>(pickResume === true && !resume);
   const sessionApprovedTools = useRef<Set<string>>(new Set());
@@ -64,6 +66,15 @@ export function Root({
     });
   }
 
+  function askUser(request: AskUserRequest) {
+    return new Promise<string>((resolve) => {
+      setUserQuestionRequest({
+        ...request,
+        resolve,
+      });
+    });
+  }
+
   const [runtime, setRuntime] = useState<ActiveRuntime | null>(() => {
     if (forceSetup || config.needsSetup) return null;
     if (!config.provider || !config.model || !config.credentials) return null;
@@ -74,6 +85,7 @@ export function Root({
         credentials: config.credentials,
         system: config.system,
         approveTool,
+        askUser,
         ...(config.temperature !== undefined
           ? { temperature: config.temperature }
           : {}),
@@ -97,6 +109,7 @@ export function Root({
         credentials: result.credentials,
         system: config.system,
         approveTool,
+        askUser,
         ...(config.temperature !== undefined
           ? { temperature: config.temperature }
           : {}),
@@ -139,6 +152,7 @@ export function Root({
         credentials: resolved.credentials,
         system: config.system,
         approveTool,
+        askUser,
         ...(config.temperature !== undefined
           ? { temperature: config.temperature }
           : {}),
@@ -171,6 +185,7 @@ export function Root({
         credentials: runtime.credentials,
         system: config.system,
         approveTool,
+        askUser,
         ...(config.temperature !== undefined
           ? { temperature: config.temperature }
           : {}),
@@ -203,6 +218,8 @@ export function Root({
       meta={{ provider: runtime.provider, model: runtime.model }}
       approvalRequest={approvalRequest}
       setApprovalRequest={setApprovalRequest}
+      userQuestionRequest={userQuestionRequest}
+      setUserQuestionRequest={setUserQuestionRequest}
       onTriggerSetup={() => setRuntime(null)}
       onChangeModel={onChangeModel}
       onTriggerResume={() => setPicking(true)}

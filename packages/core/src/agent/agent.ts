@@ -11,6 +11,7 @@ import type {
 } from "../providers/types.js";
 import { modelInfo } from "../providers/catalog.js";
 import type { ToolRegistry } from "../tools/registry.js";
+import type { AskUserRequest } from "../tools/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
 const DEFAULT_MAX_STEPS = 40;
@@ -33,6 +34,8 @@ export interface AgentConfig {
   };
   /** Optional callback to approve side-effecting tools before they run. */
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
+  /** Optional bridge used by the ask_user tool to query the human. */
+  askUser?: (request: AskUserRequest) => Promise<string>;
   /** Prior conversation to resume from. Copied into the history on construction. */
   messages?: Message[];
 }
@@ -68,6 +71,7 @@ export class Agent {
   private readonly compaction: RequiredCompactionConfig;
   private readonly modelInfo: ModelInfo;
   private readonly approveTool: ((name: string, input: unknown) => Promise<ToolApproval> | ToolApproval) | undefined;
+  private readonly askUser: ((request: AskUserRequest) => Promise<string>) | undefined;
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -89,6 +93,7 @@ export class Agent {
     };
     this.modelInfo = modelInfo(cfg.provider.info.id, cfg.model);
     this.approveTool = cfg.approveTool;
+    this.askUser = cfg.askUser;
     if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
 
@@ -203,6 +208,7 @@ export class Agent {
           result = await this.tools.execute(call.name, call.arguments, {
             cwd: this.cwd,
             ...(signal ? { signal } : {}),
+            ...(this.askUser ? { askUser: this.askUser } : {}),
           });
         }
 
