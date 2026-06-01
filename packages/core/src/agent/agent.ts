@@ -176,6 +176,7 @@ export class Agent {
 
       // No tools requested -> the turn is complete.
       if (toolCalls.length === 0 || finishReason !== "tool_calls") {
+        if (usage) yield { type: "context", status: this.contextStatusFromUsage(usage) };
         yield usage ? { type: "turn_end", usage } : { type: "turn_end" };
         return;
       }
@@ -363,6 +364,23 @@ export class Agent {
       .join("\n")
       .trim();
     return text || "Earlier conversation was compacted, but the provider returned an empty summary.";
+  }
+
+  private contextStatusFromUsage(usage: TokenUsage): ContextStatus {
+    const contextWindow = this.modelInfo.contextWindow;
+    const usedTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+    const usableTokens = contextWindow ? this.usableInputTokens(contextWindow) : undefined;
+    return {
+      model: this.model,
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(this.modelInfo.maxInputTokens !== undefined ? { maxInputTokens: this.modelInfo.maxInputTokens } : {}),
+      ...(this.modelInfo.maxOutputTokens !== undefined ? { maxOutputTokens: this.modelInfo.maxOutputTokens } : {}),
+      ...(this.modelInfo.source ? { source: this.modelInfo.source } : {}),
+      tokenCounter: "provider",
+      usedTokens,
+      ...(usableTokens !== undefined ? { usableTokens } : {}),
+      ...(usableTokens ? { ratio: usedTokens / usableTokens } : {}),
+    };
   }
 
   private usableInputTokens(contextWindow: number): number {
