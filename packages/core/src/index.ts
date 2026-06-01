@@ -23,10 +23,12 @@ export {
   readFileTool,
   writeFileTool,
   editFileTool,
+  applyPatchTool,
   listDirTool,
   globTool,
   grepTool,
   httpFetchTool,
+  todoWriteTool,
 } from "./tools/builtin/index.js";
 
 // Configuration.
