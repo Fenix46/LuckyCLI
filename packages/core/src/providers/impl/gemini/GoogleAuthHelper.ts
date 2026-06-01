@@ -6,18 +6,39 @@ import * as net from "node:net";
 
 declare const __LUCKY_GOOGLE_OAUTH_CLIENT_ID__: string | undefined;
 declare const __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__: string | undefined;
+declare const __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID__: string | undefined;
+declare const __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_SECRET__: string | undefined;
 
 const OAUTH_CLIENT_ID_ENV = "LUCKY_GOOGLE_OAUTH_CLIENT_ID";
 const OAUTH_CLIENT_SECRET_ENV = "LUCKY_GOOGLE_OAUTH_CLIENT_SECRET";
+const ANTIGRAVITY_OAUTH_CLIENT_ID_ENV = "LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID";
+const ANTIGRAVITY_OAUTH_CLIENT_SECRET_ENV = "LUCKY_ANTIGRAVITY_OAUTH_CLIENT_SECRET";
 const OAUTH_SCOPE = [
   "https://www.googleapis.com/auth/cloud-platform",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
+const ANTIGRAVITY_OAUTH_SCOPE = [
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+  "openid",
+  "https://www.googleapis.com/auth/cclog",
+  "https://www.googleapis.com/auth/cloud-platform",
+  "https://www.googleapis.com/auth/experimentsandconfigs",
+];
+
+interface GoogleOAuthFlowOptions {
+  clientIdEnv?: string;
+  clientSecretEnv?: string;
+  scopes?: string[];
+  callbackPath?: string;
+  redirectHost?: string;
+  usePkce?: boolean;
+}
 
 export interface OAuthSession {
   url: string;
-  tokenPromise: Promise<{ accessToken: string; refreshToken?: string }>;
+  tokenPromise: Promise<{ accessToken: string; refreshToken?: string; expiresAt?: number }>;
   stop: () => void;
 }
 
@@ -51,7 +72,7 @@ export function getAvailablePort(): Promise<number> {
  * Generates the Google OAuth authorization URL using a loopback redirect URI
  * and starts a temporary HTTP callback server to capture the code automatically.
  */
-export async function startOAuthFlow(): Promise<OAuthSession> {
+export async function startOAuthFlow(options: GoogleOAuthFlowOptions = {}): Promise<OAuthSession> {
   const state = crypto.randomBytes(32).toString("hex");
 
   let server!: http.Server;
@@ -71,8 +92,10 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
     server.on("error", reject);
   });
 
-  const redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
-  const clientConfig = getGoogleOAuthClientConfig();
+  const redirectHost = options.redirectHost ?? "127.0.0.1";
+  const callbackPath = options.callbackPath ?? "/oauth2callback";
+  const redirectUri = `http://${redirectHost}:${port}${callbackPath}`;
+  const clientConfig = getGoogleOAuthClientConfig(options);
 
   const client = new OAuth2Client({
     clientId: clientConfig.clientId,
@@ -80,22 +103,28 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
     redirectUri,
   });
 
-  const verifier = await client.generateCodeVerifierAsync();
+  const usePkce = options.usePkce ?? true;
+  const verifier = usePkce ? await client.generateCodeVerifierAsync() : undefined;
 
   const url = client.generateAuthUrl({
     access_type: "offline",
-    scope: OAUTH_SCOPE,
-    code_challenge_method: CodeChallengeMethod.S256,
-    code_challenge: verifier.codeChallenge,
+    prompt: "consent",
+    scope: options.scopes ?? OAUTH_SCOPE,
+    ...(verifier
+      ? {
+          code_challenge_method: CodeChallengeMethod.S256,
+          code_challenge: verifier.codeChallenge,
+        }
+      : {}),
     state,
   });
 
-  const tokenPromise = new Promise<{ accessToken: string; refreshToken?: string }>((resolve, reject) => {
+  const tokenPromise = new Promise<{ accessToken: string; refreshToken?: string; expiresAt?: number }>((resolve, reject) => {
     // Setup request listener on the already-listening server
     server.on("request", async (req, res) => {
       try {
         const parsedUrl = new URL(req.url || "", `http://127.0.0.1:${port}`);
-        if (parsedUrl.pathname !== "/oauth2callback") {
+        if (parsedUrl.pathname !== callbackPath) {
           res.writeHead(404);
           res.end("Not Found");
           return;
@@ -120,7 +149,7 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
 
         const { tokens } = await client.getToken({
           code,
-          codeVerifier: verifier.codeVerifier,
+          ...(verifier ? { codeVerifier: verifier.codeVerifier } : {}),
           redirect_uri: redirectUri,
         });
 
@@ -137,6 +166,7 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
         resolve({
           accessToken: tokens.access_token || "",
           refreshToken: tokens.refresh_token || undefined,
+          expiresAt: tokens.expiry_date || undefined,
         });
       } catch (err) {
         res.writeHead(500);
@@ -161,6 +191,17 @@ export async function startOAuthFlow(): Promise<OAuthSession> {
   };
 }
 
+export function startAntigravityOAuthFlow(): Promise<OAuthSession> {
+  return startOAuthFlow({
+    clientIdEnv: ANTIGRAVITY_OAUTH_CLIENT_ID_ENV,
+    clientSecretEnv: ANTIGRAVITY_OAUTH_CLIENT_SECRET_ENV,
+    scopes: ANTIGRAVITY_OAUTH_SCOPE,
+    callbackPath: "/oauth-callback",
+    redirectHost: "localhost",
+    usePkce: false,
+  });
+}
+
 function closeServer(server: http.Server): void {
   if (!server.listening) return;
   server.close(() => {
@@ -173,8 +214,9 @@ function closeServer(server: http.Server): void {
  */
 export async function refreshAccessToken(
   refreshToken: string,
+  options: GoogleOAuthFlowOptions = {},
 ): Promise<string> {
-  const clientConfig = getGoogleOAuthClientConfig();
+  const clientConfig = getGoogleOAuthClientConfig(options);
   const client = new OAuth2Client({
     clientId: clientConfig.clientId,
     clientSecret: clientConfig.clientSecret,
@@ -185,25 +227,62 @@ export async function refreshAccessToken(
   return credentials.access_token || "";
 }
 
-function getGoogleOAuthClientConfig(): { clientId: string; clientSecret: string } {
+export async function refreshAntigravityAccessToken(refreshToken: string): Promise<string> {
+  return refreshAccessToken(refreshToken, {
+    clientIdEnv: ANTIGRAVITY_OAUTH_CLIENT_ID_ENV,
+    clientSecretEnv: ANTIGRAVITY_OAUTH_CLIENT_SECRET_ENV,
+  });
+}
+
+function getGoogleOAuthClientConfig(options: GoogleOAuthFlowOptions = {}): { clientId: string; clientSecret: string } {
+  const clientIdEnv = options.clientIdEnv ?? OAUTH_CLIENT_ID_ENV;
+  const clientSecretEnv = options.clientSecretEnv ?? OAUTH_CLIENT_SECRET_ENV;
   const clientId =
-    buildInjectedValue(
-      typeof __LUCKY_GOOGLE_OAUTH_CLIENT_ID__ === "undefined"
-        ? undefined
-        : __LUCKY_GOOGLE_OAUTH_CLIENT_ID__,
-    ) ?? process.env[OAUTH_CLIENT_ID_ENV];
+    injectedClientId(clientIdEnv) ?? process.env[clientIdEnv];
   const clientSecret =
-    buildInjectedValue(
-      typeof __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__ === "undefined"
-        ? undefined
-        : __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__,
-    ) ?? process.env[OAUTH_CLIENT_SECRET_ENV];
+    injectedClientSecret(clientSecretEnv) ?? process.env[clientSecretEnv];
   if (!clientId || !clientSecret) {
     throw new Error(
-      `Google OAuth requires ${OAUTH_CLIENT_ID_ENV} and ${OAUTH_CLIENT_SECRET_ENV} to be set.`,
+      `Google OAuth requires ${clientIdEnv} and ${clientSecretEnv} to be set.`,
     );
   }
   return { clientId, clientSecret };
+}
+
+function injectedClientId(envName: string): string | undefined {
+  if (envName === OAUTH_CLIENT_ID_ENV) {
+    return buildInjectedValue(
+      typeof __LUCKY_GOOGLE_OAUTH_CLIENT_ID__ === "undefined"
+        ? undefined
+        : __LUCKY_GOOGLE_OAUTH_CLIENT_ID__,
+    );
+  }
+  if (envName === ANTIGRAVITY_OAUTH_CLIENT_ID_ENV) {
+    return buildInjectedValue(
+      typeof __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID__ === "undefined"
+        ? undefined
+        : __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID__,
+    );
+  }
+  return undefined;
+}
+
+function injectedClientSecret(envName: string): string | undefined {
+  if (envName === OAUTH_CLIENT_SECRET_ENV) {
+    return buildInjectedValue(
+      typeof __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__ === "undefined"
+        ? undefined
+        : __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__,
+    );
+  }
+  if (envName === ANTIGRAVITY_OAUTH_CLIENT_SECRET_ENV) {
+    return buildInjectedValue(
+      typeof __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_SECRET__ === "undefined"
+        ? undefined
+        : __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_SECRET__,
+    );
+  }
+  return undefined;
 }
 
 function buildInjectedValue(value: string | undefined): string | undefined {

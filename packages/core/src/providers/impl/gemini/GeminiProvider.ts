@@ -15,6 +15,7 @@ import type { IProvider } from "../../IProvider.js";
 import { providerInfo } from "../../catalog.js";
 import type {
   ContentPart,
+  AntigravityCredentials,
   FinishReason,
   GeminiCredentials,
   GenerationConfig,
@@ -27,29 +28,42 @@ import type {
 } from "../../types.js";
 import { refreshAccessToken } from "./GoogleAuthHelper.js";
 import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
-import { CodeAssistClient } from "./CodeAssistClient.js";
+import { CodeAssistClient, type CodeAssistClientOptions } from "./CodeAssistClient.js";
 
 const INFO: ProviderInfo = providerInfo("gemini");
 const SYNTHETIC_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
 
 type CodeAssistPart = Part & { thoughtSignature?: string };
+type CodeAssistCredentials = GeminiCredentials | AntigravityCredentials;
+
+export interface GeminiProviderOptions {
+  info?: ProviderInfo;
+  codeAssist?: CodeAssistClientOptions;
+  refreshAccessToken?: (refreshToken: string) => Promise<string>;
+}
 
 export class GeminiProvider implements IProvider {
-  readonly info = INFO;
+  readonly info: ProviderInfo;
   private client!: GoogleGenAI;
   private readonly codeAssistClient: CodeAssistClient | undefined;
-  private readonly credentials: GeminiCredentials;
+  private readonly credentials: CodeAssistCredentials;
+  private readonly refreshToken: (refreshToken: string) => Promise<string>;
 
-  constructor(credentials: GeminiCredentials) {
+  constructor(credentials: CodeAssistCredentials, options: GeminiProviderOptions = {}) {
     this.credentials = credentials;
+    this.info = options.info ?? INFO;
+    this.refreshToken = options.refreshAccessToken ?? refreshAccessToken;
     this.client = this.createClient();
     this.codeAssistClient =
       credentials.authMethod === "oauth"
-        ? new CodeAssistClient(() => this.currentAccessToken())
+        ? new CodeAssistClient(() => this.currentAccessToken(), options.codeAssist)
         : undefined;
   }
 
   private createClient(): GoogleGenAI {
+    if (this.credentials.type === "antigravity") {
+      return new GoogleGenAI({ apiKey: "" });
+    }
     if (this.credentials.authMethod === "vertex") {
       return new GoogleGenAI({
         vertexai: true,
@@ -72,15 +86,16 @@ export class GeminiProvider implements IProvider {
   private async ensureValidAuth(): Promise<void> {
     if (this.credentials.authMethod === "oauth" && this.credentials.refreshToken) {
       try {
-        const newToken = await refreshAccessToken(this.credentials.refreshToken);
+        const newToken = await this.refreshToken(this.credentials.refreshToken);
         if (newToken && newToken !== this.credentials.accessToken) {
           this.credentials.accessToken = newToken;
           this.client = this.createClient();
           
           const cfg = loadStoredConfig();
-          if (cfg.credentials?.gemini && cfg.credentials.gemini.type === "gemini") {
-            cfg.credentials.gemini = {
-              ...(cfg.credentials.gemini as GeminiCredentials),
+          const providerId = this.credentials.type;
+          if (cfg.credentials?.[providerId]?.type === providerId) {
+            cfg.credentials[providerId] = {
+              ...(cfg.credentials[providerId] as CodeAssistCredentials),
               accessToken: newToken,
             };
             saveStoredConfig(cfg);
@@ -226,7 +241,9 @@ export class GeminiProvider implements IProvider {
         provider: this.info.id,
         displayName: this.info.displayName,
         authType: authType === "vertex" ? "vertex ai" : "api key",
-        ...(this.credentials.projectId ? { project: this.credentials.projectId } : {}),
+        ...(this.credentials.type === "gemini" && this.credentials.projectId
+          ? { project: this.credentials.projectId }
+          : {}),
         notes: [
           authType === "vertex"
             ? "Vertex AI account and quota windows are managed by Google Cloud and are not exposed here."
@@ -240,6 +257,22 @@ export class GeminiProvider implements IProvider {
       (credit) =>
         `credit ${credit.creditType ?? "unknown"}: ${credit.creditAmount ?? "unknown"}`,
     );
+    const modelQuotas = Object.entries(status.models ?? {}).flatMap(([id, model]) => {
+      const quota = model.quotaInfo;
+      if (!quota) return [];
+      return [
+        {
+          label: model.displayName ?? id,
+          modelId: id,
+          ...(quota.remainingAmount
+            ? { remaining: quota.remainingAmount }
+            : quota.remainingFraction !== undefined
+              ? { remaining: `${Math.round(quota.remainingFraction * 100)}%` }
+              : {}),
+          ...(quota.resetTime ? { resetTime: quota.resetTime } : {}),
+        },
+      ];
+    });
     return {
       provider: this.info.id,
       displayName: this.info.displayName,
@@ -248,7 +281,9 @@ export class GeminiProvider implements IProvider {
       ...(status.project ? { project: status.project } : {}),
       ...(status.subscription ? { subscription: status.subscription } : {}),
       ...(status.tier ? { tier: status.tier } : {}),
-      ...(status.quotas
+      ...(modelQuotas.length
+        ? { quotas: modelQuotas }
+        : status.quotas
         ? {
             quotas: status.quotas.map((bucket, index) => ({
               label: bucket.tokenType ?? bucket.modelId ?? `bucket ${index + 1}`,

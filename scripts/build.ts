@@ -16,6 +16,8 @@ const outDir = join(root, "dist-bin");
 const stub = join(here, "stubs/react-devtools-core.js");
 const googleOAuthClientId = process.env.LUCKY_GOOGLE_OAUTH_CLIENT_ID || "__unset__";
 const googleOAuthClientSecret = process.env.LUCKY_GOOGLE_OAUTH_CLIENT_SECRET || "__unset__";
+const antigravityOAuthClientId = process.env.LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID || "__unset__";
+const antigravityOAuthClientSecret = process.env.LUCKY_ANTIGRAVITY_OAUTH_CLIENT_SECRET || "__unset__";
 
 // Bun cross-compilation targets -> output file name.
 const TARGETS: Record<string, string> = {
@@ -54,6 +56,8 @@ for (const name of selected) {
     define: {
       __LUCKY_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(googleOAuthClientId),
       __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(googleOAuthClientSecret),
+      __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID__: JSON.stringify(antigravityOAuthClientId),
+      __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_SECRET__: JSON.stringify(antigravityOAuthClientSecret),
     },
     compile: { target: `bun-${name}`, outfile: join(outDir, outfile) },
   });

@@ -16,6 +16,7 @@ import {
 
 const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 const CODE_ASSIST_API_VERSION = "v1internal";
+const GOOGLE_USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo";
 const USER_TIER_FREE = "free-tier";
 const USER_TIER_LEGACY = "legacy-tier";
 const USER_TIER_STANDARD = "standard-tier";
@@ -23,9 +24,12 @@ const VALIDATION_REQUIRED = "VALIDATION_REQUIRED";
 
 interface ClientMetadata {
   ideType?: string;
+  ideName?: string;
+  ideVersion?: string;
   platform?: string;
   pluginType?: string;
   duetProject?: string;
+  [key: string]: unknown;
 }
 
 interface GeminiUserTier {
@@ -102,6 +106,40 @@ interface GoogleUserInfo {
   name?: string;
 }
 
+interface AvailableModelsResponse {
+  models?: Record<
+    string,
+    {
+      displayName?: string;
+      maxTokens?: number;
+      maxOutputTokens?: number;
+      quotaInfo?: {
+        remainingAmount?: string;
+        remainingFraction?: number;
+        resetTime?: string;
+      };
+    }
+  >;
+}
+
+export interface CodeAssistClientOptions {
+  endpoint?: string;
+  apiVersion?: string;
+  userAgent?: string;
+  headers?: Record<string, string>;
+  loadMetadata?: ClientMetadata;
+  freeTierMetadata?: ClientMetadata;
+  projectEnv?: string[];
+  userInfo?: {
+    endpoint?: string;
+    body?: (projectId: string) => unknown;
+  };
+  availableModels?: {
+    endpoint: string;
+    body: (projectId: string) => unknown;
+  };
+}
+
 export interface CodeAssistStatus {
   account?: string;
   project?: string;
@@ -109,6 +147,7 @@ export interface CodeAssistStatus {
   subscription?: string;
   credits?: Credits[];
   quotas?: RetrieveUserQuotaResponse["buckets"];
+  models?: AvailableModelsResponse["models"];
   notes?: string[];
 }
 
@@ -124,8 +163,14 @@ export interface CodeAssistGenerateRequest {
 export class CodeAssistClient {
   private user: Promise<CodeAssistUser> | undefined;
   private readonly sessionId = randomUUID();
+  private readonly options: CodeAssistClientOptions;
 
-  constructor(private readonly accessToken: () => Promise<string> | string) {}
+  constructor(
+    private readonly accessToken: () => Promise<string> | string,
+    options: CodeAssistClientOptions = {},
+  ) {
+    this.options = options;
+  }
 
   async generateContent(
     req: CodeAssistGenerateRequest,
@@ -208,9 +253,10 @@ export class CodeAssistClient {
 
   async getStatus(): Promise<CodeAssistStatus> {
     const user = await this.getUser();
-    const [account, quotas] = await Promise.all([
-      this.fetchUserInfo().catch(() => undefined),
+    const [account, quotas, models] = await Promise.all([
+      this.fetchUserInfo(user.projectId).catch(() => undefined),
       this.retrieveQuota(user.projectId).catch(() => undefined),
+      this.fetchAvailableModels(user.projectId).catch(() => undefined),
     ]);
     return {
       ...(account?.email ? { account: account.email } : {}),
@@ -225,6 +271,7 @@ export class CodeAssistClient {
         ? { credits: user.paidTier.availableCredits }
         : {}),
       ...(quotas?.buckets ? { quotas: quotas.buckets } : {}),
+      ...(models?.models ? { models: models.models } : {}),
       ...(!quotas?.buckets
         ? { notes: ["Code Assist quota buckets are not available from this account/endpoint."] }
         : {}),
@@ -238,15 +285,14 @@ export class CodeAssistClient {
 
   private async setupUser(): Promise<CodeAssistUser> {
     const projectId =
-      process.env.GOOGLE_CLOUD_PROJECT ||
-      process.env.GOOGLE_CLOUD_PROJECT_ID ||
+      this.projectFromEnv() ||
       undefined;
 
     if (projectId && /^\d+$/.test(projectId)) {
       throw new CodeAssistInvalidProjectError(projectId);
     }
 
-    const metadata = metadataFor(projectId);
+    const metadata = this.metadataFor(projectId);
     const load = await this.post<LoadCodeAssistResponse>("loadCodeAssist", {
       cloudaicompanionProject: projectId,
       metadata,
@@ -276,8 +322,8 @@ export class CodeAssistClient {
         tier.id === USER_TIER_FREE ? undefined : projectId,
       metadata:
         tier.id === USER_TIER_FREE
-          ? baseMetadata()
-          : metadataFor(projectId),
+          ? this.freeTierMetadata()
+          : this.metadataFor(projectId),
     });
 
     const operation = await this.waitForOperation(onboard);
@@ -337,12 +383,37 @@ export class CodeAssistClient {
     });
   }
 
-  private async fetchUserInfo(): Promise<GoogleUserInfo> {
-    const res = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: { Authorization: `Bearer ${await this.accessToken()}` },
+  private async fetchUserInfo(projectId: string): Promise<GoogleUserInfo> {
+    const endpoint = this.options.userInfo?.endpoint ?? GOOGLE_USERINFO_ENDPOINT;
+    const body = this.options.userInfo?.body?.(projectId);
+    const res = await fetch(endpoint, {
+      method: body ? "POST" : "GET",
+      headers: {
+        Authorization: `Bearer ${await this.accessToken()}`,
+        ...(this.options.userAgent ? { "User-Agent": this.options.userAgent } : {}),
+        ...(this.options.headers ?? {}),
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (!res.ok) throw new Error(`Google userinfo failed (${res.status})`);
     return (await res.json()) as GoogleUserInfo;
+  }
+
+  private async fetchAvailableModels(projectId: string): Promise<AvailableModelsResponse | undefined> {
+    if (!this.options.availableModels) return undefined;
+    const res = await fetch(this.options.availableModels.endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.accessToken()}`,
+        "Content-Type": "application/json",
+        ...(this.options.userAgent ? { "User-Agent": this.options.userAgent } : {}),
+        ...(this.options.headers ?? {}),
+      },
+      body: JSON.stringify(this.options.availableModels.body(projectId)),
+    });
+    if (!res.ok) throw new Error(`Code Assist available models failed (${res.status})`);
+    return (await res.json()) as AvailableModelsResponse;
   }
 
   private async streamingPost<T>(
@@ -365,15 +436,16 @@ export class CodeAssistClient {
   private async headers(): Promise<Record<string, string>> {
     return {
       "Content-Type": "application/json",
-      "User-Agent": "luckycli/0.1.1",
+      "User-Agent": this.options.userAgent ?? "luckycli/0.1.1",
       Authorization: `Bearer ${await this.accessToken()}`,
+      ...(this.options.headers ?? {}),
     };
   }
 
   private baseUrl(): string {
-    const endpoint = process.env.CODE_ASSIST_ENDPOINT ?? CODE_ASSIST_ENDPOINT;
+    const endpoint = this.options.endpoint ?? process.env.CODE_ASSIST_ENDPOINT ?? CODE_ASSIST_ENDPOINT;
     const version =
-      process.env.CODE_ASSIST_API_VERSION ?? CODE_ASSIST_API_VERSION;
+      this.options.apiVersion ?? process.env.CODE_ASSIST_API_VERSION ?? CODE_ASSIST_API_VERSION;
     return `${endpoint}/${version}`;
   }
 
@@ -383,6 +455,34 @@ export class CodeAssistClient {
 
   private operationUrl(name: string): string {
     return `${this.baseUrl()}/${name}`;
+  }
+
+  private projectFromEnv(): string | undefined {
+    const keys = this.options.projectEnv ?? ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID"];
+    for (const key of keys) {
+      const value = process.env[key];
+      if (value) return value;
+    }
+    return undefined;
+  }
+
+  private baseMetadata(): ClientMetadata {
+    return this.options.loadMetadata ?? {
+      ideType: "IDE_UNSPECIFIED",
+      platform: "PLATFORM_UNSPECIFIED",
+      pluginType: "GEMINI",
+    };
+  }
+
+  private freeTierMetadata(): ClientMetadata {
+    return this.options.freeTierMetadata ?? this.baseMetadata();
+  }
+
+  private metadataFor(projectId: string | undefined): ClientMetadata {
+    return {
+      ...this.baseMetadata(),
+      ...(projectId ? { duetProject: projectId } : {}),
+    };
   }
 }
 
@@ -396,21 +496,6 @@ function toGenerateContentResponse(
   out.usageMetadata = res.response?.usageMetadata;
   out.modelVersion = res.response?.modelVersion;
   return out;
-}
-
-function baseMetadata(): ClientMetadata {
-  return {
-    ideType: "IDE_UNSPECIFIED",
-    platform: "PLATFORM_UNSPECIFIED",
-    pluginType: "GEMINI",
-  };
-}
-
-function metadataFor(projectId: string | undefined): ClientMetadata {
-  return {
-    ...baseMetadata(),
-    ...(projectId ? { duetProject: projectId } : {}),
-  };
 }
 
 function defaultTier(load: LoadCodeAssistResponse): GeminiUserTier {

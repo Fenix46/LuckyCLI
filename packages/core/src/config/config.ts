@@ -48,7 +48,7 @@ export function resolveConfig(
   if (providerRaw) {
     if (!isProviderId(providerRaw)) {
       throw new Error(
-        `Unknown provider "${providerRaw}". Valid: claude, openai, openai-oauth, gemini, ollama.`,
+        `Unknown provider "${providerRaw}". Valid: claude, openai, openai-oauth, gemini, antigravity, ollama.`,
       );
     }
     provider = providerRaw;
@@ -140,6 +140,17 @@ export function credentialsFromEnv(
         };
       }
       throw new Error("Missing GEMINI_API_KEY or GOOGLE_CLOUD_PROJECT.");
+    case "antigravity":
+      if (env.ANTIGRAVITY_ACCESS_TOKEN) {
+        return {
+          type: "antigravity",
+          authMethod: "oauth",
+          accessToken: env.ANTIGRAVITY_ACCESS_TOKEN,
+          ...(env.ANTIGRAVITY_REFRESH_TOKEN ? { refreshToken: env.ANTIGRAVITY_REFRESH_TOKEN } : {}),
+          ...(env.ANTIGRAVITY_EXPIRES_AT ? { expiresAt: Number(env.ANTIGRAVITY_EXPIRES_AT) } : {}),
+        };
+      }
+      throw new Error("Antigravity requires browser login via setup.");
     case "ollama":
       return {
         type: "ollama",

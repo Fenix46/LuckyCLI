@@ -10,6 +10,7 @@ import {
   runClaudeBrowserOAuthFlow,
   runOpenAiBrowserOAuthFlow,
   saveStoredConfig,
+  startAntigravityOAuthFlow,
   startOAuthFlow,
   type AuthMethod,
   type ClaudeOAuthTokens,
@@ -44,11 +45,13 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
-  const [googleOAuthTokens, setGoogleOAuthTokens] = useState<{ accessToken: string; refreshToken?: string } | null>(null);
+  const [googleOAuthTokens, setGoogleOAuthTokens] = useState<{ accessToken: string; refreshToken?: string; expiresAt?: number } | null>(null);
+  const [antigravityOAuthTokens, setAntigravityOAuthTokens] = useState<{ accessToken: string; refreshToken?: string; expiresAt?: number } | null>(null);
   const [claudeOAuthTokens, setClaudeOAuthTokens] = useState<ClaudeOAuthTokens | null>(null);
   const [openAiOAuthTokens, setOpenAiOAuthTokens] = useState<OpenAiOAuthTokens | null>(null);
   const claudeOAuthStartedRef = useRef(false);
   const googleOAuthStartedRef = useRef(false);
+  const antigravityOAuthStartedRef = useRef(false);
   const openAiOAuthStartedRef = useRef(false);
 
   useEffect(() => {
@@ -58,6 +61,7 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
       step !== "credential" ||
       claudeOAuthStartedRef.current ||
       googleOAuthStartedRef.current ||
+      antigravityOAuthStartedRef.current ||
       openAiOAuthStartedRef.current
     ) {
       return;
@@ -96,6 +100,31 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
           claudeOAuthStartedRef.current = false;
         });
       return;
+    }
+
+    if (selectedProviderId === "antigravity") {
+      antigravityOAuthStartedRef.current = true;
+      startAntigravityOAuthFlow()
+        .then((session) => {
+          activeSession = session;
+          setOauthUrl(session.url);
+          setOauthLoading(false);
+          openBrowser(session.url);
+          return session.tokenPromise;
+        })
+        .then((tokens) => {
+          if (!tokens.accessToken) throw new Error("Google did not return an access token.");
+          setAntigravityOAuthTokens(tokens);
+          setStep("model");
+        })
+        .catch((err) => {
+          setOauthLoading(false);
+          setOauthError(`Authentication failed: ${err instanceof Error ? err.message : String(err)}`);
+          antigravityOAuthStartedRef.current = false;
+        });
+      return () => {
+        activeSession?.stop();
+      };
     }
 
     googleOAuthStartedRef.current = true;
@@ -154,10 +183,12 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     setOauthUrl(null);
     setOauthError(null);
     setGoogleOAuthTokens(null);
+    setAntigravityOAuthTokens(null);
     setClaudeOAuthTokens(null);
     setOpenAiOAuthTokens(null);
     claudeOAuthStartedRef.current = false;
     googleOAuthStartedRef.current = false;
+    antigravityOAuthStartedRef.current = false;
     openAiOAuthStartedRef.current = false;
   }
 
@@ -201,6 +232,17 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
     if (provider === "openai-oauth") {
       if (!openAiOAuthTokens) return incompleteOAuth();
       return { type: "openai-oauth", ...openAiOAuthTokens };
+    }
+
+    if (provider === "antigravity") {
+      if (!antigravityOAuthTokens?.accessToken) return incompleteOAuth();
+      return {
+        type: "antigravity",
+        authMethod: "oauth",
+        accessToken: antigravityOAuthTokens.accessToken,
+        ...(antigravityOAuthTokens.refreshToken ? { refreshToken: antigravityOAuthTokens.refreshToken } : {}),
+        ...(antigravityOAuthTokens.expiresAt ? { expiresAt: antigravityOAuthTokens.expiresAt } : {}),
+      };
     }
 
     if (provider === "ollama") {
@@ -544,6 +586,7 @@ function SetupInput({
 
 function providerLabel(provider: ProviderId): string {
   if (provider === "openai-oauth") return "ChatGPT Plus/Pro";
+  if (provider === "antigravity") return "Google Antigravity";
   const entry = PROVIDER_CATALOG[provider];
   if (entry.company === "Google") return "Google Gemini";
   return entry.displayName;
@@ -553,6 +596,7 @@ function credentialSubtitle(provider: ProviderId | null, authMethod: AuthMethod)
   if (authMethod.kind === "oauth") {
     if (provider === "claude") return "A browser window will open for Claude subscription login.";
     if (provider === "openai-oauth") return "A browser window will open for ChatGPT account login.";
+    if (provider === "antigravity") return "A browser window will open for Google Antigravity login.";
     return "A browser window will open for Google OAuth login.";
   }
   if (authMethod.kind === "vertex") return "Use your Google Cloud project and region.";

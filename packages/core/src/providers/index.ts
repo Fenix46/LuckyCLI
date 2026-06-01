@@ -4,6 +4,7 @@
  */
 
 import { ClaudeProvider } from "./impl/claude/ClaudeProvider.js";
+import { AntigravityProvider } from "./impl/antigravity/AntigravityProvider.js";
 import { GeminiProvider } from "./impl/gemini/GeminiProvider.js";
 import { OllamaProvider } from "./impl/ollama/OllamaProvider.js";
 import { OpenAiOAuthProvider } from "./impl/openai-oauth/OpenAiOAuthProvider.js";
@@ -12,6 +13,7 @@ import { registerProviderFactory } from "./registry.js";
 import { loadStoredConfig, saveStoredConfig } from "../config/store.js";
 import type {
   ClaudeCredentials,
+  AntigravityCredentials,
   GeminiCredentials,
   OllamaCredentials,
   OpenAiCredentials,
@@ -51,6 +53,9 @@ export function registerBuiltinProviders(): void {
   registerProviderFactory("gemini", (c) =>
     new GeminiProvider(c as GeminiCredentials),
   );
+  registerProviderFactory("antigravity", (c) =>
+    new AntigravityProvider(c as AntigravityCredentials),
+  );
   registerProviderFactory("ollama", (c) =>
     new OllamaProvider(c as OllamaCredentials),
   );
@@ -72,6 +77,10 @@ export { runOpenAiBrowserOAuthFlow } from "./impl/openai-oauth/oauthFlow.js";
 export type { OpenAiOAuthTokens } from "./impl/openai-oauth/OpenAiOAuthProvider.js";
 export { runClaudeBrowserOAuthFlow } from "./impl/claude/oauth.js";
 export type { ClaudeOAuthTokens } from "./impl/claude/oauth.js";
+export {
+  startAntigravityOAuthFlow,
+  refreshAntigravityAccessToken,
+} from "./impl/gemini/GoogleAuthHelper.js";
 export {
   getProvider,
   getRegisteredProviderIds,

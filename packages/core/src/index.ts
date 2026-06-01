@@ -87,6 +87,8 @@ export type { Session, SessionMeta } from "./session/store.js";
 
 export {
   startOAuthFlow,
+  startAntigravityOAuthFlow,
   refreshAccessToken,
+  refreshAntigravityAccessToken,
   openBrowser,
 } from "./providers/impl/gemini/GoogleAuthHelper.js";
