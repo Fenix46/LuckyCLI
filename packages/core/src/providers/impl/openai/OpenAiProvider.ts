@@ -27,6 +27,10 @@ const INFO: ProviderInfo = providerInfo("openai");
 export class OpenAiProvider implements IProvider {
   readonly info: ProviderInfo = INFO;
   protected readonly client: OpenAI;
+  // Cached from the last stream's final usage chunk. OpenAI has no dedicated
+  // token-counting endpoint, so we report the most recent observed usage when
+  // agent.ts calls countTokens() before the next turn.
+  private _lastUsage: TokenUsage | undefined;
 
   constructor(credentials: OpenAiCredentials) {
     this.client = new OpenAI({
@@ -112,6 +116,8 @@ export class OpenAiProvider implements IProvider {
       if (chunk.usage) usage = usageOf(chunk.usage);
     }
 
+    if (usage) this._lastUsage = usage;
+
     for (const buf of toolBuffers.values()) {
       yield {
         toolCall: {
@@ -127,8 +133,9 @@ export class OpenAiProvider implements IProvider {
   }
 
   async countTokens(): Promise<TokenUsage | undefined> {
-    // No dedicated endpoint; usage is reported after generation instead.
-    return undefined;
+    // OpenAI has no dedicated counting endpoint. Return the usage from the
+    // last stream so agent.ts can track context growth across turns.
+    return this._lastUsage;
   }
 
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
