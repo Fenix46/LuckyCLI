@@ -13,6 +13,8 @@ export const CLAUDE_OAUTH_API_BASE = "https://api.anthropic.com";
 export const CLAUDE_OAUTH_ROLES_URL = `${CLAUDE_OAUTH_API_BASE}/api/oauth/claude_cli/roles`;
 export const CLAUDE_OAUTH_USAGE_URL = `${CLAUDE_OAUTH_API_BASE}/api/oauth/usage`;
 export const CLAUDE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
+export const CLAUDE_CONTEXT_WINDOW_DEFAULT = 200_000;
+export const CLAUDE_CONTEXT_WINDOW_1M = 1_000_000;
 let claudeOAuthCaLoaded = false;
 
 const CLAUDE_OAUTH_SCOPES = [
@@ -373,6 +375,35 @@ function tokensFromResponse(
     ...(profile?.organization?.rate_limit_tier ? { rateLimitTier: profile.organization.rate_limit_tier } : {}),
     ...(profile?.organization?.billing_type ? { billingType: profile.organization.billing_type } : {}),
   };
+}
+
+export function claudeContextWindowForModel(model: string): number {
+  if (process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS) {
+    const override = Number.parseInt(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, 10);
+    if (Number.isInteger(override) && override > 0) return override;
+  }
+
+  if (isClaude1mContextDisabled()) return CLAUDE_CONTEXT_WINDOW_DEFAULT;
+  if (hasExplicitClaude1mSuffix(model)) return CLAUDE_CONTEXT_WINDOW_1M;
+  if (modelSupportsClaude1m(model)) return CLAUDE_CONTEXT_WINDOW_1M;
+  return CLAUDE_CONTEXT_WINDOW_DEFAULT;
+}
+
+export function isClaude1mContextDisabled(): boolean {
+  return isTruthyEnv(process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT);
+}
+
+function hasExplicitClaude1mSuffix(model: string): boolean {
+  return /\[1m\]/i.test(model);
+}
+
+function modelSupportsClaude1m(model: string): boolean {
+  const canonical = model.toLowerCase();
+  return canonical.includes("claude-sonnet-4") || canonical.includes("opus-4-6") || canonical.includes("opus-4-8");
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  return value === "1" || value?.toLowerCase() === "true" || value?.toLowerCase() === "yes";
 }
 
 export function subscriptionType(

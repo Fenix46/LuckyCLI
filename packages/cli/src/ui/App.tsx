@@ -1019,7 +1019,7 @@ export function App({
         </Box>
         <Box flexDirection="row" gap={1}>
           <Text color={activeTheme.muted} dimColor>
-            tokens: {tokenUsage.input + tokenUsage.output} ({tokenUsage.input} in / {tokenUsage.output} out) ┃ ctx: {formatContextFooter(contextStatus)}
+            {formatStatusFooter(contextStatus, tokenUsage)}
           </Text>
         </Box>
       </Box>
@@ -1968,8 +1968,26 @@ function contextRows(status: ContextStatus): CommandRow[] {
       value: status.usedTokens ? `${formatNumber(status.usedTokens)} tokens` : "not available",
     },
     {
+      label: "remaining",
+      value: status.remainingPercentage !== undefined ? `${status.remainingPercentage}%` : "unknown",
+    },
+    {
+      label: "turn",
+      value:
+        status.currentInputTokens !== undefined
+          ? `${formatNumber(status.currentInputTokens)} in / ${formatNumber(status.currentOutputTokens ?? 0)} out`
+          : "not available",
+    },
+    {
+      label: "total",
+      value:
+        status.totalInputTokens !== undefined
+          ? `${formatNumber(status.totalInputTokens)} in / ${formatNumber(status.totalOutputTokens ?? 0)} out`
+          : "not available",
+    },
+    {
       label: "pressure",
-      value: status.ratio !== undefined ? `${Math.round(status.ratio * 100)}%` : "unknown",
+      value: status.usedPercentage !== undefined ? `${status.usedPercentage}%` : status.ratio !== undefined ? `${Math.round(status.ratio * 100)}%` : "unknown",
     },
     { label: "counter", value: status.tokenCounter },
     { label: "source", value: status.source ?? "unknown" },
@@ -2049,10 +2067,25 @@ function quotaLabel(label: string): string {
   }
 }
 
+function formatStatusFooter(
+  status: ContextStatus | null,
+  fallbackUsage: { input: number; output: number },
+): string {
+  const totalInput = status?.totalInputTokens ?? fallbackUsage.input;
+  const totalOutput = status?.totalOutputTokens ?? fallbackUsage.output;
+  const current =
+    status?.currentInputTokens !== undefined
+      ? `turn: ${formatNumber(status.currentInputTokens)} in / ${formatNumber(status.currentOutputTokens ?? 0)} out`
+      : "turn: n/a";
+  return `ctx: ${formatContextFooter(status)} ┃ ${current} ┃ total: ${formatNumber(totalInput)} in / ${formatNumber(totalOutput)} out`;
+}
+
 function formatContextFooter(status: ContextStatus | null): string {
   if (!status) return "unknown";
   if (status.usedTokens !== undefined && status.usableTokens) {
-    return `${formatNumber(status.usedTokens)}/${formatNumber(status.usableTokens)} ${Math.round(status.ratio ?? 0)}%`;
+    const used = status.usedPercentage ?? Math.round((status.ratio ?? 0) * 100);
+    const remaining = status.remainingPercentage ?? Math.max(0, 100 - used);
+    return `${remaining}% free (${used}% used) · ${formatNumber(status.usedTokens)}/${formatNumber(status.usableTokens)}`;
   }
   if (status.contextWindow) return `window ${formatNumber(status.contextWindow)} | counter ${status.tokenCounter}`;
   return "unknown";

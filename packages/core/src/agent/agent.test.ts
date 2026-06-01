@@ -319,6 +319,50 @@ describe("Agent loop", () => {
     expect(events.some((event) => event.type === "error")).toBe(false);
   });
 
+  it("emits enriched context status from response usage", async () => {
+    const provider = new ScriptedProvider([
+      [
+        { textDelta: "ok" },
+        {
+          finishReason: "stop",
+          usage: {
+            inputTokens: 10_000,
+            outputTokens: 500,
+            cacheReadTokens: 2_000,
+            cacheWriteTokens: 1_000,
+          },
+        },
+      ],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    const contexts = events.filter((e) => e.type === "context");
+    const latest = contexts.at(-1);
+    expect(latest).toMatchObject({
+      type: "context",
+      status: {
+        usedTokens: 13_000,
+        currentInputTokens: 10_000,
+        currentOutputTokens: 500,
+        currentCacheReadTokens: 2_000,
+        currentCacheWriteTokens: 1_000,
+        totalInputTokens: 10_000,
+        totalOutputTokens: 500,
+        totalCacheReadTokens: 2_000,
+        totalCacheWriteTokens: 1_000,
+        // Final-stream usage measures the full transcript, so it is reported as
+        // an authoritative "provider" count — this is what lets compaction fire
+        // for providers (e.g. Claude OAuth) that cannot pre-count cheaply.
+        tokenCounter: "provider",
+      },
+    });
+  });
+
   it("passes askUser bridge to tools", async () => {
     const provider = new ScriptedProvider([
       [

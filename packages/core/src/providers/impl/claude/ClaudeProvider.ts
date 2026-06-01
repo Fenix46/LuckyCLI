@@ -22,6 +22,7 @@ import type {
 } from "../../types.js";
 import {
   CLAUDE_OAUTH_BETA_HEADER,
+  claudeContextWindowForModel,
   fetchClaudeOAuthProfile,
   fetchClaudeOAuthRoles,
   fetchClaudeOAuthUsage,
@@ -43,9 +44,11 @@ const CLAUDE_CODE_BETA_HEADER = [
 ].join(",");
 const CLAUDE_CODE_BILLING_SYSTEM =
   "x-anthropic-billing-header: cc_version=2.1.158.cea; cc_entrypoint=cli; cch=d1656;";
+// Small/fast model used for OAuth token-count probes (see countTokensViaProbe).
+const CLAUDE_COUNT_PROBE_MODEL = "claude-haiku-4-5-20251001";
 
 export class ClaudeProvider implements IProvider {
-  readonly info = INFO;
+  info: ProviderInfo;
   private client: Anthropic;
   private refreshPromise: Promise<ClaudeOAuthTokens> | undefined;
 
@@ -53,6 +56,7 @@ export class ClaudeProvider implements IProvider {
     private credentials: ClaudeCredentials,
     private readonly onTokensRefreshed?: (credentials: ClaudeCredentials) => void,
   ) {
+    this.info = this.createProviderInfo(credentials);
     this.client = this.createClient(credentials);
   }
 
@@ -160,7 +164,15 @@ export class ClaudeProvider implements IProvider {
     config: GenerationConfig,
   ): Promise<TokenUsage | undefined> {
     await this.ensureFreshToken();
-    if (this.credentials.authMethod === "oauth") return undefined;
+    // OAuth tokens cannot call the dedicated /count_tokens endpoint (it is not
+    // covered by the user:inference scope). Instead we probe with a real
+    // inference request capped at one output token on the small/fast model and
+    // read the input usage it reports back — the same approach claude-code uses
+    // as its count fallback. The model only affects price/latency here, not the
+    // input token count of the transcript, so we always use Haiku.
+    if (this.credentials.authMethod === "oauth") {
+      return this.countTokensViaProbe(messages, config);
+    }
     const { system, messages: anthropicMessages } = toAnthropic(
       messages,
       config.systemPrompt,
@@ -172,6 +184,51 @@ export class ClaudeProvider implements IProvider {
         messages: anthropicMessages,
       });
       return { inputTokens: result.input_tokens, outputTokens: 0 };
+    } catch (e) {
+      throw anthropicError(e);
+    }
+  }
+
+  /**
+   * Count input tokens for a transcript without the /count_tokens endpoint, by
+   * issuing a minimal inference request (max_tokens: 1) and reading usage.
+   * Used for OAuth, where /count_tokens is unavailable.
+   */
+  private async countTokensViaProbe(
+    messages: Message[],
+    config: GenerationConfig,
+  ): Promise<TokenUsage | undefined> {
+    const { system, messages: anthropicMessages } = toAnthropic(
+      messages,
+      config.systemPrompt,
+    );
+    // The API rejects an empty messages array; a single throwaway message
+    // gives a stable lower-bound count when there is nothing to measure yet.
+    const probeMessages: Anthropic.Messages.MessageParam[] =
+      anthropicMessages.length > 0
+        ? anthropicMessages
+        : [{ role: "user", content: "count" }];
+    try {
+      const response = await this.client.messages.create(
+        {
+          model: CLAUDE_COUNT_PROBE_MODEL,
+          max_tokens: 1,
+          ...this.systemParam(system),
+          messages: probeMessages,
+          ...buildOptions(config),
+        },
+        { signal: config.abortSignal },
+      );
+      const usage = usageOf(response.usage);
+      if (!usage) return undefined;
+      // Output is meaningless for a probe; report only the input side so the
+      // caller's used-context math reflects the transcript, not our 1 token.
+      return {
+        inputTokens: usage.inputTokens,
+        outputTokens: 0,
+        ...(usage.cacheReadTokens != null ? { cacheReadTokens: usage.cacheReadTokens } : {}),
+        ...(usage.cacheWriteTokens != null ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
+      };
     } catch (e) {
       throw anthropicError(e);
     }
@@ -246,6 +303,21 @@ export class ClaudeProvider implements IProvider {
     };
   }
 
+  private createProviderInfo(credentials: ClaudeCredentials): ProviderInfo {
+    if (credentials.authMethod !== "oauth") return INFO;
+    const models = Object.fromEntries(
+      INFO.availableModels.map((model) => [
+        model,
+        {
+          ...(INFO.models?.[model] ?? { id: model }),
+          contextWindow: claudeContextWindowForModel(model),
+          source: "provider" as const,
+        },
+      ]),
+    );
+    return { ...INFO, models };
+  }
+
   private createClient(credentials: ClaudeCredentials): Anthropic {
     if (credentials.authMethod === "oauth") {
       if (!credentials.accessToken) {
@@ -294,6 +366,7 @@ export class ClaudeProvider implements IProvider {
     this.refreshPromise ??= refreshClaudeOAuthToken(this.credentials.refreshToken)
       .then((tokens) => {
         this.credentials = { ...this.credentials, ...tokens, type: "claude", authMethod: "oauth" };
+        this.info = this.createProviderInfo(this.credentials);
         this.client = this.createClient(this.credentials);
         this.onTokensRefreshed?.(this.credentials);
         return tokens;

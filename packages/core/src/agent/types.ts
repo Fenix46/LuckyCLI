@@ -8,8 +8,18 @@ export interface ContextStatus {
   usedTokens?: number;
   usableTokens?: number;
   ratio?: number;
+  usedPercentage?: number;
+  remainingPercentage?: number;
+  currentInputTokens?: number;
+  currentOutputTokens?: number;
+  currentCacheReadTokens?: number;
+  currentCacheWriteTokens?: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalCacheReadTokens?: number;
+  totalCacheWriteTokens?: number;
   source?: string;
-  tokenCounter: "provider" | "unavailable";
+  tokenCounter: "provider" | "usage" | "unavailable";
 }
 
 export interface CompactionResult {

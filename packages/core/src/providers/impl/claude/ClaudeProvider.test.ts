@@ -76,7 +76,7 @@ describe("ClaudeProvider", () => {
     });
   });
 
-  it("does not call count_tokens for Claude OAuth credentials", async () => {
+  it("counts OAuth context via an inference probe instead of count_tokens", async () => {
     const provider = new ClaudeProvider({
       type: "claude",
       authMethod: "oauth",
@@ -84,8 +84,16 @@ describe("ClaudeProvider", () => {
       expiresAt: Date.now() + 60 * 60 * 1000,
     });
 
-    await expect(provider.countTokens([], { model: "claude-test" })).resolves.toBeUndefined();
+    // OAuth cannot use the /count_tokens endpoint, so we probe with a
+    // max_tokens:1 inference request and read its input usage.
+    const usage = await provider.countTokens(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { model: "claude-test" },
+    );
+    expect(usage).toEqual({ inputTokens: 1, outputTokens: 0 });
     expect(countTokensMock).not.toHaveBeenCalled();
+    const probe = createMock.mock.calls.at(-1)?.[0];
+    expect(probe).toMatchObject({ model: "claude-haiku-4-5-20251001", max_tokens: 1 });
   });
 
   it("sends Claude Code billing system block for OAuth requests", async () => {

@@ -76,6 +76,8 @@ export class Agent {
   private readonly permissions: ToolPermissionPolicy | undefined;
   private readonly approveTool: ((name: string, input: unknown) => Promise<ToolApproval> | ToolApproval) | undefined;
   private readonly askUser: ((request: AskUserRequest) => Promise<string>) | undefined;
+  private lastUsage: TokenUsage | undefined;
+  private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -174,9 +176,15 @@ export class Agent {
       assistantBlocks.push(...toolCalls);
       this.history.push({ role: "assistant", content: assistantBlocks });
 
+      if (usage) this.recordUsage(usage);
+
       // No tools requested -> the turn is complete.
       if (toolCalls.length === 0 || finishReason !== "tool_calls") {
-        if (usage) yield { type: "context", status: this.contextStatusFromUsage(usage) };
+        // The stream's final usage reports input_tokens for the full transcript
+        // we just sent, so it is an authoritative measure of used context —
+        // mark it "provider" so compaction can act on it even when a provider
+        // (e.g. Claude OAuth) cannot pre-count via countTokens.
+        if (usage) yield { type: "context", status: this.contextStatusFromUsage(usage, undefined, "provider") };
         yield usage ? { type: "turn_end", usage } : { type: "turn_end" };
         return;
       }
@@ -288,16 +296,11 @@ export class Agent {
       usage = undefined;
     }
 
-    if (!usage) return base;
-    const usedTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
-    const usableTokens = contextWindow ? this.usableInputTokens(contextWindow) : undefined;
-    return {
-      ...base,
-      tokenCounter: "provider",
-      usedTokens,
-      ...(usableTokens !== undefined ? { usableTokens } : {}),
-      ...(usableTokens ? { ratio: usedTokens / usableTokens } : {}),
-    };
+    // If pre-counting failed, fall back to the last stream usage. That usage
+    // measured the full transcript actually sent, so it is authoritative for
+    // compaction — mark it "provider", not "usage".
+    if (!usage) return this.lastUsage ? this.contextStatusFromUsage(this.lastUsage, undefined, "provider") : base;
+    return this.contextStatusFromUsage(usage, { ...base, tokenCounter: "provider" });
   }
 
   private shouldCompact(status: ContextStatus): boolean {
@@ -366,20 +369,48 @@ export class Agent {
     return text || "Earlier conversation was compacted, but the provider returned an empty summary.";
   }
 
-  private contextStatusFromUsage(usage: TokenUsage): ContextStatus {
-    const contextWindow = this.modelInfo.contextWindow;
+  private contextStatusFromUsage(
+    usage: TokenUsage,
+    base?: ContextStatus,
+    tokenCounter: "provider" | "usage" = "usage",
+  ): ContextStatus {
+    const contextWindow = base?.contextWindow ?? this.modelInfo.contextWindow;
     const usedTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
     const usableTokens = contextWindow ? this.usableInputTokens(contextWindow) : undefined;
+    const ratio = usableTokens ? usedTokens / usableTokens : undefined;
+    const usedPercentage = ratio !== undefined ? Math.min(100, Math.max(0, Math.round(ratio * 100))) : undefined;
     return {
-      model: this.model,
-      ...(contextWindow !== undefined ? { contextWindow } : {}),
-      ...(this.modelInfo.maxInputTokens !== undefined ? { maxInputTokens: this.modelInfo.maxInputTokens } : {}),
-      ...(this.modelInfo.maxOutputTokens !== undefined ? { maxOutputTokens: this.modelInfo.maxOutputTokens } : {}),
-      ...(this.modelInfo.source ? { source: this.modelInfo.source } : {}),
-      tokenCounter: "provider",
+      ...(base ?? {
+        model: this.model,
+        ...(contextWindow !== undefined ? { contextWindow } : {}),
+        ...(this.modelInfo.maxInputTokens !== undefined ? { maxInputTokens: this.modelInfo.maxInputTokens } : {}),
+        ...(this.modelInfo.maxOutputTokens !== undefined ? { maxOutputTokens: this.modelInfo.maxOutputTokens } : {}),
+        ...(this.modelInfo.source ? { source: this.modelInfo.source } : {}),
+        tokenCounter,
+      }),
+      tokenCounter: base?.tokenCounter === "provider" ? "provider" : tokenCounter,
       usedTokens,
+      currentInputTokens: usage.inputTokens,
+      currentOutputTokens: usage.outputTokens,
+      currentCacheReadTokens: usage.cacheReadTokens ?? 0,
+      currentCacheWriteTokens: usage.cacheWriteTokens ?? 0,
+      totalInputTokens: this.totalUsage.inputTokens,
+      totalOutputTokens: this.totalUsage.outputTokens,
+      totalCacheReadTokens: this.totalUsage.cacheReadTokens ?? 0,
+      totalCacheWriteTokens: this.totalUsage.cacheWriteTokens ?? 0,
       ...(usableTokens !== undefined ? { usableTokens } : {}),
-      ...(usableTokens ? { ratio: usedTokens / usableTokens } : {}),
+      ...(ratio !== undefined ? { ratio } : {}),
+      ...(usedPercentage !== undefined ? { usedPercentage, remainingPercentage: 100 - usedPercentage } : {}),
+    };
+  }
+
+  private recordUsage(usage: TokenUsage): void {
+    this.lastUsage = usage;
+    this.totalUsage = {
+      inputTokens: this.totalUsage.inputTokens + usage.inputTokens,
+      outputTokens: this.totalUsage.outputTokens + usage.outputTokens,
+      cacheReadTokens: (this.totalUsage.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0),
+      cacheWriteTokens: (this.totalUsage.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0),
     };
   }
 
