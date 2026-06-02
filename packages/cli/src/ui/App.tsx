@@ -905,10 +905,6 @@ export function App({
       ? lastItem
       : undefined;
   const staticItems = liveTail ? items.slice(0, -1) : items;
-  const visibleStreaming = streaming
-    ? capStreamingTail(streaming.slice(0, streaming.lastIndexOf("\n") + 1) || streaming)
-    : "";
-  
   const messageWidth = Math.max(32, terminalSize.width - 16);
 
   return (
@@ -922,7 +918,7 @@ export function App({
       </Static>
 
       <Box flexDirection="column" marginY={0.5}>
-        {staticItems.length === 0 && !liveTail && !visibleStreaming && !busy ? (
+        {staticItems.length === 0 && !liveTail && !busy ? (
           <Box flexDirection="column" marginY={1}>
             <IntroBanner
               theme={activeTheme}
@@ -943,16 +939,7 @@ export function App({
           </Box>
         ) : null}
         
-        {visibleStreaming ? (
-          <Box marginY={0.5}>
-            <ItemView
-              item={{ kind: "assistant", text: visibleStreaming }}
-              theme={activeTheme}
-              width={messageWidth}
-              streaming
-            />
-          </Box>
-        ) : busy && !approvalRequest && !userQuestionRequest ? (
+        {busy && !approvalRequest && !userQuestionRequest ? (
           <Box marginY={0.5}>
             <ThinkingStatus
               theme={activeTheme}
