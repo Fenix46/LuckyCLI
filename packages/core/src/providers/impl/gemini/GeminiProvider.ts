@@ -165,7 +165,7 @@ export class GeminiProvider implements IProvider {
     let hasToolCalls = false;
 
     for await (const chunk of stream) {
-      const text = chunk.text;
+      const text = textFromResponse(chunk);
       if (text) yield { textDelta: text };
 
       for (const fc of chunk.functionCalls ?? []) {
@@ -435,9 +435,27 @@ function toGeminiPart(part: ContentPart): Part {
   }
 }
 
+// Extract assistant text from a Gemini response without touching the SDK's
+// `.text` getter, which emits a `console.warn` ("there are non-text parts …")
+// whenever the candidate also contains a functionCall/thoughtSignature — i.e.
+// on every tool-using turn. We replicate its logic: concatenate text parts and
+// skip parts flagged as model "thought".
+function textFromResponse(response: GenerateContentResponse): string | undefined {
+  const parts = response.candidates?.[0]?.content?.parts ?? [];
+  let text = "";
+  let hasText = false;
+  for (const part of parts) {
+    if (typeof part.text !== "string") continue;
+    if (part.thought === true) continue;
+    hasText = true;
+    text += part.text;
+  }
+  return hasText ? text : undefined;
+}
+
 function contentFromResponse(response: GenerateContentResponse): ContentPart[] {
   const content: ContentPart[] = [];
-  const text = response.text;
+  const text = textFromResponse(response);
   if (text) content.push({ type: "text", text });
   for (const fc of response.functionCalls ?? []) {
     content.push({

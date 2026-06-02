@@ -16,11 +16,16 @@ vi.mock("@google/genai", () => {
     clientOptions: options,
     models: {
       generateContent: vi.fn().mockResolvedValue({
-        text: "mocked response",
-        candidates: [{ finishReason: "STOP" }],
+        candidates: [
+          { content: { parts: [{ text: "mocked response" }] }, finishReason: "STOP" },
+        ],
       }),
       generateContentStream: vi.fn().mockResolvedValue([
-        { text: "mocked stream response", candidates: [{ finishReason: "STOP" }] },
+        {
+          candidates: [
+            { content: { parts: [{ text: "mocked stream response" }] }, finishReason: "STOP" },
+          ],
+        },
       ]),
       countTokens: vi.fn().mockResolvedValue({ totalTokens: 42 }),
     },
@@ -38,8 +43,9 @@ vi.mock("./CodeAssistClient.js", () => ({
       async () => {
         await accessToken();
         return {
-          text: "mocked response",
-          candidates: [{ finishReason: "STOP" }],
+          candidates: [
+            { content: { parts: [{ text: "mocked response" }] }, finishReason: "STOP" },
+          ],
         };
       },
     ),
@@ -47,8 +53,9 @@ vi.mock("./CodeAssistClient.js", () => ({
       mocks.codeAssistGenerateContentStream.mockImplementation(async function* () {
         await accessToken();
         yield {
-          text: "mocked stream response",
-          candidates: [{ finishReason: "STOP" }],
+          candidates: [
+            { content: { parts: [{ text: "mocked stream response" }] }, finishReason: "STOP" },
+          ],
         };
       }),
     countTokens: mocks.codeAssistCountTokens.mockImplementation(async () => {
