@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import TextInput from "ink-text-input";
 import React, { useEffect, useRef, useState } from "react";
@@ -28,13 +28,18 @@ export interface SetupResult {
 
 interface SetupProps {
   onComplete: (result: SetupResult) => void;
+  onCancel?: () => void;
   mode?: "initial" | "provider";
 }
 
 type Step = "theme" | "provider" | "auth" | "credential" | "model";
 type CredentialSubStep = "input" | "oauth_code" | "project" | "region";
 
-export function Setup({ onComplete, mode = "initial" }: SetupProps): React.JSX.Element {
+export function Setup({
+  onComplete,
+  onCancel,
+  mode = "initial",
+}: SetupProps): React.JSX.Element {
   const [step, setStep] = useState<Step>(mode === "initial" ? "theme" : "provider");
   const [theme, setTheme] = useState<Theme>(() => themeById(loadStoredConfig().theme));
   const [selectedProviderId, setSelectedProviderId] = useState<ProviderId | null>(null);
@@ -54,6 +59,11 @@ export function Setup({ onComplete, mode = "initial" }: SetupProps): React.JSX.E
   const googleOAuthStartedRef = useRef(false);
   const antigravityOAuthStartedRef = useRef(false);
   const openAiOAuthStartedRef = useRef(false);
+
+  useInput((_input, key) => {
+    if (!key.escape) return;
+    goBack();
+  });
 
   useEffect(() => {
     let activeSession: { stop: () => void } | null = null;
@@ -167,6 +177,39 @@ export function Setup({ onComplete, mode = "initial" }: SetupProps): React.JSX.E
     setSelectedAuthMethod(null);
     resetAuthState();
     setStep("auth");
+  }
+
+  function goBack() {
+    if (step === "theme") {
+      onCancel?.();
+      return;
+    }
+
+    if (step === "provider") {
+      if (mode === "initial") setStep("theme");
+      else onCancel?.();
+      return;
+    }
+
+    if (step === "auth") {
+      setSelectedAuthMethod(null);
+      resetAuthState();
+      setStep("provider");
+      return;
+    }
+
+    if (step === "credential") {
+      if (credSubStep === "region") {
+        setCredSubStep("project");
+        return;
+      }
+      setSelectedAuthMethod(null);
+      resetAuthState();
+      setStep("auth");
+      return;
+    }
+
+    setStep("credential");
   }
 
   function onSelectAuthMethod(item: { value: AuthMethod }) {
@@ -319,6 +362,7 @@ export function Setup({ onComplete, mode = "initial" }: SetupProps): React.JSX.E
                 }))}
                 onSelect={onSelectTheme}
               />
+              <SetupNavigationHint theme={theme} />
             </SetupSection>
           )}
 
@@ -335,6 +379,10 @@ export function Setup({ onComplete, mode = "initial" }: SetupProps): React.JSX.E
                   value: provider.id,
                 }))}
                 onSelect={onSelectProvider}
+              />
+              <SetupNavigationHint
+                theme={theme}
+                escapeLabel={mode === "initial" ? "go back" : "cancel"}
               />
             </SetupSection>
           )}
@@ -353,6 +401,7 @@ export function Setup({ onComplete, mode = "initial" }: SetupProps): React.JSX.E
                 }))}
                 onSelect={onSelectAuthMethod}
               />
+              <SetupNavigationHint theme={theme} />
             </SetupSection>
           )}
 
@@ -397,6 +446,7 @@ export function Setup({ onComplete, mode = "initial" }: SetupProps): React.JSX.E
                 }))}
                 onSelect={onSelectModel}
               />
+              <SetupNavigationHint theme={theme} selectLabel="save" />
             </SetupSection>
           )}
         </Box>
@@ -526,6 +576,9 @@ function CredentialView({
             <Text color={theme.error}>{oauthError}</Text>
           </Box>
         ) : null}
+        <Box marginTop={1}>
+          <Text color={theme.muted}>Esc to go back</Text>
+        </Box>
       </Box>
     );
   }
@@ -592,8 +645,26 @@ function SetupInput({
         <TextInput value={value} onChange={onChange} onSubmit={onSubmit} {...(mask ? { mask } : {})} />
       </Box>
       <Box marginTop={1}>
-        <Text color={theme.muted}>{hint ? `${hint} · ` : ""}Press Enter to continue</Text>
+        <Text color={theme.muted}>
+          {hint ? `${hint} · ` : ""}Enter to continue · Esc to go back
+        </Text>
       </Box>
+    </Box>
+  );
+}
+
+function SetupNavigationHint({
+  theme,
+  selectLabel = "select",
+  escapeLabel = "go back",
+}: {
+  theme: Theme;
+  selectLabel?: string;
+  escapeLabel?: string;
+}): React.JSX.Element {
+  return (
+    <Box marginTop={1}>
+      <Text color={theme.muted}>Up/Down to move · Enter to {selectLabel} · Esc to {escapeLabel}</Text>
     </Box>
   );
 }

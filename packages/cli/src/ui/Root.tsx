@@ -53,6 +53,7 @@ export function Root({
     config.needsSetup ? "initial" : "provider",
   );
   const [pendingMessages, setPendingMessages] = useState<Message[] | null>(null);
+  const [setupFallbackRuntime, setSetupFallbackRuntime] = useState<ActiveRuntime | null>(null);
   const sessionApprovedTools = useRef<Set<string>>(new Set());
 
   function approveTool(name: string, input: unknown) {
@@ -133,6 +134,7 @@ export function Root({
       credentials: result.credentials,
     });
     setPendingMessages(null);
+    setSetupFallbackRuntime(null);
     setSetupMode("provider");
   }
 
@@ -154,6 +156,7 @@ export function Root({
       // Credentials for that provider are gone — fall into setup, then seed.
       setSetupMode("provider");
       setPendingMessages(session.messages);
+      setSetupFallbackRuntime(null);
       setRuntime(null);
       return;
     }
@@ -217,7 +220,41 @@ export function Root({
   function onTriggerProviderSetup() {
     setSetupMode("provider");
     setPendingMessages(runtime ? [...runtime.agent.messages] : null);
+    setSetupFallbackRuntime(runtime);
     setRuntime(null);
+  }
+
+  function onCancelSetup() {
+    setPendingMessages(null);
+    if (setupFallbackRuntime) {
+      setRuntime(setupFallbackRuntime);
+      setSetupFallbackRuntime(null);
+      return;
+    }
+    if (!config.needsSetup && config.provider && config.model && config.credentials) {
+      const carriedMessages = resumeSession?.messages ?? [];
+      setRuntime({
+        agent: buildAgent({
+          provider: config.provider,
+          model: config.model,
+          credentials: config.credentials,
+          system: config.system,
+          permissions: config.permissions,
+          approveTool,
+          askUser,
+          ...(config.temperature !== undefined
+            ? { temperature: config.temperature }
+            : {}),
+          ...(config.maxTokens !== undefined
+            ? { maxTokens: config.maxTokens }
+            : {}),
+          ...(carriedMessages.length ? { messages: carriedMessages } : {}),
+        }),
+        provider: config.provider,
+        model: config.model,
+        credentials: config.credentials,
+      });
+    }
   }
 
   if (picking) {
@@ -229,7 +266,15 @@ export function Root({
     );
   }
 
-  if (!runtime) return <Setup mode={setupMode} onComplete={onSetupComplete} />;
+  if (!runtime) {
+    return (
+      <Setup
+        mode={setupMode}
+        onComplete={onSetupComplete}
+        {...(setupMode === "provider" ? { onCancel: onCancelSetup } : {})}
+      />
+    );
+  }
 
   return (
     <App

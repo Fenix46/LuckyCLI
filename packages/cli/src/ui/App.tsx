@@ -338,7 +338,13 @@ export function App({
     }
 
     // 3. Interactive model picker navigation
-    if (modelPicker.open && modelPicker.items.length > 0) {
+    if (modelPicker.open) {
+      if (key.escape) {
+        setInput("");
+        setSelectedModelIndex(0);
+        return;
+      }
+      if (modelPicker.items.length === 0) return;
       if (key.downArrow) {
         setSelectedModelIndex((prev) => (prev + 1) % modelPicker.items.length);
         return;
@@ -357,7 +363,13 @@ export function App({
     }
 
     // 3. Interactive theme picker navigation
-    if (themePicker.open && themePicker.items.length > 0) {
+    if (themePicker.open) {
+      if (key.escape) {
+        setInput("");
+        setSelectedThemeIndex(0);
+        return;
+      }
+      if (themePicker.items.length === 0) return;
       if (key.downArrow) {
         setSelectedThemeIndex((prev) => (prev + 1) % themePicker.items.length);
         return;
@@ -379,9 +391,14 @@ export function App({
     if (
       !modelPicker.open &&
       !themePicker.open &&
-      showSlashMenu &&
-      filteredCommands.length > 0
+      showSlashMenu
     ) {
+      if (key.escape) {
+        setInput("");
+        setSelectedCommandIndex(0);
+        return;
+      }
+      if (filteredCommands.length === 0) return;
       if (key.downArrow) {
         setSelectedCommandIndex((prev) => (prev + 1) % filteredCommands.length);
         return;
@@ -955,6 +972,7 @@ export function App({
               <Text color={activeTheme.warning}>No matching model. Type /model {"<model-id>"}.</Text>
             )}
           </Box>
+          <PickerHint theme={activeTheme} />
         </Box>
       ) : themePicker.open ? (
         <Box
@@ -984,6 +1002,7 @@ export function App({
               <Text color={activeTheme.warning}>No matching theme. Type /theme.</Text>
             )}
           </Box>
+          <PickerHint theme={activeTheme} />
         </Box>
       ) : showSlashMenu && filteredCommands.length > 0 ? (
         <Box
@@ -1009,6 +1028,7 @@ export function App({
               </Box>
             ))}
           </Box>
+          <PickerHint theme={activeTheme} selectLabel="complete" />
         </Box>
       ) : null}
 
@@ -1042,6 +1062,20 @@ export function App({
           </Text>
         </Box>
       </Box>
+    </Box>
+  );
+}
+
+function PickerHint({
+  theme,
+  selectLabel = "select",
+}: {
+  theme: Theme;
+  selectLabel?: string;
+}): React.JSX.Element {
+  return (
+    <Box marginTop={0.5}>
+      <Text color={theme.muted}>Up/Down to move · Enter to {selectLabel} · Esc to close</Text>
     </Box>
   );
 }
