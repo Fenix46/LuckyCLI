@@ -11,7 +11,7 @@ import { Language, type Node, Parser, type Tree } from "web-tree-sitter";
 import { coreWasmPath, grammarWasmPath } from "./wasm-assets.js";
 
 /** Languages the built-in extractors understand. More are added over time. */
-export type GraphLanguage = "typescript" | "tsx" | "javascript" | "python";
+export type GraphLanguage = "typescript" | "tsx" | "javascript" | "python" | "go";
 
 let initPromise: Promise<void> | undefined;
 const languages = new Map<GraphLanguage, Language>();
