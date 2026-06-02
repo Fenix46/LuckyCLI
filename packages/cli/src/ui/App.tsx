@@ -798,7 +798,7 @@ export function App({
           if (!pendingStreamingRef.current) return;
           setStreaming(pendingStreamingRef.current);
           pendingStreamingRef.current = "";
-        }, 60);
+        }, 180);
       };
       const flushAssistant = () => {
         publishStreaming();
@@ -905,15 +905,20 @@ export function App({
       ? lastItem
       : undefined;
   const staticItems = liveTail ? items.slice(0, -1) : items;
+  const streamingStatus = streaming ? streamingStatusLine(streaming) : "";
   const messageWidth = Math.max(32, terminalSize.width - 16);
 
   return (
     <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
       <Static items={staticItems}>
         {(item, index) => (
-          <Box key={`static-${index}`} marginY={0.5}>
-            <ItemView item={item} theme={activeTheme} width={messageWidth} />
-          </Box>
+          <TranscriptItem
+            key={`static-${index}`}
+            item={item}
+            previous={index > 0 ? staticItems[index - 1] : undefined}
+            theme={activeTheme}
+            width={messageWidth}
+          />
         )}
       </Static>
 
@@ -935,17 +940,25 @@ export function App({
         
         {liveTail ? (
           <Box marginY={0.5}>
+            <WorkDelimiter theme={activeTheme} width={messageWidth} label="working" />
             <ItemView item={liveTail} theme={activeTheme} width={messageWidth} />
           </Box>
         ) : null}
-        
+
         {busy && !approvalRequest && !userQuestionRequest ? (
-          <Box marginY={0.5}>
+          <Box marginY={0.5} flexDirection="column">
             <ThinkingStatus
               theme={activeTheme}
               elapsedSeconds={elapsedSeconds}
               frame={activityFrame}
             />
+            {streamingStatus ? (
+              <Box paddingLeft={2}>
+                <Text color={activeTheme.muted} wrap="truncate-end">
+                  {truncateSingleLine(streamingStatus, messageWidth - 4)}
+                </Text>
+              </Box>
+            ) : null}
           </Box>
         ) : null}
       </Box>
@@ -1375,6 +1388,68 @@ function prettyCwd(cwd: string): string {
   return cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
 }
 
+function TranscriptItem({
+  item,
+  previous,
+  theme,
+  width,
+}: {
+  item: Item;
+  previous?: Item;
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
+  return (
+    <Box flexDirection="column" marginY={0.3}>
+      {shouldSeparate(item, previous) ? (
+        <TranscriptDelimiter theme={theme} width={width} />
+      ) : null}
+      <ItemView item={item} theme={theme} width={width} />
+    </Box>
+  );
+}
+
+function shouldSeparate(item: Item, previous?: Item): boolean {
+  if (!previous) return false;
+  if (item.kind === "tool" && previous.kind === "tool") return false;
+  return item.kind !== previous.kind || item.kind === "user";
+}
+
+function TranscriptDelimiter({
+  theme,
+  width,
+}: {
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
+  const line = "─".repeat(Math.max(12, Math.min(width, 100)));
+  return (
+    <Box marginY={0.2}>
+      <Text color={theme.muted} dimColor>{line}</Text>
+    </Box>
+  );
+}
+
+function WorkDelimiter({
+  theme,
+  width,
+  label,
+}: {
+  theme: Theme;
+  width: number;
+  label: string;
+}): React.JSX.Element {
+  const labelText = ` ${label} `;
+  const lineWidth = Math.max(12, Math.min(width - labelText.length, 88));
+  return (
+    <Box marginBottom={0.2}>
+      <Text color={theme.muted} dimColor>{"─".repeat(Math.floor(lineWidth / 2))}</Text>
+      <Text color={theme.accent}>{labelText}</Text>
+      <Text color={theme.muted} dimColor>{"─".repeat(Math.ceil(lineWidth / 2))}</Text>
+    </Box>
+  );
+}
+
 function ItemView({
   item,
   theme,
@@ -1385,11 +1460,9 @@ function ItemView({
   theme: Theme;
   width: number;
   /**
-   * Render mode for the *live* streaming message. Full markdown + per-token
-   * syntax highlighting allocates thousands of React nodes; re-running it over
-   * the whole buffer on every flush (~60ms) saturates the event loop and can
-   * hard-freeze the UI (ESC/Ctrl+C stop responding). While streaming we render
-   * cheap plain text; the finalized message (in <Static>) gets the rich pass.
+   * Render mode for the live streaming message. The live buffer is tail-capped
+   * and throttled before it reaches this component, so it can use the same
+   * markdown path as finalized messages without leaving a raw duplicate behind.
    */
   streaming?: boolean;
 }): React.JSX.Element {
@@ -1413,11 +1486,7 @@ function ItemView({
             <Text color={theme.muted}> › </Text>
           </Box>
           <Box paddingLeft={2}>
-            {streaming ? (
-              <Text>{item.text}</Text>
-            ) : (
-              parseMarkdownToReact(item.text, theme)
-            )}
+            {parseMarkdownToReact(item.text, theme)}
           </Box>
         </Box>
       );
@@ -1839,6 +1908,16 @@ function inputString(input: unknown, key: string): string | undefined {
   if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
   const value = (input as Record<string, unknown>)[key];
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function streamingStatusLine(text: string): string {
+  const lines = text
+    .split("\n")
+    .map((line) => stripInlineMarkdown(line).trim())
+    .filter(Boolean);
+  const latest = lines.at(-1);
+  if (!latest) return "";
+  return `writing: ${latest}`;
 }
 
 interface Block {
