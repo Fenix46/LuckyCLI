@@ -1,194 +1,138 @@
-# Tool porting audit: Claude Code -> LuckyCLI
+# LuckyCLI — porting & feature audit
 
-Sorgenti consultate:
+Questo documento traccia cosa LuckyCLI ha portato e adattato da progetti di
+riferimento, e a che punto sono i tool e le feature principali. Principio guida:
+non si copia codice. I progetti di riferimento valgono come benchmark di
+prodotto, semantica e UX; le implementazioni vengono **riscritte nello stile
+LuckyCLI** (Node + zod + tipi canonici) e testate.
 
-- Claude Code: `/Users/emanuelescarlata/Downloads/claude-code-main`
-- LuckyCLI target: `packages/core/src/tools`
+Riferimenti open source citati:
 
-Questo audit e' mirato alla prima ondata di porting dei tool piu' importanti.
-Non propone di copiare codice: Claude Code va usato come riferimento di prodotto,
-semantica e UX; le implementazioni vanno riscritte nello stile LuckyCLI.
+- [graphify](https://github.com/safishamsi/graphify) — motore del knowledge
+  graph (pipeline detect → extract → build → query, schema nodi/archi).
+- [opencode](https://github.com/sst/opencode) — idee per il fuzzy replace di
+  `edit_file`.
 
-## Stato attuale LuckyCLI
+## Tool built-in
 
-Tool built-in registrati in `packages/core/src/tools/builtin/index.ts`:
+Registrati in `packages/core/src/tools/builtin/index.ts`:
 
-| LuckyCLI | Stato attuale | Valutazione |
+| Tool | Stato | Note |
 |---|---|---|
-| `read_file` | presente | Utile ma minimale: manca lettura per range di righe. |
-| `write_file` | presente | Sufficiente per prima fase. |
-| `edit_file` | presente | Buona base per replace mirati. |
-| `apply_patch` | presente | Base utile, ma supporta solo patch su file esistenti. |
-| `exec` | presente | Gia' ha warning distruttivi basilari; manca semantica shell piu' matura. |
-| `list_dir` | presente | Sufficiente. |
-| `glob` | presente | Funziona, ma e' custom; non e' maturo quanto ripgrep/bfs. |
-| `grep` | presente | Funziona, ma e' custom; non sfrutta `rg`/gitignore. |
-| `http_fetch` | presente | Gia' converte HTML in testo markdown-like e blocca URL privati. |
-| `todo_write` | presente | Prima ondata gia' portata. |
-| `ask_user` | presente | Prima ondata gia' portata con bridge TUI. |
+| `read_file` | fatto | `offset`/`limit` e output numerato per range di righe. |
+| `write_file` | fatto | `overwrite=false` per evitare sovrascritture accidentali. |
+| `edit_file` | fatto | Replace mirati con fuzzy snippet matching. |
+| `apply_patch` | fatto | Update/create/delete via unified diff standard, sempre sandboxed. |
+| `exec` | fatto | Classifica `read_only`/`mutating`/`destructive` e blocca i comandi rischiosi. |
+| `PowerShell` | fatto | Tool dedicato per Windows: esecuzione senza `cmd.exe`, UTF-8, exit code speciali, blocco distruttivi. |
+| `list_dir` | fatto | Output ordinato (directory prima dei file), `limit`. |
+| `glob` | fatto | Usa `rg --files` se disponibile, fallback custom. |
+| `grep` | fatto | Usa `rg` se disponibile, fallback custom. |
+| `http_fetch` | fatto | HTML → testo, blocco URL privati/SSRF. |
+| `todo_write` | fatto | Lista todo di sessione per lavori multi-step. |
+| `project_memory` | fatto | Aggiorna `.lucky/memory.md` per fatti stabili del progetto. |
+| `graph_query` | fatto | Interroga il knowledge graph (find/callers/callees/neighbors/file). |
+| `graph_overview` | fatto | Sintesi del grafo (conteggi, god node, moduli più importati). |
+| `ask_user` | fatto | Domanda di chiarimento con bridge TUI. |
 
-Conclusione: il vecchio P1 (`todo_write`, `ask_user`, `apply_patch`,
-`http_fetch`) e' in gran parte gia' coperto. Il vero gap iniziale ora e':
-`web_search`, hardening dei tool filesystem/shell, MCP minimo, e miglioramenti
-di qualita' su `read_file`/`grep`/`glob`.
+### Permission UX
 
-## Claude Code: tool rilevanti
+- Approvazioni `always` ricordate allo scope giusto (per-comando su `exec`,
+  per-tool su `write_file`/`edit_file`/`apply_patch`): niente re-prompt continuo.
+- Modalità di sessione ciclabile con `Shift+Tab` (`normal` ↔ `accept edits`),
+  indicatore nel footer; in `accept edits` i tool di scrittura sono
+  auto-approvati, `exec` chiede comunque. Tornare a `normal` azzera le `always`.
+- Policy default esplicita per ogni tool (read-only `allow`, scrittura/shell
+  `ask`), con fallback `*` = `ask` per i tool futuri.
 
-Registry principale:
+| Tool | Registry | Prompt tool-use | Policy default |
+|---|---:|---:|---|
+| `read_file` | sì | sì | allow |
+| `write_file` | sì | sì | ask |
+| `edit_file` | sì | sì | ask |
+| `apply_patch` | sì | sì | ask |
+| `exec` | sì | sì | ask |
+| `PowerShell` | sì | sì | ask |
+| `list_dir` | sì | sì | allow |
+| `glob` | sì | sì | allow |
+| `grep` | sì | sì | allow |
+| `http_fetch` | sì | sì | allow |
+| `todo_write` | sì | sì | allow |
+| `project_memory` | sì | sì | ask |
+| `graph_query` | sì | sì | allow |
+| `graph_overview` | sì | sì | allow |
+| `ask_user` | sì | sì | allow |
 
-- `src/tools.ts`
-- `src/constants/tools.ts`
+## Knowledge graph (portato da graphify)
 
-Claude Code distingue una base tool molto ampia, ma la parte che vale la pena
-portare subito in LuckyCLI e' piu' piccola:
+Layer nativo che mappa il progetto in un grafo (file, simboli, import, call) usato
+come cache di conoscenza: l'agente interroga il grafo invece di rileggere i file,
+risparmiando token. Tutto nativo TypeScript, nessun servizio esterno; il grafo
+vive in `.lucky/graph/graph.json`.
 
-| Claude Code | LuckyCLI | Priorita' | Note di porting |
-|---|---|---:|---|
-| `WebSearchTool` | assente | P0 | Primo tool realmente mancante. Serve per domande temporali/docs/news senza affidarsi solo a URL noti. |
-| `FileReadTool` | `read_file` | P0 | Portare `offset`/`limit` e output con numeri di riga. Alto impatto, basso rischio. |
-| `BashTool` | `exec` | P0/P1 | Portare semantica comando, read-only validation e warning piu' precisi. Evitare copia. |
-| `GrepTool` | `grep` | P1 | Preferire `rg` quando disponibile; fallback custom. Rispetta gitignore e scala meglio. |
-| `GlobTool` | `glob` | P1 | Preferire `rg --files`/ignore reali quando disponibile; fallback custom. |
-| `WebFetchTool` | `http_fetch` | P1 | Gia' coperto; migliorare metadata, content-type, link/title e size limits. |
-| `MCPTool` / resources | assente | P1 | Estensibilita' piu' importante dei tool specialistici singoli. |
-| `SkillTool` | assente | P2 | Utile, ma LuckyCLI non ha ancora un sistema skill locale proprio. |
-| `EnterPlanMode` / `ExitPlanMode` | assente | P2 | Piu' modalita' UI/agent che tool puro. |
-| `AgentTool` / task tools | assente | P2/P3 | Potente ma architetturale: sub-agent, recursion policy, memoria. |
-| `LSPTool` | assente | P2/P3 | Utile per code intelligence, ma richiede client LSP e gestione server. |
-| `NotebookEditTool` | assente | P3 | Specifico Jupyter, non core iniziale. |
-| Worktree tools | assente | P3 | Utile per isolamento, ma non prima dei tool base. |
+Pipeline (in `packages/core/src/graph/`), adattata dalle fasi di graphify
+`detect → extract → build → query`:
 
-## Prima ondata consigliata
+- `types.ts` — schema zod nodi/archi (id, label, kind, sourceFile, sourceLocation
+  / source, target, relation, confidence `EXTRACTED|INFERRED|AMBIGUOUS`) e
+  validazione di integrità referenziale.
+- `store.ts` — load/save/query su `.lucky/graph/`, validato in lettura e scrittura.
+- `extract/` — parsing con **tree-sitter** (WASM, portabile in Node, nei test e
+  nel binario standalone Bun via embedding dei `.wasm`); interfaccia `Extractor`
+  comune. Estrattori: TypeScript/TSX/JavaScript e Python.
+- `detect.ts` — walk del progetto + dispatch per linguaggio.
+- `build.ts` — assemblaggio (node id idempotenti, drop degli archi con endpoint
+  inesistenti) + comando `lucky graph build`.
+- `query.ts` — traversal puri (callers/callees, neighbors, god node per grado,
+  moduli più importati, overview), esposti dai tool `graph_query`/`graph_overview`.
+- `update.ts` — aggiornamento incrementale: ri-estrae solo i file toccati. È
+  agganciato ai tool di scrittura (`onFilesChanged`) e a un maintainer debounced
+  nel runtime, quindi il grafo resta aggiornato **autonomamente** dopo le modifiche
+  del modello.
 
-### 1. `read_file`: range di righe e output numerato
+Onboarding per-cartella: al primo accesso si chiede trust + build del grafo
+(stato persistito per path; mai richiesto due volte). Per progetti già avviati:
+`/graph` nella REPL o `lucky graph build`.
 
-Motivo: e' il miglior rapporto impatto/complessita'. Claude Code spinge molto
-sull'uso di letture parziali per non bruciare contesto.
+### Cosa è stato volutamente lasciato fuori di graphify
 
-Proposta API:
+Portato solo il nucleo che dà il risparmio di token. Esclusi per ora (non servono
+allo scopo, e aggiungerebbero superficie e dipendenze):
 
-```ts
-{
-  path: string;
-  offset?: number; // 1-based line number
-  limit?: number;  // max lines
-}
-```
+- community detection / clustering (Leiden), MinHash dedup, analisi avanzate;
+- generazione wiki/Obsidian, export SVG/HTML, call-flow diagrams;
+- server MCP, ingest di URL/PDF, transcription video;
+- risoluzione simboli cross-file (per ora le `calls` sono intra-file);
+- i ~25 linguaggi extra (si aggiungono uno alla volta dietro `Extractor`).
 
-Comportamento:
+## Prossimo focus
 
-- Se `offset`/`limit` mancano, comportamento attuale.
-- Se presenti, ritorna solo quel range con prefisso `lineNumber: content`.
-- Limite massimo righe ragionevole, ad esempio 2000.
-- Mantiene limite byte per evitare file enormi.
-
-### 2. `web_search`
-
-Motivo: e' il primo tool fondamentale ancora assente. Claude Code ha un tool
-dedicato e lo tratta come parte della base agentica.
-
-Proposta pragmatica:
-
-- Tool `web_search` con schema `{ query: string, maxResults?: number }`.
-- Adapter provider opzionale via env:
-  - `LUCKY_WEB_SEARCH_PROVIDER=tavily|exa|serpapi`
-  - API key dedicata.
-- Se manca config, ritorna errore istruttivo e non finge di cercare.
-- Output compatto: titolo, URL, snippet, data se disponibile.
-
-Nota: senza accesso rete/API configurata, non va implementato con scraping fragile
-di search engine pubblici.
-
-### 3. `exec`: hardening BashTool-inspired
-
-LuckyCLI ha gia' `classifyDangerousCommand`, ma Claude Code ha una distinzione
-piu' matura tra:
-
-- comandi read-only;
-- comandi potenzialmente mutanti;
-- comandi distruttivi;
-- git operations rischiose;
-- permission UX e descrizione del comando.
-
-Prima miglioria utile:
-
-- aggiungere `classifyCommandSemantics(command)` con categorie:
-  - `read_only`
-  - `mutating`
-  - `destructive`
-  - `unknown`
-- rendere piu' chiaro l'errore quando serve `allowDangerous`.
-- allargare detection per `mv`, `cp`, redirect overwrite, `truncate`, `find -delete`,
-  `npm install`, package manager mutanti, `git push --force`.
-
-### 4. `grep` e `glob`: usare strumenti nativi quando disponibili
-
-Claude Code evita di fare tutto a mano quando puo' usare search tools veloci.
-LuckyCLI oggi cammina il filesystem custom.
-
-Porting consigliato:
-
-- `grep`: usa `rg --json` o `rg --line-number` se disponibile.
-- `glob`: usa `rg --files` e filtra pattern, rispettando `.gitignore`.
-- fallback ai tool custom attuali quando `rg` non c'e'.
-- mantenere sandbox path in `cwd`.
-
-### 5. MCP minimo
-
-Claude Code ha MCP come estensibilita' core: `MCPTool`, `ListMcpResourcesTool`,
-`ReadMcpResourceTool`, `McpAuthTool`.
-
-Prima versione LuckyCLI:
-
-- config MCP in `~/.luckycli/config.json` o `.lucky/mcp.json`;
-- caricamento server stdio base;
-- esposizione dinamica tool MCP nel registry;
-- risorse: `mcp_list_resources`, `mcp_read_resource`;
-- no auth complesso nella prima iterazione.
-
-## Seconda ondata
-
-1. `skill`
-   - Loader locale di `SKILL.md`.
-   - Percorsi: `.lucky/skills/*/SKILL.md` e `~/.luckycli/skills`.
-
-2. plan mode
-   - Meglio come stato agent/TUI prima che come tool puro.
-   - Slash command o tool `enter_plan_mode` solo dopo aver definito UX.
-
-3. sub-agent/task
-   - Richiede policy anti-recursion, subset tool, memoria isolata e output summary.
-   - Da rimandare finche' MCP/search/read/exec non sono solidi.
-
-4. LSP
-   - Utile ma costoso: server manager, lifecycle, formatter output.
+1. MCP stdio minimo + risorse (estensibilità).
+2. `web_search` con adapter configurabile via env e fallback chiaro (HOLD finché
+   non si decide il provider).
+3. Più linguaggi per il grafo (Go, Rust, Java, C/C++, …).
+4. Risoluzione `calls` cross-file nel grafo.
+5. Skill loader locale, plan mode, sub-agent — solo dopo aver stabilizzato MCP.
+6. LSP per code intelligence (costoso: lifecycle server, output formatting).
 
 ## Cose da non portare subito
 
-- Notebook edit.
-- PowerShell dedicato.
-- Cron/proactive tasks.
-- Team/swarm.
-- Browser automation.
-- REPL/VM.
-- Worktree mode.
+- Notebook edit, browser automation, REPL/VM, worktree mode.
+- Cron/proactive tasks, team/swarm.
 - ConfigTool modificabile dal modello.
 
-Sono feature valide, ma creano superficie, permessi e complessita' prima che i
-tool fondamentali siano maturi.
+Valide ma creano superficie/permessi prima che le fondamenta siano mature.
 
-## Roadmap implementativa breve
+## Stato versione
 
-1. Migliorare `read_file` con `offset`/`limit` e test.
-2. Aggiungere `web_search` con adapter configurabile e fallback chiaro.
-3. Rafforzare `exec` con semantica comando e warning piu' robusti.
-4. Migliorare `grep`/`glob` usando `rg` se disponibile.
-5. Disegnare MCP stdio base e integrazione registry.
-6. Solo dopo: `skill`, plan mode, sub-agent.
+- Base tool (14, inclusi i due tool grafo) completa e verificata.
+- Permission UX e knowledge graph nativo completati.
+- Prossimo lavoro strutturale: MCP, poi più linguaggi/risoluzione cross-file e
+  skill/plan/sub-agent.
 
 ## Note licenza
 
-Claude Code va usato come benchmark di comportamento e priorita'. Evitare copia
-diretta di implementazioni, prompt lunghi o UI complete salvo verifica licenza e
-attribuzione. Per LuckyCLI conviene riscrivere componenti piccoli e testati in
-base agli stessi principi.
+I progetti di riferimento valgono come benchmark di comportamento e priorità.
+Evitare copia diretta di implementazioni, prompt lunghi o UI complete senza
+verifica di licenza e attribuzione. Per LuckyCLI conviene riscrivere componenti
+piccoli e testati seguendo gli stessi principi.
