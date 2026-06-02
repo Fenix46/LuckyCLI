@@ -1438,22 +1438,17 @@ function ItemView({
       const toolColor = item.error ? theme.error : isRunning ? theme.accent : theme.success;
       const statusSymbol = item.error ? "✖" : isRunning ? "•" : "✔";
       const action = formatToolAction(item.name, item.input, isRunning, item.error);
-      const outputLines = item.output ? formatToolOutput(item.output) : [];
+      const result = item.output ? formatToolResultSummary(item.name, item.output, item.error) : "";
       return (
-        <Box flexDirection="column" paddingLeft={2} marginY={0.2}>
-          <Box flexDirection="row" gap={1}>
-            <Text bold color={toolColor}>{statusSymbol}</Text>
-            <Text bold color={toolColor}>{action}</Text>
-          </Box>
-          {outputLines.length > 0 ? (
-            <Box flexDirection="column" paddingLeft={2} marginTop={0.1}>
-              {outputLines.map((line, index) => (
-                <Text key={index} color={item.error ? theme.error : "white"}>
-                  {index === 0 ? "└ " : "  "}
-                  {line}
-                </Text>
-              ))}
-            </Box>
+        <Box flexDirection="row" paddingLeft={2} marginY={0.1} gap={1}>
+          <Text bold color={toolColor}>{statusSymbol}</Text>
+          <Text bold color={toolColor} wrap="truncate-end">{truncateSingleLine(action, Math.max(24, width - 18))}</Text>
+          {isRunning ? (
+            <Text color={theme.accent}>...</Text>
+          ) : result ? (
+            <Text color={item.error ? theme.error : theme.muted} wrap="truncate-end">
+              - {truncateSingleLine(result, Math.max(16, width - action.length - 12))}
+            </Text>
           ) : null}
         </Box>
       );
@@ -2113,7 +2108,7 @@ function handleEvent(event: AgentEvent, h: EventHandlers): void {
       h.onToolStart(event.name, event.input);
       break;
     case "tool_end":
-      h.onToolEnd(event.name, preview(event.content, 600), event.isError);
+      h.onToolEnd(event.name, event.content, event.isError);
       break;
     case "error":
       h.onError(event.message);
@@ -2469,15 +2464,48 @@ function toolTarget(name: string, input: unknown): string {
   return preview(input, 120);
 }
 
-function formatToolOutput(output: string): string[] {
+function formatToolResultSummary(name: string, output: string, error?: boolean): string {
   const lines = output
     .split("\n")
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0);
-  if (lines.length === 0) return [];
-  const shown = lines.slice(0, 4);
-  if (lines.length > shown.length) shown.push(`… ${lines.length - shown.length} more lines`);
-  return shown;
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return "";
+  if (error) return firstUsefulLine(lines);
+
+  switch (name) {
+    case "exec":
+    case "PowerShell":
+      return firstUsefulLine(lines);
+    case "read_file":
+      return summarizeReadOutput(lines);
+    case "list_dir":
+      return `${lines.length} entries`;
+    case "glob":
+      return lines[0]?.startsWith("[no files") ? "no matches" : `${lines.length} files`;
+    case "grep":
+      return lines[0]?.startsWith("[no matches") ? "no matches" : `${lines.length} matches`;
+    case "write_file":
+    case "edit_file":
+    case "apply_patch":
+    case "todo_write":
+    case "ask_user":
+    case "http_fetch":
+      return firstUsefulLine(lines);
+    default:
+      return firstUsefulLine(lines);
+  }
+}
+
+function summarizeReadOutput(lines: string[]): string {
+  const rangeLine = lines.find((line) => /^\[showing \d+ of \d+ lines\]$/.test(line));
+  if (rangeLine) return rangeLine.replace(/^\[|\]$/g, "");
+  const noLines = lines.find((line) => line.startsWith("[no lines"));
+  if (noLines) return noLines.replace(/^\[|\]$/g, "");
+  return `${lines.length} lines`;
+}
+
+function firstUsefulLine(lines: string[]): string {
+  return lines.find((line) => !line.startsWith("[command failed:")) ?? lines[0] ?? "";
 }
 
 function quotePath(path: string): string {
@@ -2544,7 +2572,7 @@ function messagesToItems(messages: Message[]): Item[] {
         const index = toolIndexById.get(part.toolCallId);
         const target = index !== undefined ? items[index] : undefined;
         if (target && target.kind === "tool") {
-          target.output = preview(part.content, 600);
+          target.output = part.content;
           if (part.isError) target.error = true;
         }
       }
