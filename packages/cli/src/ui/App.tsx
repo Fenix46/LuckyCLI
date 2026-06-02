@@ -811,6 +811,15 @@ export function App({
           { kind: "assistant", text },
         ]);
       };
+      const clearAssistantDraft = () => {
+        if (streamingFlushTimerRef.current) {
+          clearTimeout(streamingFlushTimerRef.current);
+          streamingFlushTimerRef.current = null;
+        }
+        pendingStreamingRef.current = "";
+        assistantBuf = "";
+        setStreaming("");
+      };
       const controller = new AbortController();
       abortControllerRef.current = controller;
       try {
@@ -821,7 +830,7 @@ export function App({
               scheduleStreaming();
             },
             onToolStart: (name, rawInput) => {
-              flushAssistant();
+              clearAssistantDraft();
               setItems((prev) => [
                 ...prev,
                 { kind: "tool", name, input: preview(rawInput) },
@@ -2389,12 +2398,17 @@ function messagesToItems(messages: Message[]): Item[] {
   const toolIndexById = new Map<string, number>();
 
   for (const message of messages) {
+    const assistantMessageHasToolCall =
+      message.role === "assistant" &&
+      message.content.some((part) => part.type === "tool_call");
     for (const part of message.content) {
       if (part.type === "text") {
         const text = part.text.trim();
         if (!text) continue;
         if (message.role === "user") items.push({ kind: "user", text });
-        else if (message.role === "assistant") items.push({ kind: "assistant", text });
+        else if (message.role === "assistant" && !assistantMessageHasToolCall) {
+          items.push({ kind: "assistant", text });
+        }
         // system summaries (from compaction) are context only — skip in the UI
       } else if (part.type === "tool_call") {
         toolIndexById.set(part.id, items.length);
