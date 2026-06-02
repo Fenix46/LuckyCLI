@@ -25,7 +25,7 @@ Options:
   -c, --continue  resume the most recent session
       --resume [id]  resume a session; with no id, pick one interactively
       --sessions  list saved sessions and exit
-      --setup     force the provider setup dialog
+      --setup     force the provider switcher
   -h, --help      show this help
 `;
 

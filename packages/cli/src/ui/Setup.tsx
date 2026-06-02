@@ -28,13 +28,14 @@ export interface SetupResult {
 
 interface SetupProps {
   onComplete: (result: SetupResult) => void;
+  mode?: "initial" | "provider";
 }
 
 type Step = "theme" | "provider" | "auth" | "credential" | "model";
 type CredentialSubStep = "input" | "oauth_code" | "project" | "region";
 
-export function Setup({ onComplete }: SetupProps): React.JSX.Element {
-  const [step, setStep] = useState<Step>("theme");
+export function Setup({ onComplete, mode = "initial" }: SetupProps): React.JSX.Element {
+  const [step, setStep] = useState<Step>(mode === "initial" ? "theme" : "provider");
   const [theme, setTheme] = useState<Theme>(() => themeById(loadStoredConfig().theme));
   const [selectedProviderId, setSelectedProviderId] = useState<ProviderId | null>(null);
   const [selectedAuthMethod, setSelectedAuthMethod] = useState<AuthMethod | null>(null);
@@ -293,11 +294,15 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
       >
         <Box flexDirection="row" marginBottom={1}>
           <Text bold color={theme.accent}>›_ </Text>
-          <Text bold color={theme.primary}>LuckyCLI setup</Text>
-          <Text color={theme.muted}>  first run</Text>
+          <Text bold color={theme.primary}>
+            {mode === "initial" ? "LuckyCLI setup" : "Provider setup"}
+          </Text>
+          <Text color={theme.muted}>
+            {mode === "initial" ? "  first run" : "  switch provider"}
+          </Text>
         </Box>
 
-        <SetupProgress step={step} theme={theme} />
+        <SetupProgress step={step} theme={theme} mode={mode} />
 
         <Box flexDirection="column" marginTop={1}>
           {step === "theme" && (
@@ -400,14 +405,23 @@ export function Setup({ onComplete }: SetupProps): React.JSX.Element {
   );
 }
 
-function SetupProgress({ step, theme }: { step: Step; theme: Theme }): React.JSX.Element {
-  const steps: Array<{ key: Step; label: string }> = [
+function SetupProgress({
+  step,
+  theme,
+  mode,
+}: {
+  step: Step;
+  theme: Theme;
+  mode: "initial" | "provider";
+}): React.JSX.Element {
+  const allSteps: Array<{ key: Step; label: string }> = [
     { key: "theme", label: "Theme" },
     { key: "provider", label: "Provider" },
     { key: "auth", label: "Login" },
     { key: "credential", label: "Connect" },
     { key: "model", label: "Model" },
   ];
+  const steps = allSteps.filter((item) => mode === "initial" || item.key !== "theme");
   const current = steps.findIndex((item) => item.key === step);
   return (
     <Box flexDirection="column">

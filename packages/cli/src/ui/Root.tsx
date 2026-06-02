@@ -6,6 +6,7 @@ import {
   saveStoredConfig,
   type Agent,
   type AskUserRequest,
+  type Message,
   type ProviderCredentials,
   type ProviderId,
   type ResolvedConfig,
@@ -32,6 +33,8 @@ interface ActiveRuntime {
   credentials: ProviderCredentials;
 }
 
+type SetupMode = "initial" | "provider";
+
 /**
  * Top-level component. Decides between the setup dialog and the chat UI, and
  * rebuilds the agent when setup completes.
@@ -46,6 +49,10 @@ export function Root({
   const [userQuestionRequest, setUserQuestionRequest] = useState<UserQuestionRequest | null>(null);
   const [resumeSession, setResumeSession] = useState<Session | null>(resume ?? null);
   const [picking, setPicking] = useState<boolean>(pickResume === true && !resume);
+  const [setupMode, setSetupMode] = useState<SetupMode>(() =>
+    config.needsSetup ? "initial" : "provider",
+  );
+  const [pendingMessages, setPendingMessages] = useState<Message[] | null>(null);
   const sessionApprovedTools = useRef<Set<string>>(new Set());
 
   function approveTool(name: string, input: unknown) {
@@ -103,6 +110,7 @@ export function Root({
 
   function onSetupComplete(result: SetupResult) {
     saveProviderSetup(result.provider, result.model, result.credentials);
+    const carriedMessages = pendingMessages ?? resumeSession?.messages ?? [];
     setRuntime({
       agent: buildAgent({
         provider: result.provider,
@@ -118,14 +126,14 @@ export function Root({
         ...(config.maxTokens !== undefined
           ? { maxTokens: config.maxTokens }
           : {}),
-        ...(resumeSession?.messages?.length
-          ? { messages: resumeSession.messages }
-          : {}),
+        ...(carriedMessages.length ? { messages: carriedMessages } : {}),
       }),
       provider: result.provider,
       model: result.model,
       credentials: result.credentials,
     });
+    setPendingMessages(null);
+    setSetupMode("provider");
   }
 
   /** Resume a session chosen from the interactive picker. */
@@ -144,6 +152,8 @@ export function Root({
       !resolved.credentials
     ) {
       // Credentials for that provider are gone — fall into setup, then seed.
+      setSetupMode("provider");
+      setPendingMessages(session.messages);
       setRuntime(null);
       return;
     }
@@ -204,6 +214,12 @@ export function Root({
     });
   }
 
+  function onTriggerProviderSetup() {
+    setSetupMode("provider");
+    setPendingMessages(runtime ? [...runtime.agent.messages] : null);
+    setRuntime(null);
+  }
+
   if (picking) {
     return (
       <SessionPicker
@@ -213,7 +229,7 @@ export function Root({
     );
   }
 
-  if (!runtime) return <Setup onComplete={onSetupComplete} />;
+  if (!runtime) return <Setup mode={setupMode} onComplete={onSetupComplete} />;
 
   return (
     <App
@@ -224,7 +240,7 @@ export function Root({
       setApprovalRequest={setApprovalRequest}
       userQuestionRequest={userQuestionRequest}
       setUserQuestionRequest={setUserQuestionRequest}
-      onTriggerSetup={() => setRuntime(null)}
+      onTriggerSetup={onTriggerProviderSetup}
       onChangeModel={onChangeModel}
       onTriggerResume={() => setPicking(true)}
       {...(resumeSession ? { resumed: resumeSession } : {})}

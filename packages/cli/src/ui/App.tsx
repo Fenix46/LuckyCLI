@@ -80,8 +80,8 @@ const ALL_SLASH_COMMANDS = [
   { name: "/compact", desc: "Summarize older chat history now" },
   { name: "/sessions", desc: "List saved sessions (resume with: lucky --resume <id>)" },
   { name: "/resume", desc: "Pick a saved session to resume" },
-  { name: "/setup", desc: "Switch model provider or change settings" },
-  { name: "/provider", desc: "Alias for /setup" },
+  { name: "/provider", desc: "Switch provider and authenticate" },
+  { name: "/setup", desc: "Alias for /provider" },
   { name: "/config", desc: "Show active provider and model info" },
   { name: "/theme", desc: "Choose terminal UI colors" },
   { name: "/exit", desc: "Exit the lucky agent session" },
@@ -651,8 +651,8 @@ export function App({
           ...prev,
           {
             kind: "command",
-            title: "Setup",
-            rows: [{ label: "action", value: "opening provider setup" }],
+            title: "Provider",
+            rows: [{ label: "action", value: "opening provider switcher" }],
           },
         ]);
         onTriggerSetup();

@@ -99,9 +99,9 @@ cp .env.example .env   # add your API keys
 npm run dev            # run the REPL with tsx
 ```
 
-On first run the REPL walks you through an interactive setup (provider choice,
-credentials, including browser OAuth for OpenAI and Google OAuth for Gemini) and
-persists it to `~/.luckycli/config.json`. Defaults can also come from `.env`
+On first run the REPL walks you through an interactive setup (theme, provider
+choice, credentials, including browser OAuth for OpenAI and Google OAuth for
+Gemini) and persists it to `~/.luckycli/config.json`. Defaults can also come from `.env`
 (`LUCKY_PROVIDER`, `LUCKY_MODEL`) or be overridden with CLI flags:
 
 ```bash
@@ -114,7 +114,7 @@ Inside the REPL, slash commands drive the session:
 
 ```
 /help      show all slash commands       /compact   summarize older history now
-/model     switch model for the provider /setup     switch provider / credentials
+/model     switch model for the provider /provider  switch provider / login
 /context   show context window + usage    /config    show active provider + model
 /sessions  list saved sessions            /theme     choose terminal UI colors
 /exit      quit (alias: /quit)
