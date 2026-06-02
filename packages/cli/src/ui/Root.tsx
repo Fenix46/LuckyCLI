@@ -57,7 +57,7 @@ export function Root({
   const sessionApprovedTools = useRef<Set<string>>(new Set());
 
   function approveTool(name: string, input: unknown) {
-    const key = approvalKey(name, input);
+    const key = approvalScope(name, input);
     if (sessionApprovedTools.current.has(key)) return "allow" satisfies ToolApproval;
 
     return new Promise<ToolApproval>((resolve) => {
@@ -293,16 +293,24 @@ export function Root({
   );
 }
 
-function approvalKey(name: string, input: unknown): string {
-  return `${name}:${stableStringify(input)}`;
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(",")}}`;
+/**
+ * The scope at which an "always" approval is remembered for the session.
+ *
+ * Previously this keyed on the exact, full tool input, so "always" only ever
+ * matched an identical call again — a write to a different file, or any change
+ * in arguments, would re-prompt. We instead remember at a useful granularity,
+ * mirroring how other coding agents work:
+ *
+ *  - exec: remember the specific command. Re-running the same command is
+ *    auto-allowed; a different command still asks. (Volatile args like the
+ *    timeout are ignored so they don't defeat the match.)
+ *  - every other ask-level tool (write_file, edit_file, apply_patch, …):
+ *    remember the whole tool, so approving once stops the re-prompts.
+ */
+function approvalScope(name: string, input: unknown): string {
+  if (name === "exec") {
+    const command = (input as { command?: unknown } | null)?.command;
+    if (typeof command === "string") return `exec:${command.trim()}`;
+  }
+  return name;
 }
