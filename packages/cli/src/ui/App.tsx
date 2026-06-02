@@ -137,6 +137,9 @@ export function App({
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Timestamp of the last Ctrl+C while busy, so a quick second press can force
+  // quit even if the running turn is wedged and won't honor the abort.
+  const lastBusyCtrlCRef = useRef<number>(0);
 
   // Persistent Theme System
   const [activeTheme, setActiveTheme] = useState<Theme>(() => {
@@ -438,8 +441,15 @@ export function App({
       return;
     }
 
-    // 6. Regular Ctrl+C exit
+    // 6. Ctrl+C: while busy, abort the turn; a second press within 2s force
+    // quits, guaranteeing an escape hatch even if the turn ignores the abort.
     if (key.ctrl && _in === "c" && busy) {
+      const now = Date.now();
+      if (now - lastBusyCtrlCRef.current < 2000) {
+        exit();
+        return;
+      }
+      lastBusyCtrlCRef.current = now;
       abortControllerRef.current?.abort();
       return;
     }
@@ -885,7 +895,7 @@ export function App({
       : undefined;
   const staticItems = liveTail ? items.slice(0, -1) : items;
   const visibleStreaming = streaming
-    ? streaming.slice(0, streaming.lastIndexOf("\n") + 1) || streaming
+    ? capStreamingTail(streaming.slice(0, streaming.lastIndexOf("\n") + 1) || streaming)
     : "";
   
   const messageWidth = Math.max(32, terminalSize.width - 16);
@@ -928,6 +938,7 @@ export function App({
               item={{ kind: "assistant", text: visibleStreaming }}
               theme={activeTheme}
               width={messageWidth}
+              streaming
             />
           </Box>
         ) : busy && !approvalRequest && !userQuestionRequest ? (
@@ -1350,10 +1361,19 @@ function ItemView({
   item,
   theme,
   width,
+  streaming = false,
 }: {
   item: Item;
   theme: Theme;
   width: number;
+  /**
+   * Render mode for the *live* streaming message. Full markdown + per-token
+   * syntax highlighting allocates thousands of React nodes; re-running it over
+   * the whole buffer on every flush (~60ms) saturates the event loop and can
+   * hard-freeze the UI (ESC/Ctrl+C stop responding). While streaming we render
+   * cheap plain text; the finalized message (in <Static>) gets the rich pass.
+   */
+  streaming?: boolean;
 }): React.JSX.Element {
   switch (item.kind) {
     case "user":
@@ -1375,7 +1395,11 @@ function ItemView({
             <Text color={theme.muted}> › </Text>
           </Box>
           <Box paddingLeft={2}>
-            {parseMarkdownToReact(item.text, theme)}
+            {streaming ? (
+              <Text>{item.text}</Text>
+            ) : (
+              parseMarkdownToReact(item.text, theme)
+            )}
           </Box>
         </Box>
       );
@@ -1798,6 +1822,21 @@ interface Block {
   codeLines?: string[];
   language?: string;
   level?: number;
+}
+
+/**
+ * Bound the live streaming preview to its tail. The full message is rendered
+ * (with rich markdown) once it finalizes into a <Static> item, so the live
+ * region only needs the most recent output — keeping each re-render cheap no
+ * matter how large the reply grows. Cut on a line boundary to avoid a partial
+ * first line.
+ */
+const STREAMING_TAIL_CHARS = 8_000;
+function capStreamingTail(text: string): string {
+  if (text.length <= STREAMING_TAIL_CHARS) return text;
+  const tail = text.slice(text.length - STREAMING_TAIL_CHARS);
+  const nl = tail.indexOf("\n");
+  return nl >= 0 ? tail.slice(nl + 1) : tail;
 }
 
 function parseMessageIntoBlocks(text: string): Block[] {
