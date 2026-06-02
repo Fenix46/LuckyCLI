@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_TOOL_PERMISSION_POLICY,
   matchesWildcard,
   parseToolPermissionPolicyEnv,
   resolveToolPermission,
@@ -8,6 +9,11 @@ import {
 describe("tool permissions", () => {
   it("resolves exact rules before wildcard rules", () => {
     expect(resolveToolPermission({ "*": "deny", exec: "ask" }, "exec")).toBe("ask");
+  });
+
+  it("asks before running side-effecting built-in command tools", () => {
+    expect(resolveToolPermission(DEFAULT_TOOL_PERMISSION_POLICY, "exec")).toBe("ask");
+    expect(resolveToolPermission(DEFAULT_TOOL_PERMISSION_POLICY, "PowerShell")).toBe("ask");
   });
 
   it("uses the longest matching wildcard", () => {

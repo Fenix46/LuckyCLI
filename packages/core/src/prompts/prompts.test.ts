@@ -16,6 +16,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain(IDENTITY_PROMPT);
     expect(prompt).toContain(TOOL_USE_PROMPT);
     expect(prompt).toContain("# How you work");
+    expect(prompt).toContain("PowerShell");
   });
 
   it("interpolates the environment block with runtime values", () => {
