@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import { render } from "ink";
 import React from "react";
 import {
+  buildAndSaveGraph,
   latestSession,
   listSessions,
   loadSession,
@@ -27,6 +28,9 @@ Options:
       --sessions  list saved sessions and exit
       --setup     force the provider switcher
   -h, --help      show this help
+
+Commands:
+  graph build [path]  build the project knowledge graph into .lucky/graph
 `;
 
 function printSessions(): void {
@@ -44,7 +48,45 @@ function printSessions(): void {
   }
 }
 
+/** `lucky graph build [path]` — build the project graph and exit (no TUI). */
+async function runGraphCommand(args: string[]): Promise<void> {
+  const [sub, target = "."] = args;
+  if (sub !== "build") {
+    process.stderr.write(`Unknown graph command "${sub ?? ""}". Usage: lucky graph build [path]\n`);
+    process.exit(1);
+  }
+
+  process.stdout.write(`Building graph for ${target} ...\n`);
+  const summary = await buildAndSaveGraph(target, {
+    onProgress: ({ file, index, total }) => {
+      process.stdout.write(`  [${index}/${total}] ${file}\n`);
+    },
+  });
+
+  process.stdout.write(
+    `\nDone — ${summary.nodeCount} nodes, ${summary.edgeCount} edges ` +
+      `from ${summary.fileCount} files.\n` +
+      `Saved to ${summary.path}\n`,
+  );
+  if (summary.droppedEdges > 0) {
+    process.stdout.write(`(${summary.droppedEdges} unresolved edges dropped)\n`);
+  }
+  for (const { file, reason } of summary.skipped) {
+    process.stderr.write(`  skipped ${file}: ${reason}\n`);
+  }
+}
+
 function main(): void {
+  // Subcommands are handled before the TUI path (they print and exit).
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs[0] === "graph") {
+    runGraphCommand(rawArgs.slice(1)).catch((err) => {
+      process.stderr.write(`graph build failed: ${err instanceof Error ? err.message : err}\n`);
+      process.exit(1);
+    });
+    return;
+  }
+
   const { values, positionals } = parseArgs({
     options: {
       provider: { type: "string", short: "p" },

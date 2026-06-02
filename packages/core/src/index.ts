@@ -80,6 +80,8 @@ export {
   typescriptExtractor,
 } from "./graph/extract/index.js";
 export type { Extractor, ExtractorContext } from "./graph/extract/types.js";
+export { buildAndSaveGraph, buildGraph } from "./graph/build.js";
+export type { BuildOptions, BuildProgress, GraphBuildSummary } from "./graph/build.js";
 export {
   GRAPH_DIR,
   GRAPH_FILE,
