@@ -903,6 +903,29 @@ export function App({
   const streamingPreview = streaming ? streamingTail(streaming) : "";
   const messageWidth = Math.max(32, terminalSize.width - 4);
 
+  const chatInput = (
+    <ChatInput
+      value={input}
+      onChange={setInput}
+      onSubmit={submit}
+      width={messageWidth}
+      submitEnabled={
+        !modelPicker.open &&
+        !themePicker.open &&
+        // Block submit only while the slash menu still has a pending
+        // completion. Once the text is an exact command name (e.g.
+        // "/sessions"), Enter must submit so the command can run.
+        !(
+          showSlashMenu &&
+          filteredCommands.length > 0 &&
+          !filteredCommands.some((cmd) => cmd.name === input)
+        ) &&
+        !approvalRequest &&
+        (!busy || Boolean(userQuestionRequest))
+      }
+    />
+  );
+
   return (
     <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
       <Static items={staticItems}>
@@ -929,8 +952,7 @@ export function App({
         ) : null}
 
         {liveTail ? (
-          <Box marginY={0.5}>
-            <WorkDelimiter theme={activeTheme} width={messageWidth} label="working" />
+          <Box marginY={0.5} flexDirection="column">
             <ItemView item={liveTail} theme={activeTheme} width={messageWidth} />
           </Box>
         ) : null}
@@ -950,25 +972,6 @@ export function App({
           </Box>
         ) : null}
       </Box>
-
-      {approvalRequest ? (
-        <ApprovalRequestView
-          request={approvalRequest}
-          selectedIndex={selectedApprovalIndex}
-          options={approvalOptions}
-          theme={activeTheme}
-          width={messageWidth}
-        />
-      ) : null}
-
-      {userQuestionRequest ? (
-        <UserQuestionRequestView
-          request={userQuestionRequest}
-          selectedIndex={selectedQuestionOptionIndex}
-          theme={activeTheme}
-          width={messageWidth}
-        />
-      ) : null}
 
       {modelPicker.open ? (
         <Box
@@ -1060,26 +1063,31 @@ export function App({
       <Box flexDirection="column" width="100%" marginTop={0.5}>
         <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
         <Box flexDirection="column" paddingX={0} width="100%" marginY={0.1}>
-          <ChatInput
-            value={input}
-            onChange={setInput}
-            onSubmit={submit}
-            width={messageWidth}
-            submitEnabled={
-              !modelPicker.open &&
-              !themePicker.open &&
-              // Block submit only while the slash menu still has a pending
-              // completion. Once the text is an exact command name (e.g.
-              // "/sessions"), Enter must submit so the command can run.
-              !(
-                showSlashMenu &&
-                filteredCommands.length > 0 &&
-                !filteredCommands.some((cmd) => cmd.name === input)
-              ) &&
-              !approvalRequest &&
-              (!busy || Boolean(userQuestionRequest))
-            }
-          />
+          {approvalRequest ? (
+            // Permission prompt lives inside the input frame, which grows to
+            // fit it — the same place the user would otherwise be typing.
+            <ApprovalRequestView
+              request={approvalRequest}
+              selectedIndex={selectedApprovalIndex}
+              options={approvalOptions}
+              theme={activeTheme}
+              width={messageWidth}
+            />
+          ) : userQuestionRequest ? (
+            <Box flexDirection="column">
+              <UserQuestionRequestView
+                request={userQuestionRequest}
+                selectedIndex={selectedQuestionOptionIndex}
+                theme={activeTheme}
+                width={messageWidth}
+              />
+              {(userQuestionRequest.allowFreeText ?? true) ? (
+                <Box marginTop={0.5}>{chatInput}</Box>
+              ) : null}
+            </Box>
+          ) : (
+            chatInput
+          )}
         </Box>
         <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
       </Box>
@@ -1510,26 +1518,6 @@ function TranscriptDelimiter({
   return (
     <Box marginY={0.2}>
       <Text color={theme.muted} dimColor>{line}</Text>
-    </Box>
-  );
-}
-
-function WorkDelimiter({
-  theme,
-  width,
-  label,
-}: {
-  theme: Theme;
-  width: number;
-  label: string;
-}): React.JSX.Element {
-  const labelText = ` ${label} `;
-  const lineWidth = Math.max(12, Math.min(width - labelText.length, 88));
-  return (
-    <Box marginBottom={0.2}>
-      <Text color={theme.muted} dimColor>{"─".repeat(Math.floor(lineWidth / 2))}</Text>
-      <Text color={theme.accent}>{labelText}</Text>
-      <Text color={theme.muted} dimColor>{"─".repeat(Math.ceil(lineWidth / 2))}</Text>
     </Box>
   );
 }
