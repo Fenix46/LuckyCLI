@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -65,6 +65,37 @@ describe("filesystem tools", () => {
     expect(result).toEqual({
       content: "     2: two\n     3: three\n     4: four\n\n[showing 3 of 5 lines]",
     });
+  });
+
+  it("lists directories before files and supports a limit", async () => {
+    await mkdir(join(root, "z-dir"));
+    await mkdir(join(root, "a-dir"));
+    await writeFile(join(root, "b.txt"), "b", "utf8");
+    await writeFile(join(root, "a.txt"), "a", "utf8");
+
+    const result = await registry.execute(
+      "list_dir",
+      { path: ".", limit: 3 },
+      { cwd: root },
+    );
+
+    expect(result.content).toBe(
+      "a-dir (dir)\nz-dir (dir)\na.txt (file)\n\n[showing first 3 of 4 entries]",
+    );
+  });
+
+  it("can refuse to overwrite an existing file", async () => {
+    await writeFile(join(root, "exists.txt"), "old", "utf8");
+
+    const result = await registry.execute(
+      "write_file",
+      { path: "exists.txt", content: "new", overwrite: false },
+      { cwd: root },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/refusing to overwrite/i);
+    await expect(readFile(join(root, "exists.txt"), "utf8")).resolves.toBe("old");
   });
 
   it("reports when a line range starts past end of file", async () => {
