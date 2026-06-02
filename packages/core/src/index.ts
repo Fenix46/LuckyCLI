@@ -138,7 +138,18 @@ export {
   saveProviderSetup,
   saveStoredConfig,
 } from "./config/store.js";
-export type { StoredConfig } from "./config/store.js";
+export type { ProjectRecord, StoredConfig } from "./config/store.js";
+export {
+  getProjectRecord,
+  isProjectTrusted,
+  needsTrustPrompt,
+  projectKey,
+  projectNeedsTrustPrompt,
+  recordGraphBuilt,
+  recordProjectTrust,
+  withGraphBuilt,
+  withProjectTrust,
+} from "./config/project-trust.js";
 
 // Persistent chat sessions.
 export {

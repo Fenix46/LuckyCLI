@@ -31,6 +31,18 @@ export interface StoredConfig {
   permissions?: ToolPermissionPolicy;
   /** Saved credentials per provider, so switching doesn't re-prompt. */
   credentials?: Partial<Record<ProviderId, ProviderCredentials>>;
+  /** Per-folder trust + graph state, keyed by absolute path. See project-trust.ts. */
+  projects?: Record<string, ProjectRecord>;
+}
+
+/** What we remember about a project folder once the agent has opened it. */
+export interface ProjectRecord {
+  /** Whether the user trusted this folder. */
+  trusted: boolean;
+  /** ISO timestamp of the first time the agent opened here. */
+  firstOpenedAt: string;
+  /** ISO timestamp of the last graph build, if any. */
+  graphBuiltAt?: string;
 }
 
 const CONFIG_DIR = join(homedir(), ".luckycli");

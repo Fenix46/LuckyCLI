@@ -14,10 +14,12 @@ import {
   type Session,
   type ToolApproval,
   type TokenUsage,
+  buildAndSaveGraph,
   createSessionId,
   deriveTitle,
   listSessions,
   loadStoredConfig,
+  recordGraphBuilt,
   saveSession,
   saveStoredConfig,
 } from "@luckycli/core";
@@ -86,6 +88,7 @@ const ALL_SLASH_COMMANDS = [
   { name: "/resume", desc: "Pick a saved session to resume" },
   { name: "/provider", desc: "Switch provider and authenticate" },
   { name: "/theme", desc: "Choose terminal UI colors" },
+  { name: "/graph", desc: "Build/refresh the project knowledge graph" },
   { name: "/exit", desc: "Exit the lucky agent session" },
 ];
 
@@ -760,6 +763,35 @@ export function App({
           },
         ]);
         setInput("");
+        return;
+      }
+      if (text === "/graph" || text === "/graph build") {
+        setInput("");
+        setItems((prev) => [
+          ...prev,
+          { kind: "command", title: "Graph", rows: [{ label: "building", value: "scanning project files…" }] },
+        ]);
+        const cwd = process.cwd();
+        void buildAndSaveGraph(cwd)
+          .then((summary) => {
+            recordGraphBuilt(cwd);
+            const rows = [
+              { label: "files", value: String(summary.fileCount) },
+              { label: "nodes", value: String(summary.nodeCount) },
+              { label: "edges", value: String(summary.edgeCount) },
+              { label: "saved", value: summary.path },
+            ];
+            if (summary.droppedEdges > 0) {
+              rows.push({ label: "dropped", value: `${summary.droppedEdges} unresolved edges` });
+            }
+            setItems((prev) => [...prev, { kind: "command", title: "Graph built", rows }]);
+          })
+          .catch((err) => {
+            setItems((prev) => [
+              ...prev,
+              { kind: "error", text: `graph build failed: ${err instanceof Error ? err.message : String(err)}` },
+            ]);
+          });
         return;
       }
       // Unknown slash command: never forward it to the model.
