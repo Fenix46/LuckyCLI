@@ -765,7 +765,7 @@ export function App({
         setInput("");
         return;
       }
-      if (text === "/graph" || text === "/graph build") {
+      if (text === "/graph" || text === "/graph build" || text === "/graph rebuild") {
         setInput("");
         setItems((prev) => [
           ...prev,

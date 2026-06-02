@@ -36,6 +36,7 @@ export const writeFileTool = defineTool({
       }
       throw err;
     }
+    ctx.onFilesChanged?.([path]);
     return { content: `Wrote ${content.length} chars to ${path}` };
   },
 });

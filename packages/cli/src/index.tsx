@@ -30,7 +30,8 @@ Options:
   -h, --help      show this help
 
 Commands:
-  graph build [path]  build the project knowledge graph into .lucky/graph
+  graph build [path]    build the project knowledge graph into .lucky/graph
+  graph rebuild [path]  rebuild it from scratch
 `;
 
 function printSessions(): void {
@@ -51,8 +52,10 @@ function printSessions(): void {
 /** `lucky graph build [path]` — build the project graph and exit (no TUI). */
 async function runGraphCommand(args: string[]): Promise<void> {
   const [sub, target = "."] = args;
-  if (sub !== "build") {
-    process.stderr.write(`Unknown graph command "${sub ?? ""}". Usage: lucky graph build [path]\n`);
+  if (sub !== "build" && sub !== "rebuild") {
+    process.stderr.write(
+      `Unknown graph command "${sub ?? ""}". Usage: lucky graph build|rebuild [path]\n`,
+    );
     process.exit(1);
   }
 
