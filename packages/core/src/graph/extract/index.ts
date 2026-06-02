@@ -3,6 +3,7 @@
  * The build pipeline uses this to dispatch each detected file.
  */
 import type { GraphLanguage } from "./parser.js";
+import { pythonExtractor } from "./python.js";
 import type { Extractor } from "./types.js";
 import { javascriptExtractor, tsxExtractor, typescriptExtractor } from "./typescript.js";
 
@@ -10,7 +11,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   typescript: typescriptExtractor,
   tsx: tsxExtractor,
   javascript: javascriptExtractor,
-  python: undefined, // added in its own slice
+  python: pythonExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -19,4 +20,5 @@ export function extractorFor(language: GraphLanguage): Extractor | undefined {
 }
 
 export { typescriptExtractor, tsxExtractor, javascriptExtractor };
+export { pythonExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";

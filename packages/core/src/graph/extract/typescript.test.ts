@@ -93,7 +93,6 @@ describe("typescript extractor", () => {
     expect(byLabel(nodes, "helper")?.kind).toBe("function");
     expect(extractorFor("javascript")).toBeTruthy();
     expect(extractorFor("tsx")).toBeTruthy();
-    expect(extractorFor("python")).toBeUndefined();
   });
 });
 
