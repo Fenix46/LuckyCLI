@@ -37,6 +37,8 @@ export {
   httpFetchTool,
   todoWriteTool,
   projectMemoryTool,
+  graphQueryTool,
+  graphOverviewTool,
   askUserTool,
 } from "./tools/builtin/index.js";
 
@@ -82,6 +84,16 @@ export {
 export type { Extractor, ExtractorContext } from "./graph/extract/types.js";
 export { buildAndSaveGraph, buildGraph } from "./graph/build.js";
 export type { BuildOptions, BuildProgress, GraphBuildSummary } from "./graph/build.js";
+export {
+  callersOf,
+  calleesOf,
+  godNodes,
+  neighborsOf,
+  resolveNodes,
+  summarize,
+  topModules,
+} from "./graph/query.js";
+export type { GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
 export {
   GRAPH_DIR,
   GRAPH_FILE,

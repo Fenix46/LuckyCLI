@@ -10,6 +10,8 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   grep: "allow",
   http_fetch: "allow",
   todo_write: "allow",
+  graph_query: "allow",
+  graph_overview: "allow",
   ask_user: "allow",
 
   // Side-effecting tools ask by default.
