@@ -36,7 +36,7 @@ interface AppMeta {
 type Item =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
-  | { kind: "tool"; name: string; input: string; output?: string; error?: boolean }
+  | { kind: "tool"; name: string; input: unknown; output?: string; error?: boolean }
   | { kind: "command"; title: string; rows: CommandRow[] }
   | { kind: "status"; provider: ProviderStatus; context: ContextStatus }
   | { kind: "error"; text: string };
@@ -833,7 +833,7 @@ export function App({
               clearAssistantDraft();
               setItems((prev) => [
                 ...prev,
-                { kind: "tool", name, input: preview(rawInput) },
+                { kind: "tool", name, input: rawInput },
               ]);
             },
             onToolEnd: (name, output, error) =>
@@ -1448,14 +1448,26 @@ function ItemView({
       );
     case "tool": {
       const isRunning = item.output === undefined;
-      const toolColor = item.error ? theme.error : theme.muted;
-      const statusSymbol = item.error ? "❌" : isRunning ? "⎔" : "✔";
+      const toolColor = item.error ? theme.error : isRunning ? theme.accent : theme.success;
+      const statusSymbol = item.error ? "✖" : isRunning ? "•" : "✔";
+      const action = formatToolAction(item.name, item.input, isRunning, item.error);
+      const outputLines = item.output ? formatToolOutput(item.output) : [];
       return (
-        <Box flexDirection="row" paddingLeft={2} marginY={0.1} gap={1}>
-          <Text color={toolColor}>{statusSymbol}</Text>
-          <Text dimColor={!item.error} color={toolColor} italic>
-            tool call: {item.name}({item.input}) {isRunning ? "..." : ""}
-          </Text>
+        <Box flexDirection="column" paddingLeft={2} marginY={0.2}>
+          <Box flexDirection="row" gap={1}>
+            <Text bold color={toolColor}>{statusSymbol}</Text>
+            <Text bold color={toolColor}>{action}</Text>
+          </Box>
+          {outputLines.length > 0 ? (
+            <Box flexDirection="column" paddingLeft={2} marginTop={0.1}>
+              {outputLines.map((line, index) => (
+                <Text key={index} color={item.error ? theme.error : "white"}>
+                  {index === 0 ? "└ " : "  "}
+                  {line}
+                </Text>
+              ))}
+            </Box>
+          ) : null}
         </Box>
       );
     }
@@ -2114,7 +2126,7 @@ function handleEvent(event: AgentEvent, h: EventHandlers): void {
       h.onToolStart(event.name, event.input);
       break;
     case "tool_end":
-      h.onToolEnd(event.name, preview(event.content), event.isError);
+      h.onToolEnd(event.name, preview(event.content, 600), event.isError);
       break;
     case "error":
       h.onError(event.message);
@@ -2383,6 +2395,134 @@ function preview(value: unknown, max = 120): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
+function formatToolAction(
+  name: string,
+  input: unknown,
+  running: boolean,
+  error?: boolean,
+): string {
+  const verb = toolVerb(name, running, error);
+  const target = toolTarget(name, input);
+  return target ? `${verb} ${target}` : verb;
+}
+
+function toolVerb(name: string, running: boolean, error?: boolean): string {
+  if (error) return `Failed ${name}`;
+  const pair: readonly [string, string] = (() => {
+    switch (name) {
+      case "exec":
+      case "PowerShell":
+        return ["Run", "Ran"];
+      case "read_file":
+        return ["Read", "Read"];
+      case "write_file":
+        return ["Write", "Wrote"];
+      case "edit_file":
+        return ["Edit", "Edited"];
+      case "apply_patch":
+        return ["Apply patch", "Applied patch"];
+      case "list_dir":
+        return ["List", "Listed"];
+      case "glob":
+        return ["Find", "Found"];
+      case "grep":
+        return ["Search", "Searched"];
+      case "http_fetch":
+        return ["Fetch", "Fetched"];
+      case "todo_write":
+        return ["Update todos", "Updated todos"];
+      case "ask_user":
+        return ["Ask user", "Asked user"];
+      default:
+        return ["Run tool", "Ran tool"];
+    }
+  })();
+  return running ? pair[0] : pair[1];
+}
+
+function toolTarget(name: string, input: unknown): string {
+  const command = inputString(input, "command");
+  if ((name === "exec" || name === "PowerShell") && command) return command;
+
+  const path = inputString(input, "path");
+  if (["read_file", "write_file", "edit_file", "list_dir"].includes(name) && path) {
+    return quotePath(path);
+  }
+
+  if (name === "grep") {
+    const pattern = inputString(input, "pattern");
+    const include = inputString(input, "include");
+    return [pattern ? quotePath(pattern) : "", include ? `in ${include}` : ""]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (name === "glob") {
+    const pattern = inputString(input, "pattern");
+    return pattern ? quotePath(pattern) : "";
+  }
+
+  if (name === "http_fetch") {
+    return inputString(input, "url") ?? "";
+  }
+
+  if (name === "apply_patch") {
+    const patch = inputString(input, "patch");
+    return patch ? patchTargets(patch).join(", ") : "";
+  }
+
+  if (name === "todo_write") {
+    return todoSummary(input);
+  }
+
+  if (name === "ask_user") {
+    return inputString(input, "question") ?? "";
+  }
+
+  return preview(input, 120);
+}
+
+function formatToolOutput(output: string): string[] {
+  const lines = output
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return [];
+  const shown = lines.slice(0, 4);
+  if (lines.length > shown.length) shown.push(`… ${lines.length - shown.length} more lines`);
+  return shown;
+}
+
+function quotePath(path: string): string {
+  return `"${path}"`;
+}
+
+function patchTargets(patch: string): string[] {
+  const targets = new Set<string>();
+  for (const line of patch.split("\n")) {
+    const match = /^\+\+\+\s+(?:b\/)?(.+)$/.exec(line);
+    if (!match) continue;
+    const target = match[1];
+    if (!target || target === "/dev/null") continue;
+    targets.add(quotePath(target));
+  }
+  return [...targets].slice(0, 3);
+}
+
+function todoSummary(input: unknown): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const todos = (input as Record<string, unknown>).todos;
+  if (!Array.isArray(todos)) return "";
+  const counts = new Map<string, number>();
+  for (const todo of todos) {
+    if (!todo || typeof todo !== "object" || Array.isArray(todo)) continue;
+    const status = (todo as Record<string, unknown>).status;
+    if (typeof status === "string") counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  const parts = [...counts.entries()].map(([status, count]) => `${count} ${status}`);
+  return parts.length ? parts.join(", ") : `${todos.length} items`;
+}
+
 function truncateSingleLine(value: string, max: number): string {
   const safeMax = Math.max(8, max);
   const flat = value.replace(/\s+/g, " ").trim();
@@ -2412,12 +2552,12 @@ function messagesToItems(messages: Message[]): Item[] {
         // system summaries (from compaction) are context only — skip in the UI
       } else if (part.type === "tool_call") {
         toolIndexById.set(part.id, items.length);
-        items.push({ kind: "tool", name: part.name, input: preview(part.arguments) });
+        items.push({ kind: "tool", name: part.name, input: part.arguments });
       } else if (part.type === "tool_result") {
         const index = toolIndexById.get(part.toolCallId);
         const target = index !== undefined ? items[index] : undefined;
         if (target && target.kind === "tool") {
-          target.output = preview(part.content, 200);
+          target.output = preview(part.content, 600);
           if (part.isError) target.error = true;
         }
       }
