@@ -77,6 +77,7 @@ export type {
 export {
   extractorFor,
   goExtractor,
+  javaExtractor,
   javascriptExtractor,
   pythonExtractor,
   rustExtractor,

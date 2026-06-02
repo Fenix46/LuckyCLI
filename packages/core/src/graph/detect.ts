@@ -28,6 +28,7 @@ const EXT_TO_LANGUAGE: Record<string, GraphLanguage> = {
   ".pyi": "python",
   ".go": "go",
   ".rs": "rust",
+  ".java": "java",
 };
 
 /** The language for a path, or undefined if no extractor handles it. */

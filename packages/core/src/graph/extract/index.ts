@@ -3,6 +3,7 @@
  * The build pipeline uses this to dispatch each detected file.
  */
 import { goExtractor } from "./go.js";
+import { javaExtractor } from "./java.js";
 import type { GraphLanguage } from "./parser.js";
 import { pythonExtractor } from "./python.js";
 import { rustExtractor } from "./rust.js";
@@ -16,6 +17,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   python: pythonExtractor,
   go: goExtractor,
   rust: rustExtractor,
+  java: javaExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -27,4 +29,5 @@ export { typescriptExtractor, tsxExtractor, javascriptExtractor };
 export { pythonExtractor };
 export { goExtractor };
 export { rustExtractor };
+export { javaExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";
