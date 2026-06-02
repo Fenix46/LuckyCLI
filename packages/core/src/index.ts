@@ -51,6 +51,42 @@ export {
 } from "./project-memory.js";
 export type { ProjectMemory } from "./project-memory.js";
 
+// Native knowledge graph (schema + on-disk store).
+export {
+  CONFIDENCES,
+  GRAPH_FORMAT_VERSION,
+  KNOWN_RELATIONS,
+  NODE_KINDS,
+  assertValidGraph,
+  emptyGraph,
+  makeNodeId,
+  parseGraph,
+  validateGraph,
+} from "./graph/types.js";
+export type {
+  Confidence,
+  Extraction,
+  Graph,
+  GraphEdge,
+  GraphMeta,
+  GraphNode,
+  NodeKind,
+} from "./graph/types.js";
+export {
+  GRAPH_DIR,
+  GRAPH_FILE,
+  edgesFrom,
+  edgesTo,
+  findNodesByLabel,
+  getNode,
+  graphDirPath,
+  graphFilePath,
+  loadGraph,
+  nodesInFile,
+  saveGraph,
+  tryLoadGraph,
+} from "./graph/store.js";
+
 // Configuration.
 export {
   credentialsFromEnv,
