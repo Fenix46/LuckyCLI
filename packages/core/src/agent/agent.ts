@@ -16,7 +16,6 @@ import type { AskUserRequest } from "../tools/types.js";
 import { buildSummarizationPrompt } from "../prompts/index.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
-const DEFAULT_MAX_STEPS = 40;
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
 
 export interface AgentConfig {
@@ -27,7 +26,12 @@ export interface AgentConfig {
   cwd?: string;
   temperature?: number;
   maxTokens?: number;
-  /** Safety bound on provider round-trips per user turn. */
+  /**
+   * Optional safety bound on provider round-trips per user turn. Unset means
+   * unlimited: the agent keeps working until the model stops requesting tools
+   * or the user interrupts (Esc). This is intentionally *not* capped by default
+   * so a productive loop is never killed mid-task.
+   */
   maxSteps?: number;
   compaction?: {
     enabled?: boolean;
@@ -72,7 +76,7 @@ export class Agent {
   private readonly cwd: string;
   private readonly temperature: number | undefined;
   private readonly maxTokens: number | undefined;
-  private readonly maxSteps: number;
+  private readonly maxSteps: number | undefined;
   private readonly compaction: RequiredCompactionConfig;
   private readonly modelInfo: ModelInfo;
   private readonly permissions: ToolPermissionPolicy | undefined;
@@ -90,7 +94,7 @@ export class Agent {
     this.cwd = cfg.cwd ?? process.cwd();
     this.temperature = cfg.temperature;
     this.maxTokens = cfg.maxTokens;
-    this.maxSteps = cfg.maxSteps ?? DEFAULT_MAX_STEPS;
+    this.maxSteps = cfg.maxSteps;
     this.compaction = {
       enabled: cfg.compaction?.enabled ?? true,
       thresholdRatio: cfg.compaction?.thresholdRatio ?? 0.75,
@@ -147,7 +151,10 @@ export class Agent {
       yield { type: "context", status: await this.contextStatus() };
     }
 
-    for (let step = 0; step < this.maxSteps; step++) {
+    // Unbounded by default: the loop ends when the model stops requesting tools
+    // or the user interrupts. A finite maxSteps is only enforced when explicitly
+    // configured, as a safety bound against a runaway tool-calling loop.
+    for (let step = 0; this.maxSteps === undefined || step < this.maxSteps; step++) {
       // Stop cleanly between steps if the user interrupted while tools ran.
       if (signal?.aborted) {
         this.finalizeInterrupted();
