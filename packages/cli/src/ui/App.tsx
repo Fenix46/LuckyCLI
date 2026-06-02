@@ -136,6 +136,7 @@ export function App({
   const pendingStreamingRef = useRef("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [activityFrame, setActivityFrame] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   // Timestamp of the last Ctrl+C while busy, so a quick second press can force
   // quit even if the running turn is wedged and won't honor the abort.
@@ -212,6 +213,7 @@ export function App({
     }
     const timer = setInterval(() => {
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+      setActivityFrame((frame) => frame + 1);
     }, 500);
     return () => clearInterval(timer);
   }, [busy, startedAt]);
@@ -943,9 +945,11 @@ export function App({
           </Box>
         ) : busy && !approvalRequest && !userQuestionRequest ? (
           <Box marginY={0.5}>
-            <Text color={activeTheme.muted}>
-              ● lucky › thinking... ({elapsedSeconds}s elapsed)
-            </Text>
+            <ThinkingStatus
+              theme={activeTheme}
+              elapsedSeconds={elapsedSeconds}
+              frame={activityFrame}
+            />
           </Box>
         ) : null}
       </Box>
@@ -1086,11 +1090,6 @@ export function App({
 
       <Box width="100%" paddingX={0} justifyContent="space-between" marginTop={0.2}>
         <Box flexDirection="row" gap={1}>
-          {busy && (
-            <Text color={activeTheme.muted}>
-              ⏳ thinking for {elapsedSeconds}s...
-            </Text>
-          )}
           {permissionMode === "acceptEdits" ? (
             <Text color={activeTheme.success} bold>
               ⏵⏵ accept edits on{" "}
@@ -1111,6 +1110,29 @@ export function App({
         </Box>
       </Box>
     </Box>
+  );
+}
+
+function ThinkingStatus({
+  theme,
+  elapsedSeconds,
+  frame,
+}: {
+  theme: Theme;
+  elapsedSeconds: number;
+  frame: number;
+}): React.JSX.Element {
+  const frames = ["●", "●", "◆", "◆", "▲", "▲"];
+  const pulse = frames[frame % frames.length] ?? "●";
+  const dots = ".".repeat((frame % 3) + 1).padEnd(3, " ");
+  return (
+    <Text bold color={theme.success}>
+      {pulse} lucky{" "}
+      <Text color={theme.accent}>
+        thinking{dots}
+      </Text>{" "}
+      <Text color="white">({elapsedSeconds}s)</Text>
+    </Text>
   );
 }
 
