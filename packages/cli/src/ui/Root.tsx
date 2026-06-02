@@ -14,7 +14,7 @@ import {
   type ToolApproval,
 } from "@luckycli/core";
 import { buildAgent } from "../runtime.js";
-import { App, type ApprovalRequest, type UserQuestionRequest } from "./App.js";
+import { App, type ApprovalRequest, type PermissionMode, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
 
@@ -55,10 +55,31 @@ export function Root({
   const [pendingMessages, setPendingMessages] = useState<Message[] | null>(null);
   const [setupFallbackRuntime, setSetupFallbackRuntime] = useState<ActiveRuntime | null>(null);
   const sessionApprovedTools = useRef<Set<string>>(new Set());
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>("normal");
+  // The agent captures `approveTool` at build time, so the closure must read the
+  // mode from a ref (a state value would be stale inside the captured closure).
+  const permissionModeRef = useRef<PermissionMode>("normal");
+
+  function cyclePermissionMode() {
+    // The ref is the source of truth (the agent's captured approveTool reads it);
+    // state just mirrors it for rendering. Only two modes for now, so toggle.
+    const next: PermissionMode =
+      permissionModeRef.current === "normal" ? "acceptEdits" : "normal";
+    permissionModeRef.current = next;
+    // Returning to normal also forgets the session's "always" approvals, so the
+    // user starts asking again from a clean slate.
+    if (next === "normal") sessionApprovedTools.current.clear();
+    setPermissionMode(next);
+  }
 
   function approveTool(name: string, input: unknown) {
     const key = approvalScope(name, input);
     if (sessionApprovedTools.current.has(key)) return "allow" satisfies ToolApproval;
+    // Accept-edits mode auto-approves file edits (writes/edits/patches) without
+    // prompting; shell execution still always asks.
+    if (permissionModeRef.current === "acceptEdits" && AUTO_ACCEPT_EDIT_TOOLS.has(name)) {
+      return "allow" satisfies ToolApproval;
+    }
 
     return new Promise<ToolApproval>((resolve) => {
       setApprovalRequest({
@@ -143,6 +164,8 @@ export function Root({
     setResumeSession(session);
     setPicking(false);
     sessionApprovedTools.current.clear();
+    permissionModeRef.current = "normal";
+    setPermissionMode("normal");
     const resolved = resolveConfig({
       provider: session.provider,
       model: session.model,
@@ -288,6 +311,8 @@ export function Root({
       onTriggerSetup={onTriggerProviderSetup}
       onChangeModel={onChangeModel}
       onTriggerResume={() => setPicking(true)}
+      permissionMode={permissionMode}
+      onCyclePermissionMode={cyclePermissionMode}
       {...(resumeSession ? { resumed: resumeSession } : {})}
     />
   );
@@ -307,6 +332,9 @@ export function Root({
  *  - every other ask-level tool (write_file, edit_file, apply_patch, …):
  *    remember the whole tool, so approving once stops the re-prompts.
  */
+/** Tools auto-approved while the session is in "accept edits" mode. */
+const AUTO_ACCEPT_EDIT_TOOLS = new Set(["write_file", "edit_file", "apply_patch"]);
+
 function approvalScope(name: string, input: unknown): string {
   if (name === "exec") {
     const command = (input as { command?: unknown } | null)?.command;

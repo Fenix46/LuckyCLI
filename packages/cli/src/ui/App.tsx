@@ -56,6 +56,9 @@ export interface UserQuestionRequest extends AskUserRequest {
   resolve: (answer: string) => void;
 }
 
+/** Session-wide tool-approval mode, cycled from the prompt with Shift+Tab. */
+export type PermissionMode = "normal" | "acceptEdits";
+
 interface AppProps {
   agent: Agent;
   meta: AppMeta;
@@ -66,6 +69,10 @@ interface AppProps {
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
   onTriggerResume: () => void;
+  /** Current tool-approval mode, displayed in the footer. */
+  permissionMode: PermissionMode;
+  /** Cycle the tool-approval mode (Shift+Tab). */
+  onCyclePermissionMode: () => void;
   /** A session loaded via --continue/--resume, replayed into the transcript. */
   resumed?: Session;
 }
@@ -91,6 +98,8 @@ export function App({
   onTriggerSetup,
   onChangeModel,
   onTriggerResume,
+  permissionMode,
+  onCyclePermissionMode,
   resumed,
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
@@ -259,6 +268,20 @@ export function App({
 
   // Ctrl+C exits when idle. Support autocomplete and tool approval.
   useInput((_in, key) => {
+    // 0. Shift+Tab cycles the session permission mode. Intercept it before any
+    // other branch so it never triggers a plain-Tab action (option cycling,
+    // slash-command completion). Ignore it while a modal/picker owns the keys.
+    if (key.tab && key.shift) {
+      const modalActive =
+        Boolean(approvalRequest) ||
+        Boolean(userQuestionRequest) ||
+        modelPicker.open ||
+        themePicker.open ||
+        showSlashMenu;
+      if (!modalActive) onCyclePermissionMode();
+      return;
+    }
+
     // 1. Tool safety approval has highest precedence
     if (approvalRequest) {
       if (key.ctrl && _in === "c") {
@@ -1055,6 +1078,18 @@ export function App({
           {busy && (
             <Text color={activeTheme.muted}>
               ⏳ thinking for {elapsedSeconds}s...
+            </Text>
+          )}
+          {permissionMode === "acceptEdits" ? (
+            <Text color={activeTheme.success} bold>
+              ⏵⏵ accept edits on{" "}
+              <Text color={activeTheme.muted} dimColor>
+                (shift+tab to cycle)
+              </Text>
+            </Text>
+          ) : (
+            <Text color={activeTheme.muted} dimColor>
+              shift+tab: accept edits
             </Text>
           )}
         </Box>
