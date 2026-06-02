@@ -1034,7 +1034,14 @@ export function App({
             submitEnabled={
               !modelPicker.open &&
               !themePicker.open &&
-              !(showSlashMenu && filteredCommands.length > 0) &&
+              // Block submit only while the slash menu still has a pending
+              // completion. Once the text is an exact command name (e.g.
+              // "/sessions"), Enter must submit so the command can run.
+              !(
+                showSlashMenu &&
+                filteredCommands.length > 0 &&
+                !filteredCommands.some((cmd) => cmd.name === input)
+              ) &&
               !approvalRequest &&
               (!busy || Boolean(userQuestionRequest))
             }
@@ -1086,7 +1093,14 @@ function ChatInput({
     if (key.upArrow || key.downArrow || key.tab || (key.ctrl && input === "c")) return;
 
     if (key.return || input === "\r" || input === "\n") {
-      if (key.ctrl || key.meta || input === "\r" || input === "\n") {
+      // Ink reports a *plain* Enter as key.return === true with no modifiers.
+      // A modified Enter for a newline — Option/Alt+Enter on macOS, Ctrl+Enter
+      // on Windows/Linux — reaches here differently: ink strips the ESC prefix
+      // so it arrives as a bare "\r"/"\n" with key.return === false (Option on
+      // macOS), or with key.ctrl/key.meta set. So anything that is NOT a plain
+      // Enter inserts a newline; only a plain Enter submits.
+      const isPlainEnter = key.return && !key.ctrl && !key.meta;
+      if (!isPlainEnter) {
         const nextValue = insertAt(value, cursorOffset, "\n");
         onChange(nextValue);
         setCursorOffset(cursorOffset + 1);
