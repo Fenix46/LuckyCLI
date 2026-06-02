@@ -1762,34 +1762,48 @@ function ApprovalRequestView({
   const detail = approvalDisplay(request, width);
   const panelWidth = Math.max(48, Math.min(width, 104));
   return (
-    <Box flexDirection="column" paddingLeft={2} marginY={0.5} width={panelWidth}>
+    <Box
+      flexDirection="column"
+      marginY={0.5}
+      width={panelWidth}
+      borderStyle="single"
+      borderColor={theme.warning}
+      borderTop={false}
+      borderRight={false}
+      borderBottom={false}
+      paddingLeft={2}
+    >
       <Box flexDirection="row">
-        <Text bold color={theme.warning}>Permission required</Text>
-        <Text color={theme.muted}> · {request.name}</Text>
+        <Text bold color={theme.warning}>● Permission required</Text>
+        <Text color={theme.muted}>  ·  </Text>
+        <Text bold color={theme.accent}>{request.name}</Text>
       </Box>
 
       <Box marginTop={0.3}>
-        <Text>{detail.question}</Text>
+        <Text bold color="white">{detail.question}</Text>
       </Box>
 
       {detail.target ? (
         <Box marginTop={0.2} flexDirection="row">
-          <Text color={theme.muted}>Target: </Text>
-          <Text color="white">{detail.target}</Text>
+          <Text color={theme.muted}>target  </Text>
+          <Text color={theme.primary}>{detail.target}</Text>
         </Box>
       ) : null}
 
       {detail.preview.length > 0 ? (
-        <Box flexDirection="column" marginTop={0.5} paddingLeft={2}>
+        <Box flexDirection="column" marginTop={0.4}>
           {detail.preview.map((line, index) => (
-            <Text key={index} color={line.color === "added" ? theme.success : line.color === "removed" ? theme.error : theme.muted}>
-              {line.text}
-            </Text>
+            <Box key={index} flexDirection="row">
+              <Text color={theme.muted} dimColor>│ </Text>
+              <Text color={line.color === "added" ? theme.success : line.color === "removed" ? theme.error : theme.muted}>
+                {line.text}
+              </Text>
+            </Box>
           ))}
         </Box>
       ) : null}
 
-      <Box flexDirection="column" marginTop={0.7}>
+      <Box flexDirection="column" marginTop={0.6}>
         {options.map((option, index) => (
           <ApprovalOptionView
             key={option}
@@ -1800,8 +1814,8 @@ function ApprovalRequestView({
         ))}
       </Box>
 
-      <Box marginTop={0.3}>
-        <Text color={theme.muted}>Arrows or h/j/k/l to select · Enter approve · Esc reject</Text>
+      <Box marginTop={0.4}>
+        <Text color={theme.muted} dimColor>↑↓ / jk move · enter approve · esc reject</Text>
       </Box>
     </Box>
   );
@@ -1828,10 +1842,10 @@ function ApprovalOptionView({
   return (
     <Box flexDirection="row">
       <Text bold={selected} color={selected ? color : theme.muted}>
-        {selected ? "› " : "  "}
-        {label.padEnd(12)}
+        {selected ? "❯ " : "  "}
+        {label.padEnd(14)}
       </Text>
-      <Text color={selected ? "white" : theme.muted}>{description}</Text>
+      <Text color={selected ? "white" : theme.muted} dimColor={!selected}>{description}</Text>
     </Box>
   );
 }
@@ -1851,22 +1865,33 @@ function UserQuestionRequestView({
   const freeText = request.allowFreeText ?? true;
   const panelWidth = Math.max(48, Math.min(width, 104));
   return (
-    <Box flexDirection="column" paddingLeft={2} marginY={0.5} width={panelWidth}>
+    <Box
+      flexDirection="column"
+      marginY={0.5}
+      width={panelWidth}
+      borderStyle="single"
+      borderColor={theme.accent}
+      borderTop={false}
+      borderRight={false}
+      borderBottom={false}
+      paddingLeft={2}
+    >
       <Box flexDirection="row">
-        <Text bold color={theme.warning}>Question from agent</Text>
-        <Text color={theme.muted}> · ask_user</Text>
+        <Text bold color={theme.accent}>● Question from agent</Text>
+        <Text color={theme.muted}>  ·  </Text>
+        <Text bold color={theme.accent}>ask_user</Text>
       </Box>
 
       <Box marginTop={0.3}>
-        <Text>{request.question}</Text>
+        <Text bold color="white">{request.question}</Text>
       </Box>
 
       {options.length > 0 ? (
-        <Box flexDirection="column" marginTop={0.7}>
+        <Box flexDirection="column" marginTop={0.6}>
           {options.map((option, index) => (
             <Box key={`${option}-${index}`} flexDirection="row">
-              <Text bold={index === selectedIndex} color={index === selectedIndex ? theme.accent : theme.muted}>
-                {index === selectedIndex ? "› " : "  "}
+              <Text bold={index === selectedIndex} color={index === selectedIndex ? theme.accent : theme.muted} dimColor={index !== selectedIndex}>
+                {index === selectedIndex ? "❯ " : "  "}
                 {option}
               </Text>
             </Box>
@@ -1874,12 +1899,12 @@ function UserQuestionRequestView({
         </Box>
       ) : null}
 
-      <Box marginTop={0.3}>
-        <Text color={theme.muted}>
+      <Box marginTop={0.4}>
+        <Text color={theme.muted} dimColor>
           {freeText
-            ? "Type an answer and press Enter"
-            : "Arrows or h/j/k/l to select · Enter answer · Esc skip"}
-          {freeText && options.length > 0 ? " · or press Enter empty to use selected option" : ""}
+            ? "type an answer · enter to send"
+            : "↑↓ / jk move · enter answer · esc skip"}
+          {freeText && options.length > 0 ? " · empty enter uses selected" : ""}
         </Text>
       </Box>
     </Box>
