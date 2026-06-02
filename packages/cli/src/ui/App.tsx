@@ -72,20 +72,14 @@ interface AppProps {
 }
 
 const ALL_SLASH_COMMANDS = [
-  { name: "/help", desc: "Show all available slash commands" },
   { name: "/model", desc: "Switch model for the active provider" },
   { name: "/status", desc: "Show provider auth, account, quota and context status" },
-  { name: "/context", desc: "Show model context window and usage" },
   { name: "/update", desc: "Check for a newer LuckyCLI release" },
   { name: "/compact", desc: "Summarize older chat history now" },
-  { name: "/sessions", desc: "List saved sessions (resume with: lucky --resume <id>)" },
   { name: "/resume", desc: "Pick a saved session to resume" },
   { name: "/provider", desc: "Switch provider and authenticate" },
-  { name: "/setup", desc: "Alias for /provider" },
-  { name: "/config", desc: "Show active provider and model info" },
   { name: "/theme", desc: "Choose terminal UI colors" },
   { name: "/exit", desc: "Exit the lucky agent session" },
-  { name: "/quit", desc: "Alias for /exit" },
 ];
 
 export function App({

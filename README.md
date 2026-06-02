@@ -115,8 +115,8 @@ Inside the REPL, slash commands drive the session:
 ```
 /help      show all slash commands       /compact   summarize older history now
 /model     switch model for the provider /provider  switch provider / login
-/context   show context window + usage    /config    show active provider + model
-/sessions  list saved sessions            /theme     choose terminal UI colors
+/status    show provider and context      /theme     choose terminal UI colors
+/resume    pick a saved session           /update    check for a newer release
 /exit      quit (alias: /quit)
 ```
 
