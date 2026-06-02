@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { resolveExistingInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
-import { matchGlob, walkFiles } from "./fs-search.js";
+import { defaultIgnoreGlobs, matchGlob, runRipgrep, walkFiles } from "./fs-search.js";
 
 const LIMIT = 100;
 
@@ -21,6 +21,9 @@ export const globTool = defineTool({
   }),
   async execute({ pattern, path = "." }, ctx) {
     const root = await resolveExistingInsideCwd(ctx.cwd, path);
+    const rgMatches = await globWithRipgrep(root, pattern, ctx.signal);
+    if (rgMatches) return formatGlobMatches(rgMatches, pattern);
+
     const matches: { relPath: string; mtimeMs: number }[] = [];
     for await (const file of walkFiles(root, ctx.signal)) {
       if (matchGlob(pattern, file.relPath)) {
@@ -28,16 +31,33 @@ export const globTool = defineTool({
       }
     }
 
-    if (matches.length === 0) {
-      return { content: `No files matching '${pattern}'.` };
-    }
-
     matches.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const truncated = matches.length > LIMIT;
-    const shown = matches.slice(0, LIMIT).map((m) => m.relPath);
-    const suffix = truncated
-      ? `\n\n[showing first ${LIMIT} of ${matches.length} matches]`
-      : "";
-    return { content: shown.join("\n") + suffix };
+    return formatGlobMatches(matches.map((m) => m.relPath), pattern);
   },
 });
+
+async function globWithRipgrep(
+  root: string,
+  pattern: string,
+  signal?: AbortSignal,
+): Promise<string[] | undefined> {
+  const stdout = await runRipgrep(
+    ["--files", "--glob", pattern, ...defaultIgnoreGlobs()],
+    root,
+    signal,
+  );
+  if (stdout === undefined) return undefined;
+  return stdout.split(/\r?\n/).filter(Boolean);
+}
+
+function formatGlobMatches(matches: string[], pattern: string) {
+  if (matches.length === 0) {
+    return { content: `No files matching '${pattern}'.` };
+  }
+  const truncated = matches.length > LIMIT;
+  const shown = matches.slice(0, LIMIT);
+  const suffix = truncated
+    ? `\n\n[showing first ${LIMIT} of ${matches.length} matches]`
+    : "";
+  return { content: shown.join("\n") + suffix };
+}

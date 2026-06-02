@@ -1,8 +1,10 @@
+import { execFile } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { promisify } from "node:util";
 
 /** Directories never worth walking for code search. */
-const DEFAULT_IGNORE = new Set([
+export const DEFAULT_IGNORE = new Set([
   "node_modules",
   ".git",
   "dist",
@@ -11,6 +13,8 @@ const DEFAULT_IGNORE = new Set([
   ".next",
   ".turbo",
 ]);
+const execFileAsync = promisify(execFile);
+const RG_MAX_BUFFER = 2 * 1024 * 1024;
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -78,6 +82,30 @@ export interface WalkedFile {
   relPath: string;
   absPath: string;
   mtimeMs: number;
+}
+
+export async function runRipgrep(
+  args: string[],
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("rg", args, {
+      cwd,
+      maxBuffer: RG_MAX_BUFFER,
+      ...(signal ? { signal } : {}),
+    });
+    return stdout;
+  } catch (err) {
+    const e = err as { code?: unknown; stdout?: string };
+    if (e.code === 1) return e.stdout ?? "";
+    if (e.code === "ENOENT") return undefined;
+    return undefined;
+  }
+}
+
+export function defaultIgnoreGlobs(): string[] {
+  return [...DEFAULT_IGNORE].map((dir) => `!${dir}/**`);
 }
 
 /**

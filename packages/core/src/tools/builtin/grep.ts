@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { z } from "zod";
 import { resolveExistingInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
-import { matchGlob, walkFiles } from "./fs-search.js";
+import { defaultIgnoreGlobs, matchGlob, runRipgrep, walkFiles } from "./fs-search.js";
 
 const MAX_MATCHES = 200;
 const MAX_FILE_BYTES = 1024 * 1024; // skip files larger than 1MB
@@ -42,6 +42,9 @@ export const grepTool = defineTool({
     }
 
     const root = await resolveExistingInsideCwd(ctx.cwd, path);
+    const rgResult = await grepWithRipgrep(root, pattern, include, ctx.signal);
+    if (rgResult) return formatHits(rgResult.hits, pattern, rgResult.truncated);
+
     const hits: { relPath: string; line: number; text: string; mtimeMs: number }[] = [];
     let truncated = false;
 
@@ -75,15 +78,64 @@ export const grepTool = defineTool({
       }
     }
 
-    if (hits.length === 0) {
-      return { content: `No matches for /${pattern}/.` };
-    }
-
     hits.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const body = hits
-      .map((h) => `${h.relPath}:${h.line}: ${h.text}`)
-      .join("\n");
-    const suffix = truncated ? `\n\n[stopped at ${MAX_MATCHES} matches]` : "";
-    return { content: body + suffix };
+    return formatHits(hits, pattern, truncated);
   },
 });
+
+interface GrepHit {
+  relPath: string;
+  line: number;
+  text: string;
+}
+
+async function grepWithRipgrep(
+  root: string,
+  pattern: string,
+  include?: string,
+  signal?: AbortSignal,
+): Promise<{ hits: GrepHit[]; truncated: boolean } | undefined> {
+  const args = [
+    "--line-number",
+    "--no-heading",
+    "--color",
+    "never",
+    "--max-count",
+    String(MAX_MATCHES),
+    "--max-filesize",
+    String(MAX_FILE_BYTES),
+    ...(include ? ["--glob", include] : []),
+    ...defaultIgnoreGlobs().flatMap((glob) => ["--glob", glob]),
+    pattern,
+    ".",
+  ];
+  const stdout = await runRipgrep(args, root, signal);
+  if (stdout === undefined) return undefined;
+
+  const hits = stdout
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(parseRipgrepLine)
+    .filter((hit): hit is GrepHit => hit !== undefined);
+
+  return { hits: hits.slice(0, MAX_MATCHES), truncated: hits.length >= MAX_MATCHES };
+}
+
+function parseRipgrepLine(line: string): GrepHit | undefined {
+  const match = /^(.+?):(\d+):(.*)$/.exec(line);
+  if (!match) return undefined;
+  return {
+    relPath: match[1]!.replace(/^\.\//, ""),
+    line: Number(match[2]),
+    text: match[3]!.trim().slice(0, 500),
+  };
+}
+
+function formatHits(hits: GrepHit[], pattern: string, truncated: boolean) {
+  if (hits.length === 0) {
+    return { content: `No matches for /${pattern}/.` };
+  }
+  const body = hits.map((h) => `${h.relPath}:${h.line}: ${h.text}`).join("\n");
+  const suffix = truncated ? `\n\n[stopped at ${MAX_MATCHES} matches]` : "";
+  return { content: body + suffix };
+}

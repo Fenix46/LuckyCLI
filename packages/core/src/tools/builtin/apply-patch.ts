@@ -1,15 +1,17 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { z } from "zod";
-import { resolveExistingInsideCwd } from "../path.js";
+import { resolveExistingInsideCwd, resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 
 export const applyPatchTool = defineTool({
   name: "apply_patch",
   description:
-    "Apply a simple unified diff patch to existing text files, relative to the " +
+    "Apply a simple unified diff patch to text files, relative to the " +
     "working directory. Supports standard hunks with ---/+++ file headers and " +
     "@@ ranges. Use for precise multi-line edits when edit_file is awkward. " +
-    "Does not create, delete, rename files, or accept absolute/outside paths.",
+    "Can create, update, and delete files. Does not rename files or accept " +
+    "absolute/outside paths.",
   schema: z.object({
     patch: z.string().describe("Unified diff text to apply."),
   }),
@@ -20,10 +22,26 @@ export const applyPatchTool = defineTool({
 
       const changed: string[] = [];
       for (const file of files) {
-        const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
-        const original = await readFile(abs, "utf8");
-        const updated = applyFilePatch(original, file);
-        await writeFile(abs, updated, "utf8");
+        if (file.operation === "add") {
+          const target = resolveInsideCwd(ctx.cwd, file.path);
+          await mkdir(dirname(target), { recursive: true });
+          const abs = await resolveWritableInsideCwd(ctx.cwd, file.path);
+          const updated = applyFilePatch("", file);
+          await writeFile(abs, updated, "utf8");
+        } else if (file.operation === "delete") {
+          const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
+          const original = await readFile(abs, "utf8");
+          const updated = applyFilePatch(original, file);
+          if (updated.length > 0) {
+            throw new Error(`Delete patch for ${file.path} did not remove all content.`);
+          }
+          await unlink(abs);
+        } else {
+          const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
+          const original = await readFile(abs, "utf8");
+          const updated = applyFilePatch(original, file);
+          await writeFile(abs, updated, "utf8");
+        }
         changed.push(file.path);
       }
 
@@ -37,6 +55,7 @@ export const applyPatchTool = defineTool({
 
 interface FilePatch {
   path: string;
+  operation: "add" | "delete" | "update";
   hunks: Hunk[];
 }
 
@@ -60,10 +79,15 @@ export function parseUnifiedDiff(patch: string): FilePatch[] {
       const next = lines[i + 1];
       if (!next?.startsWith("+++ ")) throw new Error("Expected +++ after --- header.");
       const newPath = cleanDiffPath(next.slice(4).trim());
-      if (oldPath === "/dev/null" || newPath === "/dev/null") {
-        throw new Error("Creating or deleting files is not supported by apply_patch.");
+      if (oldPath === "/dev/null" && newPath === "/dev/null") {
+        throw new Error("Patch cannot use /dev/null for both old and new paths.");
       }
-      current = { path: newPath || oldPath, hunks: [] };
+      const operation = oldPath === "/dev/null" ? "add" : newPath === "/dev/null" ? "delete" : "update";
+      current = {
+        path: operation === "delete" ? oldPath : newPath,
+        operation,
+        hunks: [],
+      };
       files.push(current);
       i++;
       continue;
@@ -135,7 +159,7 @@ export function applyFilePatch(content: string, patch: FilePatch): string {
 
   let offset = 0;
   for (const hunk of patch.hunks) {
-    const start = hunk.oldStart - 1 + offset;
+    const start = (hunk.oldStart === 0 ? 0 : hunk.oldStart - 1) + offset;
     if (start < 0 || start > lines.length) throw new Error(`Hunk starts outside file: ${hunk.oldStart}.`);
 
     const replacement: string[] = [];
@@ -166,5 +190,6 @@ export function applyFilePatch(content: string, patch: FilePatch): string {
   }
 
   const out = lines.join("\n");
+  if (out.length === 0) return "";
   return hadTrailingNewline ? `${out}\n` : out;
 }
