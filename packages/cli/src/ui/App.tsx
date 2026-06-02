@@ -812,15 +812,6 @@ export function App({
           { kind: "assistant", text },
         ]);
       };
-      const clearAssistantDraft = () => {
-        if (streamingFlushTimerRef.current) {
-          clearTimeout(streamingFlushTimerRef.current);
-          streamingFlushTimerRef.current = null;
-        }
-        pendingStreamingRef.current = "";
-        assistantBuf = "";
-        setStreaming("");
-      };
       const controller = new AbortController();
       abortControllerRef.current = controller;
       try {
@@ -831,7 +822,10 @@ export function App({
               scheduleStreaming();
             },
             onToolStart: (name, rawInput) => {
-              clearAssistantDraft();
+              // A tool call ends the current narration block — commit it to the
+              // transcript instead of discarding it, so text the model wrote
+              // before the tool is preserved (and the live preview clears).
+              flushAssistant();
               setItems((prev) => [
                 ...prev,
                 { kind: "tool", name, input: rawInput },
@@ -906,7 +900,7 @@ export function App({
       ? lastItem
       : undefined;
   const staticItems = liveTail ? items.slice(0, -1) : items;
-  const streamingStatus = streaming ? streamingStatusLine(streaming) : "";
+  const streamingPreview = streaming ? streamingTail(streaming) : "";
   const messageWidth = Math.max(32, terminalSize.width - 4);
 
   return (
@@ -948,11 +942,9 @@ export function App({
               elapsedSeconds={elapsedSeconds}
               frame={activityFrame}
             />
-            {streamingStatus ? (
-              <Box paddingLeft={2}>
-                <Text color={activeTheme.muted} wrap="truncate-end">
-                  {truncateSingleLine(streamingStatus, messageWidth - 4)}
-                </Text>
+            {streamingPreview ? (
+              <Box paddingLeft={2} marginTop={0.2}>
+                {parseMarkdownToReact(streamingPreview, activeTheme)}
               </Box>
             ) : null}
           </Box>
@@ -2011,16 +2003,6 @@ function inputString(input: unknown, key: string): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function streamingStatusLine(text: string): string {
-  const lines = text
-    .split("\n")
-    .map((line) => stripInlineMarkdown(line).trim())
-    .filter(Boolean);
-  const latest = lines.at(-1);
-  if (!latest) return "";
-  return `writing: ${latest}`;
-}
-
 interface Block {
   type: "paragraph" | "code" | "list" | "header";
   text: string;
@@ -2037,11 +2019,25 @@ interface Block {
  * first line.
  */
 const STREAMING_TAIL_CHARS = 8_000;
+const STREAMING_TAIL_LINES = 40;
 function capStreamingTail(text: string): string {
   if (text.length <= STREAMING_TAIL_CHARS) return text;
   const tail = text.slice(text.length - STREAMING_TAIL_CHARS);
   const nl = tail.indexOf("\n");
   return nl >= 0 ? tail.slice(nl + 1) : tail;
+}
+
+/**
+ * The text fed to the live markdown preview: the tail of the buffer, bounded by
+ * both characters and lines. This keeps each streaming re-render O(viewport)
+ * rather than O(whole reply) — the full message still lands in <Static> with
+ * complete markdown once it finalizes.
+ */
+function streamingTail(text: string): string {
+  const capped = capStreamingTail(text);
+  const lines = capped.split("\n");
+  if (lines.length <= STREAMING_TAIL_LINES) return capped;
+  return lines.slice(lines.length - STREAMING_TAIL_LINES).join("\n");
 }
 
 function parseMessageIntoBlocks(text: string): Block[] {
