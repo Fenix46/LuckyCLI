@@ -126,6 +126,16 @@ the others are implemented and unit-tested with mocked transports.
 > and capture the callback locally. Tokens are stored in `~/.luckycli/config.json`
 > (written `0600`) and refreshed automatically when they expire.
 
+> ⚠️ **Claude OAuth disclaimer.** The Claude browser login works the same way as
+> the official Claude Code login — it authenticates an **Anthropic subscription
+> account (Claude Pro / Max)**, not an API key. Using a subscription account this
+> way may be against Anthropic's Terms of Service and **could result in your
+> account being rate-limited, suspended or banned.** This project is an
+> independent, unofficial client and is **not affiliated with or endorsed by
+> Anthropic**. You use the Claude OAuth method entirely at your own risk — the
+> author accepts **no responsibility** for any action Anthropic takes against
+> your account. If in doubt, use an `ANTHROPIC_API_KEY` instead.
+
 ### Models
 
 Defaults in **bold**. Use `/model` in the REPL or `-m` on the CLI to switch.
@@ -200,7 +210,9 @@ side-effecting ones prompt for approval.
 - **SSRF guard.** `http_fetch` allows only `http`/`https` and blocks `localhost`,
   cloud metadata endpoints, and private/loopback IP ranges (after DNS resolution).
 
-Permissions are fully configurable — see [`LUCKY_TOOL_PERMISSIONS`](#configuration).
+By default read-only tools run freely, while `write_file`, `edit_file`,
+`apply_patch` and `exec` ask for approval — and choosing **always** is remembered
+for the session.
 
 ## Sessions
 
@@ -224,57 +236,24 @@ turns into a compact synopsis and continues — keeping recent turns verbatim. Y
 can also trigger it manually with `/compact`. Compaction is on by default and
 tunable via `AgentConfig.compaction` when embedding the library.
 
-## Configuration
+## Configuration & data
 
-Configuration is resolved in order of precedence: **CLI flags → stored config
-(`~/.luckycli/config.json`) → environment variables → built-in defaults.** Nothing
-throws for missing credentials — the REPL shows setup instead.
+After the first run, LuckyCLI stores everything in a single folder in your home
+directory: `~/.luckycli/`. It holds `config.json` (your provider, model,
+credentials and tool permissions — written `0600`) and a `sessions/` folder with
+your saved conversations.
 
-### Environment variables
+The exact location depends on your OS and account username (`<you>` below):
 
-Copy `.env.example` to `.env` to set any of these (the CLI loads `.env` on start).
+| OS | Path |
+|----|------|
+| macOS | `/Users/<you>/.luckycli/` |
+| Linux | `/home/<you>/.luckycli/` |
+| Windows | `C:\Users\<you>\.luckycli\` |
 
-**Defaults & behavior**
-
-| Variable | Purpose |
-|----------|---------|
-| `LUCKY_PROVIDER` | Default provider when not passed via `-p` |
-| `LUCKY_MODEL` | Default model when not passed via `-m` |
-| `LUCKY_TEMPERATURE` | Sampling temperature |
-| `LUCKY_MAX_TOKENS` | Max output tokens |
-| `LUCKY_SYSTEM` | Replace the entire system prompt |
-| `LUCKY_PROMPT_IDENTITY` / `_AGENCY` / `_TOOL_USE` / `_ENVIRONMENT` / `_SUMMARIZATION` | Override individual system-prompt sections |
-| `LUCKY_TOOL_PERMISSIONS` | Permission overrides, e.g. `exec=deny,apply_patch=allow,mcp_*=ask` |
-| `LUCKY_DISABLE_UPDATE_CHECK` | Skip the background update check |
-
-**Provider credentials (env fallback / non-interactive)**
-
-| Variable | Provider |
-|----------|----------|
-| `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` (+ `ANTHROPIC_REFRESH_TOKEN`) | Claude |
-| `OPENAI_API_KEY` (+ optional `OPENAI_BASE_URL`) | OpenAI |
-| `GEMINI_API_KEY` | Gemini (API key) |
-| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` / `GOOGLE_APPLICATION_CREDENTIALS` | Gemini (Vertex AI) |
-| `ANTIGRAVITY_ACCESS_TOKEN` / `ANTIGRAVITY_REFRESH_TOKEN` / `ANTIGRAVITY_EXPIRES_AT` | Antigravity |
-| `OLLAMA_BASE_URL` | Ollama (default `http://localhost:11434`) |
-
-**Build-time OAuth clients** (compiled into release binaries via the build script;
-keep secrets local, never commit real values):
-`LUCKY_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`, `LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID` / `_SECRET`.
-
-### Tool permission policy
-
-The default policy allows read-only tools, asks for `write_file` / `edit_file` /
-`apply_patch` / `exec`, and asks for any unknown tool. Override per tool or with
-wildcard patterns (longest match wins):
-
-```bash
-# Deny shell execution, always allow patch edits, ask for any mcp_* tool
-LUCKY_TOOL_PERMISSIONS=exec=deny,apply_patch=allow,mcp_*=ask
-```
-
-Stored config (`~/.luckycli/config.json` → `permissions`) is layered between the
-defaults and the env override.
+You normally never need to touch it — the interactive setup writes it for you, and
+`/provider`, `/model` and `/theme` update it from inside the REPL. To start fresh,
+delete the folder (or just `config.json`) and run `lucky` again.
 
 ## Architecture
 
