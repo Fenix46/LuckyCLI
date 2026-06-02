@@ -34,6 +34,7 @@ interface AppMeta {
 
 /** A line in the scrollback transcript. */
 type Item =
+  | { kind: "intro" }
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "tool"; name: string; input: unknown; output?: string; error?: boolean }
@@ -104,7 +105,7 @@ export function App({
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>(() =>
-    resumed ? messagesToItems(resumed.messages) : [],
+    resumed ? [{ kind: "intro" }, ...messagesToItems(resumed.messages)] : [{ kind: "intro" }],
   );
   // Session persistence: id + creation time, established lazily on first save.
   const sessionIdRef = useRef<string | null>(resumed?.id ?? null);
@@ -906,7 +907,7 @@ export function App({
       : undefined;
   const staticItems = liveTail ? items.slice(0, -1) : items;
   const streamingStatus = streaming ? streamingStatusLine(streaming) : "";
-  const messageWidth = Math.max(32, terminalSize.width - 16);
+  const messageWidth = Math.max(32, terminalSize.width - 4);
 
   return (
     <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
@@ -918,26 +919,21 @@ export function App({
             previous={index > 0 ? staticItems[index - 1] : undefined}
             theme={activeTheme}
             width={messageWidth}
+            provider={meta.provider}
+            model={meta.model}
           />
         )}
       </Static>
 
       <Box flexDirection="column" marginY={0.5}>
-        {staticItems.length === 0 && !liveTail && !busy ? (
-          <Box flexDirection="column" marginY={1}>
-            <IntroBanner
-              theme={activeTheme}
-              provider={meta.provider}
-              model={meta.model}
-            />
-            <Box marginTop={1}>
-              <Text color={activeTheme.muted}>
-                lucky › Input instruction payload or type / for command directory...
-              </Text>
-            </Box>
+        {staticItems.length === 1 && staticItems[0]?.kind === "intro" && !liveTail && !busy ? (
+          <Box marginTop={1}>
+            <Text color={activeTheme.muted}>
+              lucky › Input instruction payload or type / for command directory...
+            </Text>
           </Box>
         ) : null}
-        
+
         {liveTail ? (
           <Box marginY={0.5}>
             <WorkDelimiter theme={activeTheme} width={messageWidth} label="working" />
@@ -1076,8 +1072,7 @@ export function App({
             value={input}
             onChange={setInput}
             onSubmit={submit}
-            prompt={busy ? " ⏳ " : " > "}
-            promptColor={busy ? activeTheme.success : activeTheme.accent}
+            width={messageWidth}
             submitEnabled={
               !modelPicker.open &&
               !themePicker.open &&
@@ -1145,19 +1140,150 @@ function ThinkingStatus({
   );
 }
 
+function PromptBlock({
+  text,
+  width,
+  cursorOffset,
+  active = false,
+}: {
+  text: string;
+  width: number;
+  cursorOffset?: number;
+  active?: boolean;
+}): React.JSX.Element {
+  const lineWidth = Math.max(18, width);
+
+  // Active = the live input line. Keep it clean: a chevron prompt and the typed
+  // text, with no "you" badge and no background fill. The full highlight is
+  // reserved for sent messages so they stand out in the transcript.
+  if (active) {
+    const lines = promptBlockLines(text, cursorOffset, lineWidth, "› ");
+    return (
+      <Box flexDirection="column" width="100%">
+        {lines.map((line, index) => (
+          <Text key={`${index}-${line.text}`} color="#f2f5f8">
+            {line.beforeCursor}
+            {line.cursor ? <Text inverse>{line.cursor}</Text> : null}
+            {line.afterCursor}
+          </Text>
+        ))}
+      </Box>
+    );
+  }
+
+  // Sent user message: a "you ›" badge over a full-width highlight, so the
+  // user's own turns stay instantly distinguishable in the scrollback.
+  const bg = "#223246";
+  const fg = "#f2f5f8";
+  const lines = promptBlockLines(text, cursorOffset, lineWidth, "you › ");
+
+  return (
+    <Box flexDirection="column" width="100%">
+      {lines.map((line, index) => (
+        <Text key={`${index}-${line.text}`} backgroundColor={bg} color={fg} bold={index === 0}>
+          {line.beforeCursor}
+          {line.cursor ? (
+            <Text inverse backgroundColor={bg} color={fg}>
+              {line.cursor}
+            </Text>
+          ) : null}
+          {line.afterCursor}
+          <Text backgroundColor={bg} color="#9ba6b8">
+            {line.pad}
+          </Text>
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
+interface PromptBlockLine {
+  text: string;
+  beforeCursor: string;
+  cursor: string;
+  afterCursor: string;
+  pad: string;
+}
+
+function promptBlockLines(
+  text: string,
+  cursorOffset: number | undefined,
+  width: number,
+  marker: string,
+): PromptBlockLine[] {
+  const logicalLines = (text || "").split("\n");
+  const rows: PromptBlockLine[] = [];
+  let offset = 0;
+
+  logicalLines.forEach((line, index) => {
+    const prefix = index === 0 ? marker : " ".repeat(marker.length);
+    const available = Math.max(1, width - prefix.length);
+    const chunks = chunkPromptLine(line, available);
+    const lineStart = offset;
+    const lineEnd = lineStart + line.length;
+    const cursorOnLine =
+      cursorOffset !== undefined && cursorOffset >= lineStart && cursorOffset <= lineEnd;
+
+    chunks.forEach((chunk, chunkIndex) => {
+      const chunkStart = lineStart + chunkIndex * available;
+      const chunkEnd = chunkStart + chunk.length;
+      const cursorOnChunk =
+        cursorOnLine &&
+        cursorOffset !== undefined &&
+        cursorOffset >= chunkStart &&
+        cursorOffset <= chunkEnd &&
+        (cursorOffset < chunkEnd || chunkIndex === chunks.length - 1);
+      const localCursor = cursorOnChunk && cursorOffset !== undefined
+        ? cursorOffset - chunkStart
+        : -1;
+      const label = chunkIndex === 0 ? prefix : " ".repeat(prefix.length);
+      const content = `${label}${chunk || " "}`;
+
+      if (localCursor >= 0) {
+        const cursorAbsolute = label.length + localCursor;
+        const cursorChar = content[cursorAbsolute] ?? " ";
+        const beforeCursor = content.slice(0, cursorAbsolute);
+        const afterCursor = content.slice(cursorAbsolute + 1);
+        rows.push(padPromptLine({ text: content, beforeCursor, cursor: cursorChar, afterCursor }, width));
+      } else {
+        rows.push(padPromptLine({ text: content, beforeCursor: content, cursor: "", afterCursor: "" }, width));
+      }
+    });
+
+    offset = lineEnd + 1;
+  });
+
+  return rows;
+}
+
+function chunkPromptLine(line: string, width: number): string[] {
+  if (line.length === 0) return [""];
+  const chunks: string[] = [];
+  for (let i = 0; i < line.length; i += width) {
+    chunks.push(line.slice(i, i + width));
+  }
+  return chunks;
+}
+
+function padPromptLine(
+  line: Omit<PromptBlockLine, "pad">,
+  width: number,
+): PromptBlockLine {
+  const pad = " ".repeat(Math.max(0, width - line.text.length));
+  return { ...line, pad };
+}
+
 function ChatInput({
   value,
   onChange,
   onSubmit,
-  prompt,
-  promptColor,
+  width,
   submitEnabled,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
-  prompt: string;
-  promptColor: string;
+  width: number;
   submitEnabled: boolean;
 }): React.JSX.Element {
   const [cursorOffset, setCursorOffset] = useState(value.length);
@@ -1212,55 +1338,17 @@ function ChatInput({
   });
 
   return (
-    <Box flexDirection="column">
-      {renderChatInputLines(value, cursorOffset, prompt, promptColor)}
-    </Box>
+    <PromptBlock
+      text={value}
+      width={width}
+      cursorOffset={cursorOffset}
+      active
+    />
   );
 }
 
 function insertAt(value: string, offset: number, text: string): string {
   return value.slice(0, offset) + text + value.slice(offset);
-}
-
-function renderChatInputLines(
-  value: string,
-  cursorOffset: number,
-  prompt: string,
-  promptColor: string,
-): React.ReactNode[] {
-  const lines = value.split("\n");
-  const elements: React.ReactNode[] = [];
-  let offset = 0;
-
-  lines.forEach((line, index) => {
-    const lineStart = offset;
-    const lineEnd = lineStart + line.length;
-    const cursorOnLine = cursorOffset >= lineStart && cursorOffset <= lineEnd;
-    const localCursor = cursorOnLine ? cursorOffset - lineStart : -1;
-
-    elements.push(
-      <Box key={`line-${index}`} flexDirection="row">
-        <Text bold color={index === 0 ? promptColor : "gray"}>
-          {index === 0 ? prompt : " ".repeat(prompt.length)}
-        </Text>
-        <Text>
-          {cursorOnLine ? (
-            <>
-              {line.slice(0, localCursor)}
-              <Text inverse>{line[localCursor] ?? " "}</Text>
-              {line.slice(localCursor + 1)}
-            </>
-          ) : (
-            line || " "
-          )}
-        </Text>
-      </Box>,
-    );
-
-    offset = lineEnd + 1;
-  });
-
-  return elements;
 }
 
 function PickerHint({
@@ -1393,18 +1481,22 @@ function TranscriptItem({
   previous,
   theme,
   width,
+  provider,
+  model,
 }: {
   item: Item;
   previous?: Item;
   theme: Theme;
   width: number;
+  provider: ProviderId;
+  model: string;
 }): React.JSX.Element {
   return (
     <Box flexDirection="column" marginY={0.3}>
       {shouldSeparate(item, previous) ? (
         <TranscriptDelimiter theme={theme} width={width} />
       ) : null}
-      <ItemView item={item} theme={theme} width={width} />
+      <ItemView item={item} theme={theme} width={width} provider={provider} model={model} />
     </Box>
   );
 }
@@ -1454,11 +1546,15 @@ function ItemView({
   item,
   theme,
   width,
+  provider,
+  model,
   streaming = false,
 }: {
   item: Item;
   theme: Theme;
   width: number;
+  provider?: ProviderId;
+  model?: string;
   /**
    * Render mode for the live streaming message. The live buffer is tail-capped
    * and throttled before it reaches this component, so it can use the same
@@ -1467,15 +1563,20 @@ function ItemView({
   streaming?: boolean;
 }): React.JSX.Element {
   switch (item.kind) {
+    case "intro":
+      return (
+        <Box flexDirection="column" marginY={1}>
+          <IntroBanner
+            theme={theme}
+            provider={provider ?? "openai"}
+            model={model ?? ""}
+          />
+        </Box>
+      );
     case "user":
       return (
         <Box flexDirection="column" marginY={0.2}>
-          <Box flexDirection="row" marginBottom={0.1}>
-            <Text bold color={theme.accent}>› </Text>
-          </Box>
-          <Box paddingLeft={2}>
-            {parseMarkdownToReact(item.text, theme)}
-          </Box>
+          <PromptBlock text={item.text} width={width} />
         </Box>
       );
     case "assistant":
