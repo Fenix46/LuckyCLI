@@ -367,7 +367,21 @@ function toGeminiContents(messages: Message[]): Content[] {
     // System prompt is passed via config.systemInstruction, not as a turn.
     if (msg.role === "system") continue;
     const role = msg.role === "assistant" ? "model" : "user";
-    contents.push({ role, parts: msg.content.map(toGeminiPart) });
+    const parts = msg.content.map(toGeminiPart);
+    // A Content with an empty parts[] is rejected with 400 INVALID_ARGUMENT.
+    // Skip empty turns defensively so a transcript that already contains one
+    // (e.g. a session saved before this was guarded) can still be sent.
+    if (parts.length === 0) continue;
+    // Code Assist expects one Content per role boundary and rejects repeated
+    // roles. Merging keeps the request valid if a turn was dropped upstream
+    // (e.g. a thought-only model reply that produced no persisted assistant
+    // turn, leaving two user turns adjacent).
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) {
+      last.parts = [...(last.parts ?? []), ...parts];
+      continue;
+    }
+    contents.push({ role, parts });
   }
   return contents;
 }

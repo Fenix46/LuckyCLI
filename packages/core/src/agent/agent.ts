@@ -194,11 +194,18 @@ export class Agent {
         return;
       }
 
-      // Assemble the assistant turn: text first, then any tool calls.
+      // Assemble the assistant turn: text first, then any tool calls. Never
+      // persist an empty turn: a message with no content blocks serializes to a
+      // Content with empty parts[], which some providers (Gemini / Code Assist)
+      // reject with 400 INVALID_ARGUMENT on the *next* request. If the model
+      // produced nothing usable (e.g. only a thought, or an empty candidate),
+      // end the turn without poisoning the transcript.
       const assistantBlocks: ContentPart[] = [];
       if (textBuf) assistantBlocks.push({ type: "text", text: textBuf });
       assistantBlocks.push(...toolCalls);
-      this.history.push({ role: "assistant", content: assistantBlocks });
+      if (assistantBlocks.length > 0) {
+        this.history.push({ role: "assistant", content: assistantBlocks });
+      }
 
       if (usage) this.recordUsage(usage);
 
