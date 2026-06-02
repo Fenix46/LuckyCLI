@@ -45,6 +45,26 @@ model mid-session without losing your conversation.
 - **Embeddable.** The engine ships as a library (`@luckycli/core`) with a small,
   documented API — the CLI is just one front-end.
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshot-welcome.png" alt="LuckyCLI welcome screen with the mascot, getting-started tips and what's-new panel" width="800">
+</p>
+
+<p align="center"><em>The welcome screen — provider, model and working directory at a glance.</em></p>
+
+<p align="center">
+  <img src="assets/screenshot-commands.png" alt="The slash-command directory open in LuckyCLI" width="800">
+</p>
+
+<p align="center"><em>Type <code>/</code> to open the slash-command directory; arrow to navigate, Enter to complete.</em></p>
+
+<p align="center">
+  <img src="assets/screenshot-status.png" alt="The /status view showing provider auth, account, tier and per-model quota" width="800">
+</p>
+
+<p align="center"><em><code>/status</code> — auth method, account, tier, context usage and per-model quota.</em></p>
+
 ## Install
 
 ```bash
