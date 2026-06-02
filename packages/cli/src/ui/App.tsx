@@ -1,5 +1,4 @@
 import { Box, Static, Text, useApp, useInput } from "ink";
-import TextInput from "ink-text-input";
 import os from "node:os";
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
@@ -122,9 +121,6 @@ export function App({
     }
   }, [agent, meta.provider, meta.model]);
   const [input, setInput] = useState("");
-  const handleInputChange = useCallback((val: string) => {
-    setInput(val);
-  }, []);
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState("");
   const streamingFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1028,16 +1024,21 @@ export function App({
 
       <Box flexDirection="column" width="100%" marginTop={0.5}>
         <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
-        <Box
-          flexDirection="row"
-          paddingX={0}
-          width="100%"
-          marginY={0.1}
-        >
-          <Text bold color={busy ? activeTheme.success : activeTheme.accent}>
-            {busy ? " ⏳ " : " > "}
-          </Text>
-          <TextInput value={input} onChange={handleInputChange} onSubmit={submit} />
+        <Box flexDirection="column" paddingX={0} width="100%" marginY={0.1}>
+          <ChatInput
+            value={input}
+            onChange={setInput}
+            onSubmit={submit}
+            prompt={busy ? " ⏳ " : " > "}
+            promptColor={busy ? activeTheme.success : activeTheme.accent}
+            submitEnabled={
+              !modelPicker.open &&
+              !themePicker.open &&
+              !(showSlashMenu && filteredCommands.length > 0) &&
+              !approvalRequest &&
+              (!busy || Boolean(userQuestionRequest))
+            }
+          />
         </Box>
         <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
       </Box>
@@ -1058,6 +1059,117 @@ export function App({
       </Box>
     </Box>
   );
+}
+
+function ChatInput({
+  value,
+  onChange,
+  onSubmit,
+  prompt,
+  promptColor,
+  submitEnabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (value: string) => void;
+  prompt: string;
+  promptColor: string;
+  submitEnabled: boolean;
+}): React.JSX.Element {
+  const [cursorOffset, setCursorOffset] = useState(value.length);
+
+  useEffect(() => {
+    setCursorOffset((offset) => Math.min(offset, value.length));
+  }, [value.length]);
+
+  useInput((input, key) => {
+    if (key.upArrow || key.downArrow || key.tab || (key.ctrl && input === "c")) return;
+
+    if (key.return || input === "\r" || input === "\n") {
+      if (key.ctrl || key.meta || input === "\r" || input === "\n") {
+        const nextValue = insertAt(value, cursorOffset, "\n");
+        onChange(nextValue);
+        setCursorOffset(cursorOffset + 1);
+        return;
+      }
+      if (!submitEnabled) return;
+      onSubmit(value);
+      return;
+    }
+
+    if (key.leftArrow) {
+      setCursorOffset((offset) => Math.max(0, offset - 1));
+      return;
+    }
+
+    if (key.rightArrow) {
+      setCursorOffset((offset) => Math.min(value.length, offset + 1));
+      return;
+    }
+
+    if (key.backspace || key.delete) {
+      if (cursorOffset === 0) return;
+      onChange(value.slice(0, cursorOffset - 1) + value.slice(cursorOffset));
+      setCursorOffset(cursorOffset - 1);
+      return;
+    }
+
+    if (!input) return;
+    const nextValue = insertAt(value, cursorOffset, input);
+    onChange(nextValue);
+    setCursorOffset(cursorOffset + input.length);
+  });
+
+  return (
+    <Box flexDirection="column">
+      {renderChatInputLines(value, cursorOffset, prompt, promptColor)}
+    </Box>
+  );
+}
+
+function insertAt(value: string, offset: number, text: string): string {
+  return value.slice(0, offset) + text + value.slice(offset);
+}
+
+function renderChatInputLines(
+  value: string,
+  cursorOffset: number,
+  prompt: string,
+  promptColor: string,
+): React.ReactNode[] {
+  const lines = value.split("\n");
+  const elements: React.ReactNode[] = [];
+  let offset = 0;
+
+  lines.forEach((line, index) => {
+    const lineStart = offset;
+    const lineEnd = lineStart + line.length;
+    const cursorOnLine = cursorOffset >= lineStart && cursorOffset <= lineEnd;
+    const localCursor = cursorOnLine ? cursorOffset - lineStart : -1;
+
+    elements.push(
+      <Box key={`line-${index}`} flexDirection="row">
+        <Text bold color={index === 0 ? promptColor : "gray"}>
+          {index === 0 ? prompt : " ".repeat(prompt.length)}
+        </Text>
+        <Text>
+          {cursorOnLine ? (
+            <>
+              {line.slice(0, localCursor)}
+              <Text inverse>{line[localCursor] ?? " "}</Text>
+              {line.slice(localCursor + 1)}
+            </>
+          ) : (
+            line || " "
+          )}
+        </Text>
+      </Box>,
+    );
+
+    offset = lineEnd + 1;
+  });
+
+  return elements;
 }
 
 function PickerHint({
