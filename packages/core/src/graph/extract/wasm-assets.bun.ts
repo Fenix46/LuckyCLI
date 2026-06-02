@@ -17,6 +17,7 @@ import tsxWasm from "tree-sitter-wasms/out/tree-sitter-tsx.wasm" with { type: "f
 import javascriptWasm from "tree-sitter-wasms/out/tree-sitter-javascript.wasm" with { type: "file" };
 import pythonWasm from "tree-sitter-wasms/out/tree-sitter-python.wasm" with { type: "file" };
 import goWasm from "tree-sitter-wasms/out/tree-sitter-go.wasm" with { type: "file" };
+import rustWasm from "tree-sitter-wasms/out/tree-sitter-rust.wasm" with { type: "file" };
 
 const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
   typescript: typescriptWasm,
@@ -24,6 +25,7 @@ const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
   javascript: javascriptWasm,
   python: pythonWasm,
   go: goWasm,
+  rust: rustWasm,
 };
 
 export function coreWasmPath(): string {

@@ -18,6 +18,7 @@ export const GRAMMAR_WASM: Record<GraphLanguage, string> = {
   javascript: "tree-sitter-javascript.wasm",
   python: "tree-sitter-python.wasm",
   go: "tree-sitter-go.wasm",
+  rust: "tree-sitter-rust.wasm",
 };
 
 const require = createRequire(import.meta.url);

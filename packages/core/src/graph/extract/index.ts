@@ -5,6 +5,7 @@
 import { goExtractor } from "./go.js";
 import type { GraphLanguage } from "./parser.js";
 import { pythonExtractor } from "./python.js";
+import { rustExtractor } from "./rust.js";
 import type { Extractor } from "./types.js";
 import { javascriptExtractor, tsxExtractor, typescriptExtractor } from "./typescript.js";
 
@@ -14,6 +15,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   javascript: javascriptExtractor,
   python: pythonExtractor,
   go: goExtractor,
+  rust: rustExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -24,4 +26,5 @@ export function extractorFor(language: GraphLanguage): Extractor | undefined {
 export { typescriptExtractor, tsxExtractor, javascriptExtractor };
 export { pythonExtractor };
 export { goExtractor };
+export { rustExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";

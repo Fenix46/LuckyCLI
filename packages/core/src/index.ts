@@ -79,6 +79,7 @@ export {
   goExtractor,
   javascriptExtractor,
   pythonExtractor,
+  rustExtractor,
   tsxExtractor,
   typescriptExtractor,
 } from "./graph/extract/index.js";
