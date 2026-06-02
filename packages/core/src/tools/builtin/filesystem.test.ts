@@ -49,6 +49,36 @@ describe("filesystem tools", () => {
     expect(write.isError).toBeUndefined();
   });
 
+  it("can read a numbered line range", async () => {
+    await writeFile(
+      join(root, "lines.txt"),
+      ["one", "two", "three", "four", "five"].join("\n"),
+      "utf8",
+    );
+
+    const result = await registry.execute(
+      "read_file",
+      { path: "lines.txt", offset: 2, limit: 3 },
+      { cwd: root },
+    );
+
+    expect(result).toEqual({
+      content: "     2: two\n     3: three\n     4: four\n\n[showing 3 of 5 lines]",
+    });
+  });
+
+  it("reports when a line range starts past end of file", async () => {
+    await writeFile(join(root, "short.txt"), "one\ntwo", "utf8");
+
+    const result = await registry.execute(
+      "read_file",
+      { path: "short.txt", offset: 10, limit: 5 },
+      { cwd: root },
+    );
+
+    expect(result).toEqual({ content: "[no lines at offset 10]" });
+  });
+
   it("rejects absolute paths", async () => {
     const absolute = join(outside, "secret.txt");
 
