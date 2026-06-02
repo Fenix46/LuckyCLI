@@ -1,6 +1,6 @@
 {
   "name": "@luckycli/cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "LuckyCLI — multi-provider terminal agent",
   "license": "Apache-2.0",
   "type": "module",
@@ -19,7 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@luckycli/core": "0.1.4",
+    "@luckycli/core": "0.1.5",
     "dotenv": "^16.4.7",
     "ink": "^5.1.0",
     "ink-select-input": "^6.2.0",
