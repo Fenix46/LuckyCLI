@@ -1,0 +1,33 @@
+/**
+ * Wasm asset resolution — Bun standalone-binary variant.
+ *
+ * Bun's `--compile` embeds files imported with `{ type: "file" }` into the
+ * executable and resolves the import to a runtime path under `/$bunfs/root/`,
+ * so the single-file binary carries its own grammars with no external `wasm/`
+ * dir. scripts/build.ts redirects imports of `./wasm-assets.js` to this module
+ * for the release build only — Node/vitest never load it (it's excluded from
+ * tsc and uses import attributes Node would reject). Keep its exported surface
+ * identical to wasm-assets.ts.
+ */
+import type { GraphLanguage } from "./parser.js";
+
+import coreWasm from "web-tree-sitter/tree-sitter.wasm" with { type: "file" };
+import typescriptWasm from "tree-sitter-wasms/out/tree-sitter-typescript.wasm" with { type: "file" };
+import tsxWasm from "tree-sitter-wasms/out/tree-sitter-tsx.wasm" with { type: "file" };
+import javascriptWasm from "tree-sitter-wasms/out/tree-sitter-javascript.wasm" with { type: "file" };
+import pythonWasm from "tree-sitter-wasms/out/tree-sitter-python.wasm" with { type: "file" };
+
+const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
+  typescript: typescriptWasm,
+  tsx: tsxWasm,
+  javascript: javascriptWasm,
+  python: pythonWasm,
+};
+
+export function coreWasmPath(): string {
+  return coreWasm;
+}
+
+export function grammarWasmPath(lang: GraphLanguage): string {
+  return GRAMMAR_PATHS[lang];
+}

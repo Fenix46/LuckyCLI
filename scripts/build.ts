@@ -14,6 +14,8 @@ const root = join(here, "..");
 const entry = join(root, "packages/cli/src/index.tsx");
 const outDir = join(root, "dist-bin");
 const stub = join(here, "stubs/react-devtools-core.js");
+// Bun-only wasm-asset module: embeds the tree-sitter grammars into the binary.
+const wasmAssetsBun = join(root, "packages/core/src/graph/extract/wasm-assets.bun.ts");
 const googleOAuthClientId = process.env.LUCKY_GOOGLE_OAUTH_CLIENT_ID || "__unset__";
 const googleOAuthClientSecret = process.env.LUCKY_GOOGLE_OAUTH_CLIENT_SECRET || "__unset__";
 const antigravityOAuthClientId = process.env.LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID || "__unset__";
@@ -28,12 +30,20 @@ const TARGETS: Record<string, string> = {
   "windows-x64": "lucky-windows-x64.exe",
 };
 
-// Replace the optional dev-only `react-devtools-core` import with an empty stub.
-const stubDevtools: Bun.BuildConfig["plugins"] = [
+const plugins: Bun.BuildConfig["plugins"] = [
+  // Replace the optional dev-only `react-devtools-core` import with an empty stub.
   {
     name: "stub-react-devtools-core",
     setup(build) {
       build.onResolve({ filter: /^react-devtools-core$/ }, () => ({ path: stub }));
+    },
+  },
+  // Swap the Node wasm-asset resolver for the Bun variant that embeds the
+  // grammars into the binary (the compiled dist imports "./wasm-assets.js").
+  {
+    name: "embed-tree-sitter-wasm",
+    setup(build) {
+      build.onResolve({ filter: /wasm-assets\.js$/ }, () => ({ path: wasmAssetsBun }));
     },
   },
 ];
@@ -52,7 +62,7 @@ for (const name of selected) {
   console.log(`→ building ${name} ...`);
   const result = await Bun.build({
     entrypoints: [entry],
-    plugins: stubDevtools,
+    plugins,
     define: {
       __LUCKY_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(googleOAuthClientId),
       __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(googleOAuthClientSecret),
