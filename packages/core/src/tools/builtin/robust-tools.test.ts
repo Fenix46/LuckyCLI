@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { classifyCommandSemantics, execTool } from "./exec.js";
+import { classifyPowerShellCommandSemantics, powerShellTool } from "./powershell.js";
 import { getTodosForCwd, todoWriteTool } from "./todo-write.js";
 
 describe("robust built-in tools", () => {
@@ -155,5 +156,33 @@ describe("robust built-in tools", () => {
     const registry = new ToolRegistry().register(execTool);
     const result = await registry.execute("exec", { command: "printf ok" }, { cwd: root });
     expect(result).toEqual({ content: "ok" });
+  });
+
+  it("classifies PowerShell command semantics", () => {
+    expect(classifyPowerShellCommandSemantics("Get-ChildItem .")).toMatchObject({
+      category: "read_only",
+    });
+    expect(classifyPowerShellCommandSemantics("Set-Content -Path out.txt -Value ok")).toMatchObject({
+      category: "mutating",
+    });
+    expect(classifyPowerShellCommandSemantics("Remove-Item -Recurse dist")).toMatchObject({
+      category: "destructive",
+      reason: "remove file/directory",
+    });
+    expect(classifyPowerShellCommandSemantics("git push --force")).toMatchObject({
+      category: "destructive",
+      reason: "force push",
+    });
+  });
+
+  it("refuses dangerous PowerShell commands unless explicitly allowed", async () => {
+    const registry = new ToolRegistry().register(powerShellTool);
+    const result = await registry.execute(
+      "PowerShell",
+      { command: "Remove-Item -Recurse dist" },
+      { cwd: root },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/Refusing.*destructive PowerShell/i);
   });
 });

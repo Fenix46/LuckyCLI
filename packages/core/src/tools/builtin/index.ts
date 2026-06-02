@@ -7,6 +7,7 @@ import { globTool } from "./glob.js";
 import { grepTool } from "./grep.js";
 import { httpFetchTool } from "./http-fetch.js";
 import { listDirTool } from "./list-dir.js";
+import { powerShellTool } from "./powershell.js";
 import { readFileTool } from "./read-file.js";
 import { todoWriteTool } from "./todo-write.js";
 import { writeFileTool } from "./write-file.js";
@@ -19,6 +20,7 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(editFileTool)
     .register(applyPatchTool)
     .register(execTool)
+    .register(powerShellTool)
     .register(listDirTool)
     .register(globTool)
     .register(grepTool)
@@ -29,6 +31,7 @@ export function defaultToolRegistry(): ToolRegistry {
 
 export {
   execTool,
+  powerShellTool,
   readFileTool,
   writeFileTool,
   editFileTool,
