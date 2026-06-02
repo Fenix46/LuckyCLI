@@ -18,6 +18,7 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   apply_patch: "ask",
   exec: "ask",
   PowerShell: "ask",
+  project_memory: "ask",
 
   // Conservative fallback for future/custom tools.
   "*": "ask",

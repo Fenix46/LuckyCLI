@@ -8,6 +8,7 @@ import { grepTool } from "./grep.js";
 import { httpFetchTool } from "./http-fetch.js";
 import { listDirTool } from "./list-dir.js";
 import { powerShellTool } from "./powershell.js";
+import { projectMemoryTool } from "./project-memory.js";
 import { readFileTool } from "./read-file.js";
 import { todoWriteTool } from "./todo-write.js";
 import { writeFileTool } from "./write-file.js";
@@ -26,6 +27,7 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(grepTool)
     .register(httpFetchTool)
     .register(todoWriteTool)
+    .register(projectMemoryTool)
     .register(askUserTool);
 }
 
@@ -41,5 +43,6 @@ export {
   grepTool,
   httpFetchTool,
   todoWriteTool,
+  projectMemoryTool,
   askUserTool,
 };

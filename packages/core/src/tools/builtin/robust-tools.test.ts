@@ -6,6 +6,7 @@ import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { classifyCommandSemantics, execTool } from "./exec.js";
 import { classifyPowerShellCommandSemantics, powerShellTool } from "./powershell.js";
+import { projectMemoryTool } from "./project-memory.js";
 import { getTodosForCwd, todoWriteTool } from "./todo-write.js";
 
 describe("robust built-in tools", () => {
@@ -184,5 +185,20 @@ describe("robust built-in tools", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/Refusing.*destructive PowerShell/i);
+  });
+
+  it("updates persistent project memory", async () => {
+    const registry = new ToolRegistry().register(projectMemoryTool);
+    const result = await registry.execute(
+      "project_memory",
+      { operation: "append", content: "Use npm test before commits." },
+      { cwd: root },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain(".lucky/memory.md");
+    await expect(readFile(join(root, ".lucky", "memory.md"), "utf8")).resolves.toContain(
+      "Use npm test before commits.",
+    );
   });
 });

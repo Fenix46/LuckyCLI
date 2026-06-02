@@ -36,8 +36,20 @@ export {
   grepTool,
   httpFetchTool,
   todoWriteTool,
+  projectMemoryTool,
   askUserTool,
 } from "./tools/builtin/index.js";
+
+export {
+  PROJECT_MEMORY_DIR,
+  PROJECT_MEMORY_FILE,
+  appendProjectMemory,
+  appendProjectMemoryToSystemPrompt,
+  ensureProjectMemoryFile,
+  projectMemoryPath,
+  replaceProjectMemory,
+} from "./project-memory.js";
+export type { ProjectMemory } from "./project-memory.js";
 
 // Configuration.
 export {

@@ -14,6 +14,7 @@ describe("tool permissions", () => {
   it("asks before running side-effecting built-in command tools", () => {
     expect(resolveToolPermission(DEFAULT_TOOL_PERMISSION_POLICY, "exec")).toBe("ask");
     expect(resolveToolPermission(DEFAULT_TOOL_PERMISSION_POLICY, "PowerShell")).toBe("ask");
+    expect(resolveToolPermission(DEFAULT_TOOL_PERMISSION_POLICY, "project_memory")).toBe("ask");
   });
 
   it("uses the longest matching wildcard", () => {

@@ -2413,6 +2413,8 @@ function toolVerb(name: string, running: boolean, error?: boolean): string {
         return ["Fetch", "Fetched"];
       case "todo_write":
         return ["Update todos", "Updated todos"];
+      case "project_memory":
+        return ["Remember", "Remembered"];
       case "ask_user":
         return ["Ask user", "Asked user"];
       default:
@@ -2457,6 +2459,10 @@ function toolTarget(name: string, input: unknown): string {
     return todoSummary(input);
   }
 
+  if (name === "project_memory") {
+    return inputString(input, "operation") ?? ".lucky/memory.md";
+  }
+
   if (name === "ask_user") {
     return inputString(input, "question") ?? "";
   }
@@ -2488,6 +2494,7 @@ function formatToolResultSummary(name: string, output: string, error?: boolean):
     case "edit_file":
     case "apply_patch":
     case "todo_write":
+    case "project_memory":
     case "ask_user":
     case "http_fetch":
       return firstUsefulLine(lines);

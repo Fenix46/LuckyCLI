@@ -1,6 +1,8 @@
 import {
   Agent,
+  appendProjectMemoryToSystemPrompt,
   defaultToolRegistry,
+  ensureProjectMemoryFile,
   getProvider,
   resetProvider,
   type AskUserRequest,
@@ -32,11 +34,12 @@ export interface BuildAgentOptions {
 export function buildAgent(opts: BuildAgentOptions): Agent {
   resetProvider(opts.provider);
   const provider = getProvider(opts.provider, opts.credentials);
+  const projectMemory = ensureProjectMemoryFile(process.cwd());
   return new Agent({
     provider,
     model: opts.model,
     tools: defaultToolRegistry(),
-    system: opts.system,
+    system: appendProjectMemoryToSystemPrompt(opts.system, projectMemory),
     permissions: opts.permissions,
     approveTool: opts.approveTool,
     askUser: opts.askUser,

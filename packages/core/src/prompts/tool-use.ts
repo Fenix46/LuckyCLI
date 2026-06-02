@@ -2,7 +2,7 @@
  * Tool-use guidance: how lucky should drive the built-in tools. Third section
  * of the system prompt. Tool names here must match the built-in registry
  * (read_file, edit_file, write_file, apply_patch, list_dir, glob, grep, exec,
- * PowerShell, http_fetch, todo_write, ask_user). Override with
+ * PowerShell, http_fetch, todo_write, project_memory, ask_user). Override with
  * LUCKY_PROMPT_TOOL_USE.
  */
 export const TOOL_USE_PROMPT = `# Using tools
@@ -15,4 +15,5 @@ export const TOOL_USE_PROMPT = `# Using tools
 - On Windows, use PowerShell for command execution, file writes, redirection, paths and quoting. Prefer dedicated file tools over shell commands for direct file edits.
 - http_fetch only when the task needs external content the project doesn't have.
 - todo_write to track multi-step work so progress is visible; keep exactly one item in progress.
+- project_memory updates .lucky/memory.md for stable project-specific facts that should persist across future sessions. Do not store transient todos, secrets, or guesses.
 - ask_user only for a genuine decision the user must make — not for things you can find by reading the project.`;
