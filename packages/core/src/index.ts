@@ -72,6 +72,8 @@ export type {
   GraphNode,
   NodeKind,
 } from "./graph/types.js";
+export { extractorFor } from "./graph/extract/index.js";
+export type { Extractor, ExtractorContext } from "./graph/extract/types.js";
 export {
   GRAPH_DIR,
   GRAPH_FILE,
