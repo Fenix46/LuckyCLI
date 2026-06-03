@@ -11,6 +11,7 @@ import {
   type ProviderCredentials,
   type ProviderId,
   type ToolApproval,
+  type Tool,
   type ToolPermissionPolicy,
 } from "@luckycli/core";
 
@@ -49,8 +50,15 @@ export interface BuildAgentOptions {
   permissions?: ToolPermissionPolicy;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
+  extraTools?: Tool[];
   /** Prior conversation to resume from (e.g. a loaded session). */
   messages?: Message[];
+}
+
+export function createRuntimeToolRegistry(extraTools: Tool[] = []) {
+  const registry = defaultToolRegistry();
+  for (const tool of extraTools) registry.register(tool);
+  return registry;
 }
 
 /**
@@ -65,7 +73,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   return new Agent({
     provider,
     model: opts.model,
-    tools: defaultToolRegistry(),
+    tools: createRuntimeToolRegistry(opts.extraTools),
     system: appendProjectMemoryToSystemPrompt(opts.system, projectMemory),
     permissions: opts.permissions,
     approveTool: opts.approveTool,
