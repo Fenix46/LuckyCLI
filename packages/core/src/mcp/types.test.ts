@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   isMcpServerConfig,
-  parseMcpServerConfigRecord,
   type McpServerConfig,
 } from "./types.js";
 
@@ -33,24 +32,5 @@ describe("mcp types", () => {
     expect(isMcpServerConfig({})).toBe(false);
     expect(isMcpServerConfig({ type: "local", command: "npx" })).toBe(false);
     expect(isMcpServerConfig({ type: "remote" })).toBe(false);
-  });
-
-  it("filters invalid entries when parsing records", () => {
-    expect(
-      parseMcpServerConfigRecord({
-        local_ok: { type: "local", command: ["node", "server.js"] },
-        remote_ok: { type: "remote", url: "https://example.com/mcp" },
-        broken: { type: "local", command: "node server.js" },
-        junk: 42,
-      }),
-    ).toEqual({
-      local_ok: { type: "local", command: ["node", "server.js"] },
-      remote_ok: { type: "remote", url: "https://example.com/mcp" },
-    });
-  });
-
-  it("returns an empty record for non-object input", () => {
-    expect(parseMcpServerConfigRecord(undefined)).toEqual({});
-    expect(parseMcpServerConfigRecord("nope")).toEqual({});
   });
 });

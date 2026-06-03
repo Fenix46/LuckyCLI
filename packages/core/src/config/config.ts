@@ -1,5 +1,6 @@
 import { PROVIDER_CATALOG } from "../providers/catalog.js";
-import { parseMcpServerConfigRecord, type McpServerConfig } from "../mcp/types.js";
+import { normalizeMcpServers } from "../mcp/config.js";
+import type { McpServerConfig } from "../mcp/types.js";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import { isProviderId } from "../providers/types.js";
 import { DEFAULT_TOOL_PERMISSION_POLICY, parseToolPermissionPolicyEnv, type ToolPermissionPolicy } from "../tools/permissions.js";
@@ -78,7 +79,7 @@ export function resolveConfig(
       : {}),
     ...(env.LUCKY_MAX_TOKENS ? { maxTokens: Number(env.LUCKY_MAX_TOKENS) } : {}),
     ...(credentials ? { credentials } : {}),
-    mcp: parseMcpServerConfigRecord(stored.mcp),
+    mcp: normalizeMcpServers(stored.mcp),
     permissions: {
       ...DEFAULT_TOOL_PERMISSION_POLICY,
       ...(stored.permissions ?? {}),

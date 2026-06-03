@@ -63,14 +63,3 @@ export function isMcpServerConfig(value: unknown): value is McpServerConfig {
   }
   return false;
 }
-
-export function parseMcpServerConfigRecord(
-  value: unknown,
-): Record<string, McpServerConfig> {
-  if (!value || typeof value !== "object") return {};
-  const result: Record<string, McpServerConfig> = {};
-  for (const [name, entry] of Object.entries(value)) {
-    if (isMcpServerConfig(entry)) result[name] = entry;
-  }
-  return result;
-}

@@ -192,8 +192,12 @@ export {
 
 // MCP domain types.
 export {
+  normalizeMcpServers,
+  withMcpServer,
+  withoutMcpServer,
+} from "./mcp/config.js";
+export {
   isMcpServerConfig,
-  parseMcpServerConfigRecord,
 } from "./mcp/types.js";
 export type {
   McpConnectionStatus,
