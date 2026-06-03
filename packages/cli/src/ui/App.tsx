@@ -8,6 +8,7 @@ import {
   type Agent,
   type AgentEvent,
   type AskUserRequest,
+  type CatalogServerSummary,
   type ContextStatus,
   type Message,
   type McpManager,
@@ -27,6 +28,7 @@ import {
   saveSession,
   saveStoredConfig,
   withMcpServer,
+  withoutMcpServer,
 } from "@luckycli/core";
 import { checkForUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
@@ -54,6 +56,13 @@ interface CommandRow {
   value: string;
 }
 
+interface InstalledMcpRow {
+  name: string;
+  summary: string;
+}
+
+type McpPanelTab = "installed" | "search";
+
 export function buildMcpCommandRows(
   mcpStatus: Record<string, { status: string; error?: string }>,
   toolCount: number,
@@ -73,6 +82,25 @@ export function buildMcpCommandRows(
               : status.status,
         })),
       ];
+}
+
+export function buildInstalledMcpRows(
+  mcpConfig: Record<string, McpServerConfig>,
+  mcpStatus: Record<string, { status: string; error?: string }>,
+): InstalledMcpRow[] {
+  return Object.entries(mcpConfig).map(([name, config]) => {
+    const status = mcpStatus[name];
+    const enabled = config.enabled === false ? "disabled" : "enabled";
+    const runtime =
+      status?.status === "failed"
+        ? `failed · ${status.error}`
+        : status?.status ?? "not_loaded";
+    const target = config.type === "local" ? config.command.join(" ") : config.url;
+    return {
+      name,
+      summary: `${enabled} · ${runtime} · ${target}`,
+    };
+  });
 }
 
 export interface ApprovalRequest {
@@ -96,6 +124,7 @@ interface AppProps {
   userQuestionRequest: UserQuestionRequest | null;
   setUserQuestionRequest: (req: UserQuestionRequest | null) => void;
   mcpManager?: McpManager;
+  mcpConfig: Record<string, McpServerConfig>;
   onMcpConfigChange: (nextMcpConfig: Record<string, McpServerConfig>) => void;
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
@@ -110,7 +139,7 @@ interface AppProps {
 
 const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
-  { name: "/mcp", desc: "Show MCP server and tool status for this session" },
+  { name: "/mcp", desc: "Open the interactive MCP control panel" },
   { name: "/status", desc: "Show provider auth, account, quota and context status" },
   { name: "/update", desc: "Check for a newer LuckyCLI release" },
   { name: "/compact", desc: "Summarize older chat history now" },
@@ -129,6 +158,7 @@ export function App({
   userQuestionRequest,
   setUserQuestionRequest,
   mcpManager,
+  mcpConfig,
   onMcpConfigChange,
   onTriggerSetup,
   onChangeModel,
@@ -282,6 +312,14 @@ export function App({
   const filteredCommands = ALL_SLASH_COMMANDS.filter((cmd) =>
     cmd.name.startsWith(input)
   );
+  const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
+  const [mcpPanelTab, setMcpPanelTab] = useState<McpPanelTab>("installed");
+  const [mcpPanelQuery, setMcpPanelQuery] = useState("");
+  const [mcpPanelResults, setMcpPanelResults] = useState<CatalogServerSummary[]>([]);
+  const [mcpPanelLoading, setMcpPanelLoading] = useState(false);
+  const [mcpPanelError, setMcpPanelError] = useState<string | null>(null);
+  const [selectedInstalledMcpIndex, setSelectedInstalledMcpIndex] = useState(0);
+  const [selectedSearchMcpIndex, setSelectedSearchMcpIndex] = useState(0);
   const modelPicker = getModelPickerState(input, meta.provider, meta.model);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const themePicker = getThemePickerState(input, activeTheme.id);
@@ -306,6 +344,60 @@ export function App({
     setSelectedQuestionOptionIndex(0);
   }, [userQuestionRequest]);
 
+  useEffect(() => {
+    setSelectedInstalledMcpIndex(0);
+  }, [mcpPanelOpen, mcpPanelTab, mcpConfig]);
+
+  useEffect(() => {
+    setSelectedSearchMcpIndex(0);
+  }, [mcpPanelOpen, mcpPanelTab, mcpPanelQuery, mcpPanelResults.length]);
+
+  useEffect(() => {
+    if (!mcpPanelOpen || mcpPanelTab !== "search") return;
+    const query = mcpPanelQuery.trim();
+    if (!query) {
+      setMcpPanelResults([]);
+      setMcpPanelLoading(false);
+      setMcpPanelError(null);
+      return;
+    }
+    let cancelled = false;
+    setMcpPanelLoading(true);
+    setMcpPanelError(null);
+    const timer = setTimeout(() => {
+      void new OfficialMcpRegistryCatalog()
+        .search(query)
+        .then((result) => {
+          if (cancelled) return;
+          setMcpPanelResults(result.items);
+          setMcpPanelLoading(false);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setMcpPanelResults([]);
+          setMcpPanelLoading(false);
+          setMcpPanelError(error instanceof Error ? error.message : "failed to search MCP catalog");
+        });
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [mcpPanelOpen, mcpPanelTab, mcpPanelQuery]);
+
+  const installedMcpRows = buildInstalledMcpRows(mcpConfig, mcpManager?.status() ?? {});
+
+  const openMcpPanel = useCallback((tab: McpPanelTab, query = "") => {
+    setMcpPanelOpen(true);
+    setMcpPanelTab(tab);
+    setMcpPanelQuery(query);
+    setMcpPanelError(null);
+    if (tab === "installed") {
+      setMcpPanelResults([]);
+      setMcpPanelLoading(false);
+    }
+  }, []);
+
   // Ctrl+C exits when idle. Support autocomplete and tool approval.
   useInput((_in, key) => {
     // 0. Shift+Tab cycles the session permission mode. Intercept it before any
@@ -315,6 +407,7 @@ export function App({
       const modalActive =
         Boolean(approvalRequest) ||
         Boolean(userQuestionRequest) ||
+        mcpPanelOpen ||
         modelPicker.open ||
         themePicker.open ||
         showSlashMenu;
@@ -385,6 +478,81 @@ export function App({
         userQuestionRequest.resolve("User skipped the question.");
         setUserQuestionRequest(null);
         abortControllerRef.current?.abort();
+        return;
+      }
+      return;
+    }
+
+    // 2.5 MCP control panel
+    if (mcpPanelOpen) {
+      if (key.escape) {
+        setMcpPanelOpen(false);
+        setMcpPanelError(null);
+        return;
+      }
+      if (key.leftArrow || key.rightArrow || key.tab) {
+        setMcpPanelTab((prev) => (prev === "installed" ? "search" : "installed"));
+        return;
+      }
+      if (mcpPanelTab === "installed") {
+        if (installedMcpRows.length > 0 && key.downArrow) {
+          setSelectedInstalledMcpIndex((prev) => (prev + 1) % installedMcpRows.length);
+          return;
+        }
+        if (installedMcpRows.length > 0 && key.upArrow) {
+          setSelectedInstalledMcpIndex((prev) => (prev - 1 + installedMcpRows.length) % installedMcpRows.length);
+          return;
+        }
+        const selected = installedMcpRows[selectedInstalledMcpIndex];
+        if (key.return && selected) {
+          toggleInstalledServer(selected.name);
+          return;
+        }
+        if ((_in === "d" || _in === "D") && selected) {
+          removeInstalledServer(selected.name);
+          return;
+        }
+        if (_in === "r" || _in === "R") {
+          onMcpConfigChange(mcpConfig);
+          setItems((prev) => [
+            ...prev,
+            { kind: "command", title: "MCP Reload", rows: [{ label: "status", value: "reloading configured MCP servers" }] },
+          ]);
+          return;
+        }
+        return;
+      }
+      if (mcpPanelResults.length > 0 && key.downArrow) {
+        setSelectedSearchMcpIndex((prev) => (prev + 1) % mcpPanelResults.length);
+        return;
+      }
+      if (mcpPanelResults.length > 0 && key.upArrow) {
+        setSelectedSearchMcpIndex((prev) => (prev - 1 + mcpPanelResults.length) % mcpPanelResults.length);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        if (mcpPanelQuery.length > 0) setMcpPanelQuery((prev) => prev.slice(0, -1));
+        return;
+      }
+      if (key.return) {
+        const selected = mcpPanelResults[selectedSearchMcpIndex];
+        if (!selected) return;
+        setMcpPanelLoading(true);
+        setMcpPanelError(null);
+        void installCatalogServerByName(selected.name)
+          .then(() => {
+            setMcpPanelLoading(false);
+            setMcpPanelTab("installed");
+            setMcpPanelQuery("");
+          })
+          .catch((error) => {
+            setMcpPanelLoading(false);
+            setMcpPanelError(error instanceof Error ? error.message : "failed to add MCP server");
+          });
+        return;
+      }
+      if (!key.ctrl && !key.meta && !key.return && _in) {
+        setMcpPanelQuery((prev) => prev + _in);
         return;
       }
       return;
@@ -543,6 +711,66 @@ export function App({
     [applyTheme],
   );
 
+  async function installCatalogServerByName(name: string) {
+    const catalog = new OfficialMcpRegistryCatalog();
+    const detail = await catalog.get(name);
+    const preset = catalogDetailToPreset(detail);
+    const cfg = loadStoredConfig();
+    const next = withMcpServer(cfg, preset.name, preset.config);
+    saveStoredConfig(next);
+    onMcpConfigChange(next.mcp ?? {});
+    setItems((prev) => [
+      ...prev,
+      {
+        kind: "command",
+        title: "MCP Added",
+        rows: [
+          { label: "server", value: preset.name },
+          { label: "type", value: preset.config.type },
+          { label: "source", value: "official-registry" },
+        ],
+      },
+    ]);
+  }
+
+  function toggleInstalledServer(name: string) {
+    const cfg = loadStoredConfig();
+    const current = cfg.mcp?.[name];
+    if (!current) return;
+    const next = withMcpServer(cfg, name, {
+      ...current,
+      enabled: current.enabled === false ? true : false,
+    });
+    saveStoredConfig(next);
+    onMcpConfigChange(next.mcp ?? {});
+    setItems((prev) => [
+      ...prev,
+      {
+        kind: "command",
+        title: "MCP Updated",
+        rows: [
+          { label: "server", value: name },
+          { label: "enabled", value: next.mcp?.[name]?.enabled === false ? "false" : "true" },
+        ],
+      },
+    ]);
+  }
+
+  function removeInstalledServer(name: string) {
+    const cfg = loadStoredConfig();
+    const next = withoutMcpServer(cfg, name);
+    saveStoredConfig(next);
+    onMcpConfigChange(next.mcp ?? {});
+    setItems((prev) => [
+      ...prev,
+      {
+        kind: "command",
+        title: "MCP Removed",
+        rows: [{ label: "server", value: name }],
+      },
+    ]);
+  }
+
   const submit = useCallback(
     async (value: string) => {
       const text = value.trim();
@@ -665,49 +893,13 @@ export function App({
         return;
       }
       if (text === "/mcp" || text === "/mcp status" || text === "/mcp list") {
-        const mcpStatus = mcpManager?.status() ?? {};
-        const toolCount = mcpManager?.tools().length ?? 0;
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "MCP",
-            rows: buildMcpCommandRows(mcpStatus, toolCount),
-          },
-        ]);
+        openMcpPanel("installed");
         setInput("");
         return;
       }
-      if (text.startsWith("/mcp search ")) {
-        const query = text.slice("/mcp search ".length).trim();
-        if (!query) {
-          setItems((prev) => [...prev, { kind: "error", text: "usage: /mcp search <query>" }]);
-          setInput("");
-          return;
-        }
-        try {
-          const catalog = new OfficialMcpRegistryCatalog();
-          const result = await catalog.search(query);
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: `MCP Search: ${query}`,
-              rows:
-                result.items.length === 0
-                  ? [{ label: "results", value: "no matches" }]
-                  : result.items.map((item) => ({
-                      label: item.name,
-                      value: item.title ?? item.description ?? item.version ?? "no description",
-                    })),
-            },
-          ]);
-        } catch (error) {
-          setItems((prev) => [
-            ...prev,
-            { kind: "error", text: error instanceof Error ? error.message : "failed to search MCP catalog" },
-          ]);
-        }
+      if (text === "/mcp search" || text.startsWith("/mcp search ")) {
+        const query = text.slice("/mcp search".length).trim();
+        openMcpPanel("search", query);
         setInput("");
         return;
       }
@@ -752,25 +944,7 @@ export function App({
           return;
         }
         try {
-          const catalog = new OfficialMcpRegistryCatalog();
-          const detail = await catalog.get(name);
-          const preset = catalogDetailToPreset(detail);
-          const cfg = loadStoredConfig();
-          const next = withMcpServer(cfg, preset.name, preset.config);
-          saveStoredConfig(next);
-          onMcpConfigChange(next.mcp ?? {});
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: "MCP Added",
-              rows: [
-                { label: "server", value: preset.name },
-                { label: "type", value: preset.config.type },
-                { label: "source", value: "official-registry" },
-              ],
-            },
-          ]);
+          await installCatalogServerByName(name);
         } catch (error) {
           setItems((prev) => [
             ...prev,
@@ -1088,7 +1262,9 @@ export function App({
       onChange={setInput}
       onSubmit={submit}
       width={messageWidth}
+      active={!mcpPanelOpen}
       submitEnabled={
+        !mcpPanelOpen &&
         !modelPicker.open &&
         !themePicker.open &&
         // Block submit only while the slash menu still has a pending
@@ -1211,6 +1387,19 @@ export function App({
           </Box>
           <PickerHint theme={activeTheme} />
         </Box>
+      ) : mcpPanelOpen ? (
+        <McpPanel
+          theme={activeTheme}
+          width={messageWidth}
+          tab={mcpPanelTab}
+          installedRows={installedMcpRows}
+          selectedInstalledIndex={selectedInstalledMcpIndex}
+          query={mcpPanelQuery}
+          results={mcpPanelResults}
+          selectedSearchIndex={selectedSearchMcpIndex}
+          loading={mcpPanelLoading}
+          error={mcpPanelError}
+        />
       ) : showSlashMenu && filteredCommands.length > 0 ? (
         <Box
           flexDirection="column"
@@ -1457,12 +1646,14 @@ function ChatInput({
   onChange,
   onSubmit,
   width,
+  active,
   submitEnabled,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   width: number;
+  active: boolean;
   submitEnabled: boolean;
 }): React.JSX.Element {
   const [cursorOffset, setCursorOffset] = useState(value.length);
@@ -1472,6 +1663,7 @@ function ChatInput({
   }, [value.length]);
 
   useInput((input, key) => {
+    if (!active) return;
     if (key.upArrow || key.downArrow || key.tab || (key.ctrl && input === "c")) return;
 
     if (key.return || input === "\r" || input === "\n") {
@@ -1540,6 +1732,98 @@ function PickerHint({
   return (
     <Box marginTop={0.5}>
       <Text color={theme.muted}>Up/Down to move · Enter to {selectLabel} · Esc to close</Text>
+    </Box>
+  );
+}
+
+function McpPanel({
+  theme,
+  width,
+  tab,
+  installedRows,
+  selectedInstalledIndex,
+  query,
+  results,
+  selectedSearchIndex,
+  loading,
+  error,
+}: {
+  theme: Theme;
+  width: number;
+  tab: McpPanelTab;
+  installedRows: InstalledMcpRow[];
+  selectedInstalledIndex: number;
+  query: string;
+  results: CatalogServerSummary[];
+  selectedSearchIndex: number;
+  loading: boolean;
+  error: string | null;
+}): React.JSX.Element {
+  return (
+    <Box flexDirection="column" paddingLeft={2} marginBottom={0.5} width="100%">
+      <Text bold color={theme.accent}>🧩 MCP CONTROL PANEL</Text>
+      <Box flexDirection="row" marginTop={0.2}>
+        <Text bold color={tab === "installed" ? theme.primary : theme.muted}>
+          {tab === "installed" ? "❯ " : "  "}Installed
+        </Text>
+        <Text color={theme.muted}>   </Text>
+        <Text bold color={tab === "search" ? theme.primary : theme.muted}>
+          {tab === "search" ? "❯ " : "  "}Search
+        </Text>
+      </Box>
+
+      {tab === "installed" ? (
+        <Box flexDirection="column" marginTop={0.4}>
+          {installedRows.length === 0 ? (
+            <Text color={theme.muted}>No MCP servers configured.</Text>
+          ) : (
+            installedRows.map((row, idx) => (
+              <Box key={row.name} flexDirection="row">
+                <Text color={idx === selectedInstalledIndex ? theme.accent : "gray"}>
+                  {idx === selectedInstalledIndex ? "❯ " : "  "}
+                </Text>
+                <Text bold color={idx === selectedInstalledIndex ? theme.primary : "white"}>
+                  {row.name.padEnd(22)}
+                </Text>
+                <Text color={idx === selectedInstalledIndex ? "white" : theme.muted}>
+                  ┃ {truncateSingleLine(row.summary, Math.max(20, width - 32))}
+                </Text>
+              </Box>
+            ))
+          )}
+          <Box marginTop={0.5}>
+            <Text color={theme.muted}>Enter toggle enable · d remove · r reload · Tab switch tab · Esc close</Text>
+          </Box>
+        </Box>
+      ) : (
+        <Box flexDirection="column" marginTop={0.4}>
+          <Text color={theme.muted}>query: <Text color="white">{query || "(type to search official registry)"}</Text></Text>
+          {loading ? (
+            <Text color={theme.accent}>Searching MCP registry...</Text>
+          ) : error ? (
+            <Text color={theme.error}>{error}</Text>
+          ) : results.length === 0 ? (
+            <Text color={theme.muted}>No search results.</Text>
+          ) : (
+            results.map((item, idx) => (
+              <Box key={item.name} flexDirection="row">
+                <Text color={idx === selectedSearchIndex ? theme.accent : "gray"}>
+                  {idx === selectedSearchIndex ? "❯ " : "  "}
+                </Text>
+                <Text bold color={idx === selectedSearchIndex ? theme.primary : "white"}>
+                  {truncateSingleLine(item.name, 28)}
+                </Text>
+                <Text color={idx === selectedSearchIndex ? "white" : theme.muted}>
+                  ┃ {truncateSingleLine(item.title ?? item.description ?? item.version ?? "no description", Math.max(20, width - 38))}
+                </Text>
+              </Box>
+            ))
+          )}
+          <Box marginTop={0.5}>
+            <Text color={theme.muted}>Type to search · Enter install selected · Tab switch tab · Esc close</Text>
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 }

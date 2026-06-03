@@ -334,6 +334,7 @@ export function Root({
       userQuestionRequest={userQuestionRequest}
       setUserQuestionRequest={setUserQuestionRequest}
       mcpManager={runtime.mcpManager}
+      mcpConfig={mcpConfig}
       onMcpConfigChange={onMcpConfigChange}
       onTriggerSetup={onTriggerProviderSetup}
       onChangeModel={onChangeModel}
