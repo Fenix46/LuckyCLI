@@ -47,6 +47,8 @@ const EXT_TO_LANGUAGE: Record<string, GraphLanguage> = {
   ".json": "json",
   ".jsonc": "json",
   ".toml": "toml",
+  ".html": "html",
+  ".htm": "html",
 };
 
 /** The language for a path, or undefined if no extractor handles it. */

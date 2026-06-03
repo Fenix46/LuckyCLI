@@ -29,6 +29,7 @@ import swiftWasm from "tree-sitter-wasms/out/tree-sitter-swift.wasm" with { type
 import dartWasm from "tree-sitter-wasms/out/tree-sitter-dart.wasm" with { type: "file" };
 import jsonWasm from "tree-sitter-wasms/out/tree-sitter-json.wasm" with { type: "file" };
 import tomlWasm from "tree-sitter-wasms/out/tree-sitter-toml.wasm" with { type: "file" };
+import htmlWasm from "tree-sitter-wasms/out/tree-sitter-html.wasm" with { type: "file" };
 
 const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
   typescript: typescriptWasm,
@@ -48,6 +49,7 @@ const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
   dart: dartWasm,
   json: jsonWasm,
   toml: tomlWasm,
+  html: htmlWasm,
 };
 
 export function coreWasmPath(): string {

@@ -81,6 +81,7 @@ export {
   dartExtractor,
   extractorFor,
   goExtractor,
+  htmlExtractor,
   javaExtractor,
   javascriptExtractor,
   jsonExtractor,

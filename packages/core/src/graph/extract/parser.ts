@@ -28,7 +28,8 @@ export type GraphLanguage =
   | "swift"
   | "dart"
   | "json"
-  | "toml";
+  | "toml"
+  | "html";
 
 let initPromise: Promise<void> | undefined;
 const languages = new Map<GraphLanguage, Language>();

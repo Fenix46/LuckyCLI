@@ -12,8 +12,13 @@ describe("detect", () => {
     expect(languageForPath("x.js")).toBe("javascript");
     expect(languageForPath("x.mjs")).toBe("javascript");
     expect(languageForPath("m.py")).toBe("python");
+    expect(languageForPath("Main.kt")).toBe("kotlin");
+    expect(languageForPath("View.swift")).toBe("swift");
+    expect(languageForPath("main.dart")).toBe("dart");
+    expect(languageForPath("package.json")).toBe("json");
+    expect(languageForPath("Cargo.toml")).toBe("toml");
+    expect(languageForPath("index.html")).toBe("html");
     expect(languageForPath("readme.md")).toBeUndefined();
-    expect(languageForPath("data.json")).toBeUndefined();
   });
 
   describe("collectFiles", () => {
