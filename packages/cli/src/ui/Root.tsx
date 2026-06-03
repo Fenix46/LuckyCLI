@@ -42,6 +42,20 @@ interface ActiveRuntime {
 type SetupMode = "initial" | "provider";
 
 /**
+ * Which MCP servers a runtime rebuild should load. Callers that just mutated the
+ * config pass it as `override`; we must honor that value verbatim — including an
+ * empty object, which means "the last server was removed" and must win over the
+ * still-stale component state. Only fall back to `current` when no override is
+ * given (model switch, provider switch, resume).
+ */
+export function resolveActivationMcp(
+  override: Record<string, McpServerConfig> | undefined,
+  current: Record<string, McpServerConfig>,
+): Record<string, McpServerConfig> {
+  return override ?? current;
+}
+
+/**
  * Top-level component. Decides between the setup dialog and the chat UI, and
  * rebuilds the agent when setup completes.
  */
@@ -138,6 +152,12 @@ export function Root({
     model: string;
     credentials: ProviderCredentials;
     messages?: Message[];
+    /**
+     * MCP servers to load. Defaults to the current state, but callers that have
+     * just changed the config must pass the next value explicitly: the state
+     * setter is async, so `mcpConfig` is still the previous value in this render.
+     */
+    mcp?: Record<string, McpServerConfig>;
   }) {
     const activationId = ++activationIdRef.current;
     setBooting(true);
@@ -149,7 +169,7 @@ export function Root({
       permissions: config.permissions,
       approveTool,
       askUser,
-      mcp: mcpConfig,
+      mcp: resolveActivationMcp(next.mcp, mcpConfig),
       ...(config.temperature !== undefined
         ? { temperature: config.temperature }
         : {}),
@@ -294,6 +314,9 @@ export function Root({
       model: runtime.model,
       credentials: runtime.credentials,
       messages: [...runtime.agent.messages],
+      // Pass the new config explicitly: setMcpConfig above hasn't applied yet,
+      // so the closure's mcpConfig still holds the previous servers.
+      mcp: nextMcpConfig,
     });
   }
 
