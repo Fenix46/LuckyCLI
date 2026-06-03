@@ -264,8 +264,10 @@ It works in three phases:
   `/graph rebuild`) forces a full rebuild.
 
 Languages: TypeScript, TSX, JavaScript, Python, Go, Rust, Java, Ruby, C#, PHP, C,
-C++, Kotlin, Swift and Dart (Flutter); more are added behind the same extractor
-interface over time. The graph engine is adapted from the
+C++, Kotlin, Swift and Dart (Flutter). Data/markup formats are mapped
+structurally too — JSON and TOML (keys and sections) and HTML (resource imports
+and `id` anchors). More are added behind the same extractor interface over time.
+The graph engine is adapted from the
 open-source [graphify](https://github.com/safishamsi/graphify) project, rewritten
 natively in TypeScript in LuckyCLI's own style.
 
@@ -435,7 +437,8 @@ approach.
 - [x] Filesystem sandbox, destructive-command guard, and SSRF protection
 - [x] Native project knowledge graph (build, query tools, autonomous updates)
 - [x] More graph languages (Go, Rust, Java, Ruby, C#, PHP, C, C++, Kotlin, Swift, Dart)
-- [ ] Non-code graph nodes (Markdown/text documents, shell scripts)
+- [x] Structural graph for data/markup (JSON, TOML, HTML)
+- [ ] More non-code graph nodes (Markdown/text documents, shell scripts, YAML)
 - [ ] Recorded fixtures / end-to-end tests against the live APIs
 - [ ] Streaming markdown rendering in the CLI
 - [ ] Retry/backoff + structured error taxonomy across providers
