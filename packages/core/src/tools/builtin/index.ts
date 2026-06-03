@@ -4,6 +4,7 @@ import { askUserTool } from "./ask-user.js";
 import { editFileTool } from "./edit-file.js";
 import { execTool } from "./exec.js";
 import { globTool } from "./glob.js";
+import { graphOverviewTool, graphQueryTool } from "./graph.js";
 import { grepTool } from "./grep.js";
 import { httpFetchTool } from "./http-fetch.js";
 import { listDirTool } from "./list-dir.js";
@@ -28,6 +29,8 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(httpFetchTool)
     .register(todoWriteTool)
     .register(projectMemoryTool)
+    .register(graphQueryTool)
+    .register(graphOverviewTool)
     .register(askUserTool);
 }
 
@@ -44,5 +47,7 @@ export {
   httpFetchTool,
   todoWriteTool,
   projectMemoryTool,
+  graphQueryTool,
+  graphOverviewTool,
   askUserTool,
 };

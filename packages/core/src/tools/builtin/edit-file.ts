@@ -30,6 +30,7 @@ export const editFileTool = defineTool({
       const original = await readFile(abs, "utf8");
       const updated = replace(original, oldString, newString, replaceAll ?? false);
       await writeFile(abs, updated, "utf8");
+      ctx.onFilesChanged?.([path]);
       return { content: `Edited ${path}` };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

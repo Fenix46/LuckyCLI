@@ -45,6 +45,7 @@ export const applyPatchTool = defineTool({
         changed.push(file.path);
       }
 
+      if (changed.length > 0) ctx.onFilesChanged?.(changed);
       return { content: `Applied patch to ${changed.length} file(s): ${changed.join(", ")}` };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

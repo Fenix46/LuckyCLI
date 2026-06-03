@@ -20,6 +20,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("project_memory");
   });
 
+  it("tells the model about the knowledge graph and its tools", () => {
+    const prompt = buildSystemPrompt(INFO, ENV);
+    expect(prompt).toContain("graph_query");
+    expect(prompt).toContain("graph_overview");
+    expect(prompt).toContain(".lucky/graph");
+  });
+
   it("interpolates the environment block with runtime values", () => {
     const prompt = buildSystemPrompt(INFO, ENV);
     expect(prompt).toContain("Working directory: /tmp/proj");

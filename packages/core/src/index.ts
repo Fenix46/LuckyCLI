@@ -37,6 +37,8 @@ export {
   httpFetchTool,
   todoWriteTool,
   projectMemoryTool,
+  graphQueryTool,
+  graphOverviewTool,
   askUserTool,
 } from "./tools/builtin/index.js";
 
@@ -50,6 +52,78 @@ export {
   replaceProjectMemory,
 } from "./project-memory.js";
 export type { ProjectMemory } from "./project-memory.js";
+
+// Native knowledge graph (schema + on-disk store).
+export {
+  CONFIDENCES,
+  GRAPH_FORMAT_VERSION,
+  KNOWN_RELATIONS,
+  NODE_KINDS,
+  assertValidGraph,
+  emptyGraph,
+  makeNodeId,
+  parseGraph,
+  validateGraph,
+} from "./graph/types.js";
+export type {
+  Confidence,
+  Extraction,
+  Graph,
+  GraphEdge,
+  GraphMeta,
+  GraphNode,
+  NodeKind,
+} from "./graph/types.js";
+export {
+  cExtractor,
+  cppExtractor,
+  csharpExtractor,
+  dartExtractor,
+  extractorFor,
+  goExtractor,
+  htmlExtractor,
+  javaExtractor,
+  javascriptExtractor,
+  jsonExtractor,
+  kotlinExtractor,
+  phpExtractor,
+  pythonExtractor,
+  rubyExtractor,
+  rustExtractor,
+  swiftExtractor,
+  tomlExtractor,
+  tsxExtractor,
+  typescriptExtractor,
+} from "./graph/extract/index.js";
+export type { Extractor, ExtractorContext } from "./graph/extract/types.js";
+export { buildAndSaveGraph, buildGraph } from "./graph/build.js";
+export type { BuildOptions, BuildProgress, GraphBuildSummary } from "./graph/build.js";
+export { updateGraphForFiles } from "./graph/update.js";
+export type { UpdateSummary } from "./graph/update.js";
+export {
+  callersOf,
+  calleesOf,
+  godNodes,
+  neighborsOf,
+  resolveNodes,
+  summarize,
+  topModules,
+} from "./graph/query.js";
+export type { GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
+export {
+  GRAPH_DIR,
+  GRAPH_FILE,
+  edgesFrom,
+  edgesTo,
+  findNodesByLabel,
+  getNode,
+  graphDirPath,
+  graphFilePath,
+  loadGraph,
+  nodesInFile,
+  saveGraph,
+  tryLoadGraph,
+} from "./graph/store.js";
 
 // Configuration.
 export {
@@ -80,7 +154,18 @@ export {
   saveProviderSetup,
   saveStoredConfig,
 } from "./config/store.js";
-export type { StoredConfig } from "./config/store.js";
+export type { ProjectRecord, StoredConfig } from "./config/store.js";
+export {
+  getProjectRecord,
+  isProjectTrusted,
+  needsTrustPrompt,
+  projectKey,
+  projectNeedsTrustPrompt,
+  recordGraphBuilt,
+  recordProjectTrust,
+  withGraphBuilt,
+  withProjectTrust,
+} from "./config/project-trust.js";
 
 // Persistent chat sessions.
 export {

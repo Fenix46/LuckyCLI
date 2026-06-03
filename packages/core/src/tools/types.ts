@@ -17,6 +17,12 @@ export interface ToolContext {
   signal?: AbortSignal;
   /** Optional bridge for tools that need to ask the human a question. */
   askUser?: (request: AskUserRequest) => Promise<string>;
+  /**
+   * Notify the host that files changed (repo-relative or absolute paths), after
+   * a successful mutation. The host uses this to keep the knowledge graph fresh
+   * without the model having to ask. Fire-and-forget; never throws.
+   */
+  onFilesChanged?: (paths: string[]) => void;
 }
 
 /** Result of running a tool. `content` is always a string fed back to the model. */

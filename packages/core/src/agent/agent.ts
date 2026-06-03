@@ -45,6 +45,8 @@ export interface AgentConfig {
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   /** Optional bridge used by the ask_user tool to query the human. */
   askUser?: (request: AskUserRequest) => Promise<string>;
+  /** Optional hook fired after a tool reports changed files (for graph upkeep). */
+  onFilesChanged?: (paths: string[]) => void;
   /** Prior conversation to resume from. Copied into the history on construction. */
   messages?: Message[];
 }
@@ -82,6 +84,7 @@ export class Agent {
   private readonly permissions: ToolPermissionPolicy | undefined;
   private readonly approveTool: ((name: string, input: unknown) => Promise<ToolApproval> | ToolApproval) | undefined;
   private readonly askUser: ((request: AskUserRequest) => Promise<string>) | undefined;
+  private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
   private lastUsage: TokenUsage | undefined;
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   private readonly history: Message[] = [];
@@ -107,6 +110,7 @@ export class Agent {
     this.permissions = cfg.permissions;
     this.approveTool = cfg.approveTool;
     this.askUser = cfg.askUser;
+    this.onFilesChanged = cfg.onFilesChanged;
     if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
 
@@ -267,6 +271,7 @@ export class Agent {
             cwd: this.cwd,
             ...(signal ? { signal } : {}),
             ...(this.askUser ? { askUser: this.askUser } : {}),
+            ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
           });
         }
 

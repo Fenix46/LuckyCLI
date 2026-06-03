@@ -34,6 +34,10 @@ model mid-session without losing your conversation.
   daemon for Ollama.
 - **A genuine agent loop** that runs tools, streams output, and keeps going until
   the task is done (no fixed step cap) or you press `Esc`.
+- **A project knowledge graph.** Opt-in on first open, LuckyCLI maps your code's
+  files, symbols, imports and calls into `.lucky/graph` so the agent navigates by
+  querying instead of re-reading files — cheaper in tokens — and keeps it current
+  automatically as it edits.
 - **Safety built in.** Side-effecting tools prompt for approval, the shell tool
   refuses destructive commands, file tools are sandboxed to the working
   directory, and `http_fetch` blocks private/SSRF targets.
@@ -194,6 +198,7 @@ each turn.
 | `/compact` | Summarize older chat history now |
 | `/resume` | Pick a saved session to resume |
 | `/theme` | Choose terminal UI colors |
+| `/graph` | Build or refresh the project knowledge graph |
 | `/update` | Check for a newer LuckyCLI release |
 | `/exit` | Quit (alias: `/quit`) |
 
@@ -211,6 +216,8 @@ side-effecting ones prompt for approval.
 | `grep` | allow | Search file contents with a regular expression |
 | `http_fetch` | allow | Fetch the text content of a public URL |
 | `todo_write` | allow | Maintain a session todo list for multi-step work |
+| `graph_query` | allow | Query the knowledge graph: find a symbol, its callers/callees, neighbors, or a file's symbols |
+| `graph_overview` | allow | Summarize the graph: counts, most-connected symbols, most-imported modules |
 | `ask_user` | allow | Ask you a clarifying question and wait for the answer |
 | `write_file` | ask | Write UTF-8 text to a file |
 | `edit_file` | ask | Replace an exact snippet in a file (fuzzy snippet matching) |
@@ -233,6 +240,36 @@ side-effecting ones prompt for approval.
 By default read-only tools run freely, while `write_file`, `edit_file`,
 `apply_patch` and `exec` ask for approval — and choosing **always** is remembered
 for the session.
+
+## Knowledge graph
+
+LuckyCLI can build a **knowledge graph** of your project — a precomputed map of
+files, symbols, imports and calls — so the agent answers "where is X / who calls
+Y / what is this codebase" by querying an index instead of re-reading source.
+That's faster and far cheaper in tokens. The graph is native (no external
+service): tree-sitter parses each file, and everything is stored as JSON in
+`.lucky/graph/`.
+
+It works in three phases:
+
+- **Create.** The first time you open a folder, LuckyCLI asks to trust it and
+  offers to build the graph (AST-only, no API cost). You're asked only once per
+  folder. For projects started earlier, run `/graph` in the REPL or
+  `lucky graph build` from the shell.
+- **Use.** With a graph present, the agent reaches for `graph_overview` (to
+  orient) and `graph_query` (to find definitions, callers, callees, neighbors, or
+  a file's symbols) before grepping or reading widely.
+- **Maintain.** After the agent edits files, the affected files are re-extracted
+  into the graph automatically — no rebuild needed. `lucky graph rebuild` (or
+  `/graph rebuild`) forces a full rebuild.
+
+Languages: TypeScript, TSX, JavaScript, Python, Go, Rust, Java, Ruby, C#, PHP, C,
+C++, Kotlin, Swift and Dart (Flutter). Data/markup formats are mapped
+structurally too — JSON and TOML (keys and sections) and HTML (resource imports
+and `id` anchors). More are added behind the same extractor interface over time.
+The graph engine is adapted from the
+open-source [graphify](https://github.com/safishamsi/graphify) project, rewritten
+natively in TypeScript in LuckyCLI's own style.
 
 ## Sessions
 
@@ -398,6 +435,10 @@ approach.
 - [x] Code search tools (`glob`, `grep`)
 - [x] Conversation persistence / session resume
 - [x] Filesystem sandbox, destructive-command guard, and SSRF protection
+- [x] Native project knowledge graph (build, query tools, autonomous updates)
+- [x] More graph languages (Go, Rust, Java, Ruby, C#, PHP, C, C++, Kotlin, Swift, Dart)
+- [x] Structural graph for data/markup (JSON, TOML, HTML)
+- [ ] More non-code graph nodes (Markdown/text documents, shell scripts, YAML)
 - [ ] Recorded fixtures / end-to-end tests against the live APIs
 - [ ] Streaming markdown rendering in the CLI
 - [ ] Retry/backoff + structured error taxonomy across providers

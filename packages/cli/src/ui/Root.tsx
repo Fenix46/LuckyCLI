@@ -13,10 +13,12 @@ import {
   type Session,
   type ToolApproval,
 } from "@luckycli/core";
+import { projectNeedsTrustPrompt } from "@luckycli/core";
 import { buildAgent } from "../runtime.js";
 import { App, type ApprovalRequest, type PermissionMode, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
+import { TrustPrompt } from "./TrustPrompt.js";
 
 interface RootProps {
   config: ResolvedConfig;
@@ -49,6 +51,11 @@ export function Root({
   const [userQuestionRequest, setUserQuestionRequest] = useState<UserQuestionRequest | null>(null);
   const [resumeSession, setResumeSession] = useState<Session | null>(resume ?? null);
   const [picking, setPicking] = useState<boolean>(pickResume === true && !resume);
+  // First open in this folder: ask to trust it (and offer to build the graph).
+  // Once a decision is recorded it never re-prompts. Computed once at startup.
+  const [trustNeeded, setTrustNeeded] = useState<boolean>(() =>
+    projectNeedsTrustPrompt(process.cwd()),
+  );
   const [setupMode, setSetupMode] = useState<SetupMode>(() =>
     config.needsSetup ? "initial" : "provider",
   );
@@ -297,6 +304,10 @@ export function Root({
         {...(setupMode === "provider" ? { onCancel: onCancelSetup } : {})}
       />
     );
+  }
+
+  if (trustNeeded) {
+    return <TrustPrompt cwd={process.cwd()} onDone={() => setTrustNeeded(false)} />;
   }
 
   return (
