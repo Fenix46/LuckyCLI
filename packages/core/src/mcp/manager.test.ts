@@ -53,6 +53,21 @@ describe("McpManager", () => {
     expect(status.remote?.status).toBe("failed");
   });
 
+  it("does not retain a server that connects after the manager is closed", async () => {
+    const manager = new McpManager();
+    managers.push(manager);
+
+    // Start connecting (background-style) then close before it resolves. The
+    // server must not be stored, mirroring a session torn down mid-startup.
+    const connecting = manager.connectAll({
+      docs: { type: "local", command: ["node", fixtureServer], timeout: 5_000 },
+    });
+    await manager.close();
+    await connecting;
+
+    expect(manager.tools()).toEqual([]);
+  });
+
   it("exposes adapted Lucky tools that execute through the MCP client", async () => {
     const manager = new McpManager();
     managers.push(manager);

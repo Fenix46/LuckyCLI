@@ -53,21 +53,38 @@ export interface BuildAgentOptions {
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
   extraTools?: Tool[];
+  /**
+   * Pre-built tool registry to use as-is. When given, `extraTools` is ignored —
+   * the caller owns the registry (e.g. to register MCP tools into it later).
+   */
+  toolRegistry?: RuntimeToolRegistry;
   /** Prior conversation to resume from (e.g. a loaded session). */
   messages?: Message[];
 }
 
-export function createRuntimeToolRegistry(extraTools: Tool[] = []) {
-  const registry = defaultToolRegistry();
-  // Extra (MCP) tools are not under our control: two servers can expose the same
-  // name, a name can sanitize into a built-in's name, etc. ToolRegistry.register
-  // throws on a duplicate, which would otherwise abort buildAgent and wedge the
-  // session at "Starting session...". Skip collisions instead so a misbehaving
-  // server can't take the whole runtime down — built-ins and the first server win.
+type RuntimeToolRegistry = ReturnType<typeof defaultToolRegistry>;
+
+/**
+ * Register extra (MCP) tools into a registry, skipping any whose name is already
+ * taken. Extra tools are not under our control: two servers can expose the same
+ * name, a name can sanitize into a built-in's name, etc. ToolRegistry.register
+ * throws on a duplicate, which would otherwise abort buildAgent and wedge the
+ * session at "Starting session...". Skipping keeps the runtime up — built-ins and
+ * the first server win. Returns the number of tools actually registered.
+ */
+export function registerExtraTools(registry: RuntimeToolRegistry, extraTools: Tool[]): number {
+  let registered = 0;
   for (const tool of extraTools) {
     if (registry.has(tool.name)) continue;
     registry.register(tool);
+    registered += 1;
   }
+  return registered;
+}
+
+export function createRuntimeToolRegistry(extraTools: Tool[] = []) {
+  const registry = defaultToolRegistry();
+  registerExtraTools(registry, extraTools);
   return registry;
 }
 
@@ -101,6 +118,12 @@ export interface BuildAgentRuntimeOptions extends BuildAgentOptions {
 export interface BuiltAgentRuntime {
   agent: Agent;
   mcpManager?: McpManager;
+  /**
+   * Resolves once the background MCP connection has settled and any tools have
+   * been registered. The session does not wait on this — it's exposed so callers
+   * (and tests) can observe when MCP is fully wired.
+   */
+  mcpReady?: Promise<void>;
 }
 
 /**
@@ -115,7 +138,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   return new Agent({
     provider,
     model: opts.model,
-    tools: createRuntimeToolRegistry(opts.extraTools),
+    tools: opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools),
     system: appendProjectMemoryToSystemPrompt(opts.system, projectMemory),
     permissions: opts.permissions,
     approveTool: opts.approveTool,
@@ -131,12 +154,32 @@ export async function buildAgentRuntime(
   opts: BuildAgentRuntimeOptions,
 ): Promise<BuiltAgentRuntime> {
   const cwd = opts.cwd ?? process.cwd();
-  const { extraTools, mcpManager } = await loadMcpRuntimeTools(opts.mcp ?? {}, cwd);
-  return {
-    agent: buildAgent({
-      ...opts,
-      extraTools,
-    }),
-    ...(mcpManager ? { mcpManager } : {}),
-  };
+  const mcp = opts.mcp ?? {};
+
+  // Build the agent immediately against a registry we own. MCP servers connect
+  // in the background and register their tools into this same registry as they
+  // come up — the agent reads tool definitions live each turn, so late arrivals
+  // are picked up without rebuilding. This keeps session startup instant even
+  // when a server is slow (e.g. first-run `npx` downloads) or wedged.
+  const registry = createRuntimeToolRegistry(opts.extraTools);
+  const agent = buildAgent({ ...opts, toolRegistry: registry });
+
+  if (Object.keys(mcp).length === 0) return { agent };
+
+  const mcpManager = new McpManager({
+    cwd,
+    clientName: "lucky",
+    clientVersion: "0.2.0",
+  });
+  const mcpReady = mcpManager
+    .connectAll(mcp)
+    .then(() => {
+      registerExtraTools(registry, mcpManager.tools());
+    })
+    .catch(() => {
+      // Connection failures are reflected in mcpManager.status(); never let a
+      // misbehaving server break the session.
+    });
+
+  return { agent, mcpManager, mcpReady };
 }

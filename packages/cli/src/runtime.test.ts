@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineTool } from "@luckycli/core";
-import { createRuntimeToolRegistry, loadMcpRuntimeTools } from "./runtime.js";
+import { ToolRegistry } from "@luckycli/core";
+import { createRuntimeToolRegistry, loadMcpRuntimeTools, registerExtraTools } from "./runtime.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureServer = resolve(here, "../../core/src/mcp/__fixtures__/stdio-server.mjs");
@@ -63,6 +64,42 @@ describe("createRuntimeToolRegistry", () => {
 
     const registry = createRuntimeToolRegistry([first, second]);
     expect(registry.get("dupe")).toBe(first);
+  });
+});
+
+describe("registerExtraTools", () => {
+  it("registers new tools, skips collisions, and reports the count", () => {
+    // This is the path the non-blocking startup uses to add MCP tools to a live
+    // registry after the agent is already running.
+    const registry = new ToolRegistry();
+    const a = defineTool({
+      name: "a",
+      description: "A.",
+      schema: z.object({}),
+      async execute() {
+        return { content: "a" };
+      },
+    });
+    const aDupe = defineTool({
+      name: "a",
+      description: "A duplicate.",
+      schema: z.object({}),
+      async execute() {
+        return { content: "dupe" };
+      },
+    });
+    const b = defineTool({
+      name: "b",
+      description: "B.",
+      schema: z.object({}),
+      async execute() {
+        return { content: "b" };
+      },
+    });
+
+    expect(registerExtraTools(registry, [a, aDupe, b])).toBe(2);
+    expect(registry.get("a")).toBe(a);
+    expect(registry.has("b")).toBe(true);
   });
 });
 

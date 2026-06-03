@@ -18,6 +18,7 @@ interface ConnectedServer {
 export class McpManager {
   private readonly statuses = new Map<string, McpConnectionStatus>();
   private readonly servers = new Map<string, ConnectedServer>();
+  private closed = false;
 
   constructor(private readonly options: McpLocalClientOptions = {}) {}
 
@@ -50,6 +51,12 @@ export class McpManager {
               ...(this.options.clientVersion ? { clientVersion: this.options.clientVersion } : {}),
             });
       const tools = await client.listTools();
+      // The manager may have been closed while this connect was in flight (it
+      // runs in the background during startup). Don't store or leak the client.
+      if (this.closed) {
+        await client.close().catch(() => {});
+        return { status: "disabled" };
+      }
       await this.disconnect(name);
       this.servers.set(name, { config, client, tools });
       const next: McpConnectionStatus = { status: "connected" };
@@ -87,6 +94,7 @@ export class McpManager {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     const pending = [...this.servers.keys()].map((name) => this.disconnect(name));
     await Promise.all(pending);
   }
