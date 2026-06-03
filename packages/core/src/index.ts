@@ -214,3 +214,18 @@ export type {
   McpServerConfig,
   McpToolDescriptor,
 } from "./mcp/types.js";
+
+// MCP catalog.
+export { OfficialMcpRegistryCatalog } from "./mcp-catalog/official.js";
+export {
+  catalogDetailToPreset,
+  presetToStoredMcpConfig,
+} from "./mcp-catalog/presets.js";
+export type {
+  CatalogPackage,
+  CatalogRemote,
+  CatalogSearchResult,
+  CatalogServerDetail,
+  CatalogServerSummary,
+  LuckyMcpPreset,
+} from "./mcp-catalog/types.js";

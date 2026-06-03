@@ -2,13 +2,16 @@ import { Box, Static, Text, useApp, useInput } from "ink";
 import os from "node:os";
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
+  OfficialMcpRegistryCatalog,
   PROVIDER_CATALOG,
+  catalogDetailToPreset,
   type Agent,
   type AgentEvent,
   type AskUserRequest,
   type ContextStatus,
   type Message,
   type McpManager,
+  type McpServerConfig,
   type ProviderStatus,
   type ProviderId,
   type ProviderQuotaStatus,
@@ -23,6 +26,7 @@ import {
   recordGraphBuilt,
   saveSession,
   saveStoredConfig,
+  withMcpServer,
 } from "@luckycli/core";
 import { checkForUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
@@ -92,6 +96,7 @@ interface AppProps {
   userQuestionRequest: UserQuestionRequest | null;
   setUserQuestionRequest: (req: UserQuestionRequest | null) => void;
   mcpManager?: McpManager;
+  onMcpConfigChange: (nextMcpConfig: Record<string, McpServerConfig>) => void;
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
   onTriggerResume: () => void;
@@ -124,6 +129,7 @@ export function App({
   userQuestionRequest,
   setUserQuestionRequest,
   mcpManager,
+  onMcpConfigChange,
   onTriggerSetup,
   onChangeModel,
   onTriggerResume,
@@ -669,6 +675,108 @@ export function App({
             rows: buildMcpCommandRows(mcpStatus, toolCount),
           },
         ]);
+        setInput("");
+        return;
+      }
+      if (text.startsWith("/mcp search ")) {
+        const query = text.slice("/mcp search ".length).trim();
+        if (!query) {
+          setItems((prev) => [...prev, { kind: "error", text: "usage: /mcp search <query>" }]);
+          setInput("");
+          return;
+        }
+        try {
+          const catalog = new OfficialMcpRegistryCatalog();
+          const result = await catalog.search(query);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: `MCP Search: ${query}`,
+              rows:
+                result.items.length === 0
+                  ? [{ label: "results", value: "no matches" }]
+                  : result.items.map((item) => ({
+                      label: item.name,
+                      value: item.title ?? item.description ?? item.version ?? "no description",
+                    })),
+            },
+          ]);
+        } catch (error) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: error instanceof Error ? error.message : "failed to search MCP catalog" },
+          ]);
+        }
+        setInput("");
+        return;
+      }
+      if (text.startsWith("/mcp show ")) {
+        const name = text.slice("/mcp show ".length).trim();
+        if (!name) {
+          setItems((prev) => [...prev, { kind: "error", text: "usage: /mcp show <server-name>" }]);
+          setInput("");
+          return;
+        }
+        try {
+          const catalog = new OfficialMcpRegistryCatalog();
+          const detail = await catalog.get(name);
+          const preset = catalogDetailToPreset(detail);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: `MCP Server: ${detail.name}`,
+              rows: [
+                ...(detail.title ? [{ label: "title", value: detail.title }] : []),
+                ...(detail.description ? [{ label: "description", value: detail.description }] : []),
+                ...(detail.version ? [{ label: "version", value: detail.version }] : []),
+                { label: "preset", value: preset.config.type === "local" ? preset.config.command.join(" ") : preset.config.url },
+              ],
+            },
+          ]);
+        } catch (error) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: error instanceof Error ? error.message : "failed to load MCP server" },
+          ]);
+        }
+        setInput("");
+        return;
+      }
+      if (text.startsWith("/mcp add ")) {
+        const name = text.slice("/mcp add ".length).trim();
+        if (!name) {
+          setItems((prev) => [...prev, { kind: "error", text: "usage: /mcp add <server-name>" }]);
+          setInput("");
+          return;
+        }
+        try {
+          const catalog = new OfficialMcpRegistryCatalog();
+          const detail = await catalog.get(name);
+          const preset = catalogDetailToPreset(detail);
+          const cfg = loadStoredConfig();
+          const next = withMcpServer(cfg, preset.name, preset.config);
+          saveStoredConfig(next);
+          onMcpConfigChange(next.mcp ?? {});
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "MCP Added",
+              rows: [
+                { label: "server", value: preset.name },
+                { label: "type", value: preset.config.type },
+                { label: "source", value: "official-registry" },
+              ],
+            },
+          ]);
+        } catch (error) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: error instanceof Error ? error.message : "failed to add MCP server" },
+          ]);
+        }
         setInput("");
         return;
       }

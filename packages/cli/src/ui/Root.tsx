@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Text } from "ink";
 import {
   loadStoredConfig,
+  type McpServerConfig,
   type McpManager,
   resolveConfig,
   saveProviderSetup,
@@ -64,6 +65,7 @@ export function Root({
   );
   const [pendingMessages, setPendingMessages] = useState<Message[] | null>(null);
   const [setupFallbackRuntime, setSetupFallbackRuntime] = useState<ActiveRuntime | null>(null);
+  const [mcpConfig, setMcpConfig] = useState<Record<string, McpServerConfig>>(config.mcp);
   const [booting, setBooting] = useState<boolean>(() =>
     !forceSetup && !config.needsSetup && !!config.provider && !!config.model && !!config.credentials,
   );
@@ -147,7 +149,7 @@ export function Root({
       permissions: config.permissions,
       approveTool,
       askUser,
-      mcp: config.mcp,
+      mcp: mcpConfig,
       ...(config.temperature !== undefined
         ? { temperature: config.temperature }
         : {}),
@@ -284,6 +286,17 @@ export function Root({
     }
   }
 
+  function onMcpConfigChange(nextMcpConfig: Record<string, McpServerConfig>) {
+    setMcpConfig(nextMcpConfig);
+    if (!runtime) return;
+    void activateRuntime({
+      provider: runtime.provider,
+      model: runtime.model,
+      credentials: runtime.credentials,
+      messages: [...runtime.agent.messages],
+    });
+  }
+
   if (picking) {
     return (
       <SessionPicker
@@ -321,6 +334,7 @@ export function Root({
       userQuestionRequest={userQuestionRequest}
       setUserQuestionRequest={setUserQuestionRequest}
       mcpManager={runtime.mcpManager}
+      onMcpConfigChange={onMcpConfigChange}
       onTriggerSetup={onTriggerProviderSetup}
       onChangeModel={onChangeModel}
       onTriggerResume={() => setPicking(true)}
