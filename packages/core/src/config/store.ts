@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { McpServerConfig } from "../mcp/types.js";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import type { ToolPermissionPolicy } from "../tools/permissions.js";
 
@@ -31,6 +32,8 @@ export interface StoredConfig {
   permissions?: ToolPermissionPolicy;
   /** Saved credentials per provider, so switching doesn't re-prompt. */
   credentials?: Partial<Record<ProviderId, ProviderCredentials>>;
+  /** Configured MCP servers, keyed by logical server name. */
+  mcp?: Record<string, McpServerConfig>;
   /** Per-folder trust + graph state, keyed by absolute path. See project-trust.ts. */
   projects?: Record<string, ProjectRecord>;
 }

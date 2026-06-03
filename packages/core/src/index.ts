@@ -189,3 +189,18 @@ export {
   refreshAntigravityAccessToken,
   openBrowser,
 } from "./providers/impl/gemini/GoogleAuthHelper.js";
+
+// MCP domain types.
+export {
+  isMcpServerConfig,
+  parseMcpServerConfigRecord,
+} from "./mcp/types.js";
+export type {
+  McpConnectionStatus,
+  McpLocalServerConfig,
+  McpPromptDescriptor,
+  McpRemoteServerConfig,
+  McpResourceDescriptor,
+  McpServerConfig,
+  McpToolDescriptor,
+} from "./mcp/types.js";
