@@ -59,7 +59,15 @@ export interface BuildAgentOptions {
 
 export function createRuntimeToolRegistry(extraTools: Tool[] = []) {
   const registry = defaultToolRegistry();
-  for (const tool of extraTools) registry.register(tool);
+  // Extra (MCP) tools are not under our control: two servers can expose the same
+  // name, a name can sanitize into a built-in's name, etc. ToolRegistry.register
+  // throws on a duplicate, which would otherwise abort buildAgent and wedge the
+  // session at "Starting session...". Skip collisions instead so a misbehaving
+  // server can't take the whole runtime down — built-ins and the first server win.
+  for (const tool of extraTools) {
+    if (registry.has(tool.name)) continue;
+    registry.register(tool);
+  }
   return registry;
 }
 

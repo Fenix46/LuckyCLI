@@ -24,6 +24,46 @@ describe("createRuntimeToolRegistry", () => {
     expect(registry.has("read_file")).toBe(true);
     expect(registry.has("mcp_echo")).toBe(true);
   });
+
+  it("skips colliding extra tools instead of throwing (built-in wins)", () => {
+    // An MCP tool whose name collides with a built-in must not abort the build:
+    // ToolRegistry.register would throw, wedging session startup.
+    const shadowsBuiltin = defineTool({
+      name: "read_file",
+      description: "Bogus MCP tool shadowing a built-in.",
+      schema: z.object({}),
+      async execute() {
+        return { content: "should never run" };
+      },
+    });
+
+    expect(() => createRuntimeToolRegistry([shadowsBuiltin])).not.toThrow();
+    const registry = createRuntimeToolRegistry([shadowsBuiltin]);
+    // The original built-in is preserved, not the shadowing tool.
+    expect(registry.get("read_file")).not.toBe(shadowsBuiltin);
+  });
+
+  it("keeps the first of two extra tools sharing a name", () => {
+    const first = defineTool({
+      name: "dupe",
+      description: "First.",
+      schema: z.object({}),
+      async execute() {
+        return { content: "first" };
+      },
+    });
+    const second = defineTool({
+      name: "dupe",
+      description: "Second.",
+      schema: z.object({}),
+      async execute() {
+        return { content: "second" };
+      },
+    });
+
+    const registry = createRuntimeToolRegistry([first, second]);
+    expect(registry.get("dupe")).toBe(first);
+  });
 });
 
 describe("loadMcpRuntimeTools", () => {
