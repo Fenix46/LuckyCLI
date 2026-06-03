@@ -31,6 +31,7 @@ const EXT_TO_LANGUAGE: Record<string, GraphLanguage> = {
   ".java": "java",
   ".rb": "ruby",
   ".cs": "csharp",
+  ".php": "php",
 };
 
 /** The language for a path, or undefined if no extractor handles it. */

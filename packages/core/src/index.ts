@@ -80,6 +80,7 @@ export {
   goExtractor,
   javaExtractor,
   javascriptExtractor,
+  phpExtractor,
   pythonExtractor,
   rubyExtractor,
   rustExtractor,

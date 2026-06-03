@@ -6,6 +6,7 @@ import { csharpExtractor } from "./csharp.js";
 import { goExtractor } from "./go.js";
 import { javaExtractor } from "./java.js";
 import type { GraphLanguage } from "./parser.js";
+import { phpExtractor } from "./php.js";
 import { pythonExtractor } from "./python.js";
 import { rubyExtractor } from "./ruby.js";
 import { rustExtractor } from "./rust.js";
@@ -22,6 +23,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   java: javaExtractor,
   ruby: rubyExtractor,
   csharp: csharpExtractor,
+  php: phpExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -36,4 +38,5 @@ export { rustExtractor };
 export { javaExtractor };
 export { rubyExtractor };
 export { csharpExtractor };
+export { phpExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";
