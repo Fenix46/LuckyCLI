@@ -46,6 +46,7 @@ const EXT_TO_LANGUAGE: Record<string, GraphLanguage> = {
   ".dart": "dart",
   ".json": "json",
   ".jsonc": "json",
+  ".toml": "toml",
 };
 
 /** The language for a path, or undefined if no extractor handles it. */

@@ -90,6 +90,7 @@ export {
   rubyExtractor,
   rustExtractor,
   swiftExtractor,
+  tomlExtractor,
   tsxExtractor,
   typescriptExtractor,
 } from "./graph/extract/index.js";

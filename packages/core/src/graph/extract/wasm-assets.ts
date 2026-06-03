@@ -29,6 +29,7 @@ export const GRAMMAR_WASM: Record<GraphLanguage, string> = {
   swift: "tree-sitter-swift.wasm",
   dart: "tree-sitter-dart.wasm",
   json: "tree-sitter-json.wasm",
+  toml: "tree-sitter-toml.wasm",
 };
 
 const require = createRequire(import.meta.url);

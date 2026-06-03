@@ -16,6 +16,7 @@ import { pythonExtractor } from "./python.js";
 import { rubyExtractor } from "./ruby.js";
 import { rustExtractor } from "./rust.js";
 import { swiftExtractor } from "./swift.js";
+import { tomlExtractor } from "./toml.js";
 import type { Extractor } from "./types.js";
 import { javascriptExtractor, tsxExtractor, typescriptExtractor } from "./typescript.js";
 
@@ -36,6 +37,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   swift: swiftExtractor,
   dart: dartExtractor,
   json: jsonExtractor,
+  toml: tomlExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -57,4 +59,5 @@ export { kotlinExtractor };
 export { swiftExtractor };
 export { dartExtractor };
 export { jsonExtractor };
+export { tomlExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";
