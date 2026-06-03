@@ -1,13 +1,7 @@
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { defineTool } from "@luckycli/core";
-import { ToolRegistry } from "@luckycli/core";
-import { createRuntimeToolRegistry, loadMcpRuntimeTools, registerExtraTools } from "./runtime.js";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const fixtureServer = resolve(here, "../../core/src/mcp/__fixtures__/stdio-server.mjs");
+import { defineTool, ToolRegistry } from "@luckycli/core";
+import { createRuntimeToolRegistry, registerExtraTools } from "./runtime.js";
 
 describe("createRuntimeToolRegistry", () => {
   it("composes built-in tools with extra runtime tools", () => {
@@ -100,26 +94,5 @@ describe("registerExtraTools", () => {
     expect(registerExtraTools(registry, [a, aDupe, b])).toBe(2);
     expect(registry.get("a")).toBe(a);
     expect(registry.has("b")).toBe(true);
-  });
-});
-
-describe("loadMcpRuntimeTools", () => {
-  it("loads MCP tools from configured local servers", async () => {
-    const runtime = await loadMcpRuntimeTools(
-      {
-        docs: {
-          type: "local",
-          command: ["node", fixtureServer],
-          timeout: 5_000,
-        },
-      },
-      process.cwd(),
-    );
-
-    try {
-      expect(runtime.extraTools.map((tool) => tool.name)).toContain("docs_echo");
-    } finally {
-      await runtime.mcpManager?.close();
-    }
   });
 });

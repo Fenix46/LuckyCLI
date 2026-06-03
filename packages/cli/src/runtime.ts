@@ -97,28 +97,6 @@ export function createRuntimeToolRegistry(extraTools: Tool[] = []) {
   return registry;
 }
 
-export interface McpRuntimeTools {
-  extraTools: Tool[];
-  mcpManager?: McpManager;
-}
-
-export async function loadMcpRuntimeTools(
-  mcp: Record<string, McpServerConfig>,
-  cwd = process.cwd(),
-): Promise<McpRuntimeTools> {
-  if (Object.keys(mcp).length === 0) return { extraTools: [] };
-  const mcpManager = new McpManager({
-    cwd,
-    clientName: "lucky",
-    clientVersion: "0.2.0",
-  });
-  await mcpManager.connectAll(mcp);
-  return {
-    extraTools: mcpManager.tools(),
-    mcpManager,
-  };
-}
-
 export interface BuildAgentRuntimeOptions extends BuildAgentOptions {
   mcp?: Record<string, McpServerConfig>;
   cwd?: string;

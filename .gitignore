@@ -8,4 +8,5 @@ dist-bin/
 .DS_Store
 coverage/
 .antigravitycli/
+.lucky/
 
