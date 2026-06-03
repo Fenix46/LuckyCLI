@@ -6,11 +6,20 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   DEFAULT_TIMEOUT_MS,
   callClientTool,
+  getClientPrompt,
+  listClientPrompts,
+  listClientResources,
   listClientTools,
+  readClientResource,
   withTimeout,
   type McpClient,
 } from "./client.js";
-import type { McpRemoteServerConfig, McpToolDescriptor } from "./types.js";
+import type {
+  McpPromptDescriptor,
+  McpRemoteServerConfig,
+  McpResourceDescriptor,
+  McpToolDescriptor,
+} from "./types.js";
 
 export interface McpRemoteClientOptions {
   clientName?: string;
@@ -71,6 +80,22 @@ export class McpRemoteClient implements McpClient {
 
   async callTool(name: string, args: Record<string, unknown>): Promise<string> {
     return callClientTool(this.client, name, args);
+  }
+
+  async listPrompts(): Promise<McpPromptDescriptor[]> {
+    return listClientPrompts(this.client);
+  }
+
+  async getPrompt(name: string, args?: Record<string, string>): Promise<string> {
+    return getClientPrompt(this.client, name, args);
+  }
+
+  async listResources(): Promise<McpResourceDescriptor[]> {
+    return listClientResources(this.client);
+  }
+
+  async readResource(uri: string): Promise<string> {
+    return readClientResource(this.client, uri);
   }
 
   async close(): Promise<void> {

@@ -20,5 +20,25 @@ server.registerTool(
   }),
 );
 
+server.registerPrompt(
+  "greet",
+  {
+    description: "Greets the named person.",
+    argsSchema: { name: z.string() },
+  },
+  ({ name }) => ({
+    messages: [{ role: "user", content: { type: "text", text: `Hello, ${name}!` } }],
+  }),
+);
+
+server.registerResource(
+  "greeting",
+  "test://greeting",
+  { description: "A static greeting.", mimeType: "text/plain" },
+  async (uri) => ({
+    contents: [{ uri: uri.href, text: "hello resource" }],
+  }),
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

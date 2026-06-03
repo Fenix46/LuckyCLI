@@ -107,4 +107,28 @@ describe("McpManager", () => {
 
     expect(result).toEqual({ content: "echo:hello" });
   });
+
+  it("lists and fetches prompts and resources from a connected server", async () => {
+    const manager = new McpManager();
+    managers.push(manager);
+    await manager.connectAll({
+      docs: { type: "local", command: ["node", fixtureServer], timeout: 5_000 },
+    });
+
+    const prompts = await manager.listPrompts("docs");
+    expect(prompts.map((p) => p.name)).toContain("greet");
+    await expect(manager.getPrompt("docs", "greet", { name: "World" })).resolves.toContain(
+      "Hello, World!",
+    );
+
+    const resources = await manager.listResources("docs");
+    expect(resources.map((r) => r.uri)).toContain("test://greeting");
+    await expect(manager.readResource("docs", "test://greeting")).resolves.toBe("hello resource");
+  });
+
+  it("throws when querying prompts/resources of a server that is not connected", async () => {
+    const manager = new McpManager();
+    managers.push(manager);
+    await expect(manager.listPrompts("ghost")).rejects.toThrow(/not connected/);
+  });
 });

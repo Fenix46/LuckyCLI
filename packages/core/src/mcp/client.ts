@@ -9,7 +9,11 @@
 
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { McpToolDescriptor } from "./types.js";
+import type {
+  McpPromptDescriptor,
+  McpResourceDescriptor,
+  McpToolDescriptor,
+} from "./types.js";
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -17,6 +21,10 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 export interface McpClient {
   listTools(): Promise<McpToolDescriptor[]>;
   callTool(name: string, args: Record<string, unknown>): Promise<string>;
+  listPrompts(): Promise<McpPromptDescriptor[]>;
+  getPrompt(name: string, args?: Record<string, string>): Promise<string>;
+  listResources(): Promise<McpResourceDescriptor[]>;
+  readResource(uri: string): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -68,6 +76,77 @@ export async function callClientTool(
     `Timed out calling MCP tool "${name}".`,
   );
   return toToolResultText(result.content);
+}
+
+/** List prompts via the SDK client, normalized to Lucky descriptors. */
+export async function listClientPrompts(
+  client: Client,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<McpPromptDescriptor[]> {
+  const result = await withTimeout(client.listPrompts(), timeoutMs, "Timed out listing MCP prompts.");
+  return result.prompts.map((prompt) => ({
+    name: prompt.name,
+    ...(prompt.description ? { description: prompt.description } : {}),
+    ...(prompt.arguments ? { arguments: prompt.arguments } : {}),
+  }));
+}
+
+/** Fetch a prompt and flatten its messages into text. */
+export async function getClientPrompt(
+  client: Client,
+  name: string,
+  args: Record<string, string> = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<string> {
+  const result = await withTimeout(
+    client.getPrompt({ name, arguments: args }),
+    timeoutMs,
+    `Timed out fetching MCP prompt "${name}".`,
+  );
+  return result.messages
+    .map((message) => {
+      const content = message.content;
+      return content.type === "text" ? content.text : `[${content.type}]`;
+    })
+    .join("\n");
+}
+
+/** List resources via the SDK client, normalized to Lucky descriptors. */
+export async function listClientResources(
+  client: Client,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<McpResourceDescriptor[]> {
+  const result = await withTimeout(
+    client.listResources(),
+    timeoutMs,
+    "Timed out listing MCP resources.",
+  );
+  return result.resources.map((resource) => ({
+    name: resource.name ?? resource.uri,
+    uri: resource.uri,
+    ...(resource.description ? { description: resource.description } : {}),
+    ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+  }));
+}
+
+/** Read a resource and flatten its text contents. */
+export async function readClientResource(
+  client: Client,
+  uri: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<string> {
+  const result = await withTimeout(
+    client.readResource({ uri }),
+    timeoutMs,
+    `Timed out reading MCP resource "${uri}".`,
+  );
+  return result.contents
+    .map((content) =>
+      "text" in content && typeof content.text === "string"
+        ? content.text
+        : `[${content.mimeType ?? "binary"}]`,
+    )
+    .join("\n");
 }
 
 /** Reject with `message` if `promise` does not settle within `timeoutMs`. */

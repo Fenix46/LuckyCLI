@@ -5,7 +5,9 @@ import { McpLocalClient, type McpLocalClientOptions } from "./local-client.js";
 import { McpRemoteClient } from "./remote-client.js";
 import type {
   McpConnectionStatus,
+  McpPromptDescriptor,
   McpRemoteServerConfig,
+  McpResourceDescriptor,
   McpServerConfig,
   McpToolDescriptor,
 } from "./types.js";
@@ -100,6 +102,36 @@ export class McpManager {
   /** Number of tools currently exposed by a connected server. */
   toolCount(name: string): number {
     return this.servers.get(name)?.tools.length ?? 0;
+  }
+
+  /** List prompts offered by a connected server. */
+  async listPrompts(server: string): Promise<McpPromptDescriptor[]> {
+    return this.requireClient(server).listPrompts();
+  }
+
+  /** Fetch a prompt from a connected server, flattened to text. */
+  async getPrompt(
+    server: string,
+    name: string,
+    args?: Record<string, string>,
+  ): Promise<string> {
+    return this.requireClient(server).getPrompt(name, args);
+  }
+
+  /** List resources offered by a connected server. */
+  async listResources(server: string): Promise<McpResourceDescriptor[]> {
+    return this.requireClient(server).listResources();
+  }
+
+  /** Read a resource from a connected server, flattened to text. */
+  async readResource(server: string, uri: string): Promise<string> {
+    return this.requireClient(server).readResource(uri);
+  }
+
+  private requireClient(server: string): McpClient {
+    const connected = this.servers.get(server);
+    if (!connected) throw new Error(`MCP server "${server}" is not connected.`);
+    return connected.client;
   }
 
   private setStatus(name: string, status: McpConnectionStatus): McpConnectionStatus {
