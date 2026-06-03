@@ -205,6 +205,15 @@ export { McpRemoteClient } from "./mcp/remote-client.js";
 export type { McpClient } from "./mcp/client.js";
 export { McpManager } from "./mcp/manager.js";
 export {
+  clearMcpAuthEntry,
+  getMcpAuthEntry,
+  loadMcpAuthStore,
+  mcpAuthFilePath,
+  saveMcpAuthStore,
+  updateMcpAuthEntry,
+} from "./mcp/auth-store.js";
+export type { McpAuthEntry, McpAuthStore } from "./mcp/auth-store.js";
+export {
   isMcpServerConfig,
 } from "./mcp/types.js";
 export type {
