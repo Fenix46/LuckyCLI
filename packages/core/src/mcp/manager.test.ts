@@ -68,6 +68,24 @@ describe("McpManager", () => {
     expect(manager.tools()).toEqual([]);
   });
 
+  it("records disconnected status and drops tools on disconnect, then restores on reconnect", async () => {
+    const manager = new McpManager();
+    managers.push(manager);
+    const config = { type: "local" as const, command: ["node", fixtureServer], timeout: 5_000 };
+
+    await manager.connectAll({ docs: config });
+    expect(manager.status().docs).toEqual({ status: "connected" });
+    expect(manager.tools().map((t) => t.name)).toContain("docs_echo");
+
+    await manager.disconnect("docs");
+    expect(manager.status().docs).toEqual({ status: "disconnected" });
+    expect(manager.tools()).toEqual([]);
+
+    const status = await manager.reconnect("docs", config);
+    expect(status).toEqual({ status: "connected" });
+    expect(manager.tools().map((t) => t.name)).toContain("docs_echo");
+  });
+
   it("exposes adapted Lucky tools that execute through the MCP client", async () => {
     const manager = new McpManager();
     managers.push(manager);

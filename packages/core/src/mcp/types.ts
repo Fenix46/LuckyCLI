@@ -27,6 +27,7 @@ export type McpServerConfig = McpLocalServerConfig | McpRemoteServerConfig;
 export type McpConnectionStatus =
   | { status: "connected" }
   | { status: "disabled" }
+  | { status: "disconnected" }
   | { status: "failed"; error: string };
 
 export interface McpToolDescriptor {

@@ -26,20 +26,23 @@ export class McpManager {
     configs: Record<string, McpServerConfig>,
   ): Promise<Record<string, McpConnectionStatus>> {
     await Promise.all(
-      Object.entries(configs).map(async ([name, config]) => {
-        this.statuses.set(name, await this.connectServer(name, config));
-      }),
+      Object.entries(configs).map(([name, config]) => this.connectServer(name, config)),
     );
     return this.status();
   }
 
+  /**
+   * Connect (or reconnect) a single server. This is the one place that writes
+   * connection status, so every path — disabled, connected, failed — is recorded
+   * consistently. Any prior connection for the same name is torn down first.
+   */
   async connectServer(
     name: string,
     config: McpServerConfig,
   ): Promise<McpConnectionStatus> {
     if (config.enabled === false) {
-      await this.disconnect(name);
-      return { status: "disabled" };
+      await this.teardown(name);
+      return this.setStatus(name, { status: "disabled" });
     }
 
     try {
@@ -55,26 +58,32 @@ export class McpManager {
       // runs in the background during startup). Don't store or leak the client.
       if (this.closed) {
         await client.close().catch(() => {});
-        return { status: "disabled" };
+        return this.setStatus(name, { status: "disconnected" });
       }
-      await this.disconnect(name);
+      await this.teardown(name);
       this.servers.set(name, { config, client, tools });
-      const next: McpConnectionStatus = { status: "connected" };
-      this.statuses.set(name, next);
-      return next;
+      return this.setStatus(name, { status: "connected" });
     } catch (error) {
-      await this.disconnect(name);
-      const next: McpConnectionStatus = {
+      await this.teardown(name);
+      return this.setStatus(name, {
         status: "failed",
         error: error instanceof Error ? error.message : String(error),
-      };
-      this.statuses.set(name, next);
-      return next;
+      });
     }
+  }
+
+  /** Reconnect a single server, applying a fresh config. Alias of connectServer. */
+  async reconnect(name: string, config: McpServerConfig): Promise<McpConnectionStatus> {
+    return this.connectServer(name, config);
   }
 
   status(): Record<string, McpConnectionStatus> {
     return Object.fromEntries(this.statuses);
+  }
+
+  private setStatus(name: string, status: McpConnectionStatus): McpConnectionStatus {
+    this.statuses.set(name, status);
+    return status;
   }
 
   tools(): Tool[] {
@@ -87,15 +96,22 @@ export class McpManager {
     );
   }
 
+  /** Disconnect a single server and record it as disconnected. */
   async disconnect(name: string): Promise<void> {
-    const existing = this.servers.get(name);
-    this.servers.delete(name);
-    if (existing) await existing.client.close().catch(() => {});
+    await this.teardown(name);
+    this.setStatus(name, { status: "disconnected" });
   }
 
   async close(): Promise<void> {
     this.closed = true;
-    const pending = [...this.servers.keys()].map((name) => this.disconnect(name));
+    const pending = [...this.servers.keys()].map((name) => this.teardown(name));
     await Promise.all(pending);
+  }
+
+  /** Close and forget a server's client without touching its recorded status. */
+  private async teardown(name: string): Promise<void> {
+    const existing = this.servers.get(name);
+    this.servers.delete(name);
+    if (existing) await existing.client.close().catch(() => {});
   }
 }
