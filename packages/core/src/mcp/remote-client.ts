@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -14,6 +15,8 @@ import type { McpRemoteServerConfig, McpToolDescriptor } from "./types.js";
 export interface McpRemoteClientOptions {
   clientName?: string;
   clientVersion?: string;
+  /** OAuth provider for authenticated servers. Unused for open servers. */
+  authProvider?: OAuthClientProvider;
 }
 
 export class McpRemoteClient implements McpClient {
@@ -35,16 +38,20 @@ export class McpRemoteClient implements McpClient {
     const url = new URL(config.url);
     const timeout = config.timeout ?? DEFAULT_TIMEOUT_MS;
     const headers = config.headers;
+    const authProvider = options.authProvider;
 
     try {
-      const transport = new StreamableHTTPClientTransport(
-        url,
-        headers ? { requestInit: { headers } } : {},
-      );
+      const transport = new StreamableHTTPClientTransport(url, {
+        ...(headers ? { requestInit: { headers } } : {}),
+        ...(authProvider ? { authProvider } : {}),
+      });
       return await McpRemoteClient.open(transport, options, timeout, config.url);
     } catch (httpError) {
       try {
-        const transport = new SSEClientTransport(url, sseOptions(headers));
+        const transport = new SSEClientTransport(url, {
+          ...sseOptions(headers),
+          ...(authProvider ? { authProvider } : {}),
+        });
         return await McpRemoteClient.open(transport, options, timeout, config.url);
       } catch {
         // Surface the streamable-HTTP error: it's the primary transport and its

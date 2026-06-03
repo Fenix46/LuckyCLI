@@ -5,6 +5,7 @@ import {
   defaultToolRegistry,
   ensureProjectMemoryFile,
   getProvider,
+  nonInteractiveMcpOAuthProvider,
   resetProvider,
   updateGraphForFiles,
   type AskUserRequest,
@@ -16,6 +17,14 @@ import {
   type Tool,
   type ToolPermissionPolicy,
 } from "@luckycli/core";
+
+/**
+ * Loopback redirect used when a stored token needs refreshing in the background.
+ * It is only ever exercised during interactive login (see `lucky mcp login`),
+ * where a real ephemeral port is used; here it's a placeholder because the
+ * non-interactive provider refuses to launch a browser.
+ */
+const MCP_OAUTH_REDIRECT = "http://127.0.0.1:7632/mcp/callback";
 
 /**
  * A debounced graph maintainer: file tools report changes via onFilesChanged,
@@ -170,6 +179,11 @@ export async function buildAgentRuntime(
     cwd,
     clientName: "lucky",
     clientVersion: "0.2.0",
+    // Use stored OAuth tokens (and let the SDK refresh them) for remote servers,
+    // but never pop a browser mid-session: a server needing fresh login fails
+    // with a clear "run lucky mcp login" message instead.
+    authProviderFor: (name) =>
+      nonInteractiveMcpOAuthProvider(name, { redirectUrl: MCP_OAUTH_REDIRECT }),
   });
   const mcpReady = mcpManager
     .connectAll(mcp)

@@ -1,13 +1,26 @@
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { adaptMcpTool } from "./tool-adapter.js";
 import type { McpClient } from "./client.js";
 import { McpLocalClient, type McpLocalClientOptions } from "./local-client.js";
 import { McpRemoteClient } from "./remote-client.js";
 import type {
   McpConnectionStatus,
+  McpRemoteServerConfig,
   McpServerConfig,
   McpToolDescriptor,
 } from "./types.js";
 import type { Tool } from "../tools/types.js";
+
+export interface McpManagerOptions extends McpLocalClientOptions {
+  /**
+   * Supplies an OAuth provider for a remote server, e.g. one backed by stored
+   * tokens. Returning undefined connects without auth.
+   */
+  authProviderFor?: (
+    name: string,
+    config: McpRemoteServerConfig,
+  ) => OAuthClientProvider | undefined;
+}
 
 interface ConnectedServer {
   config: McpServerConfig;
@@ -20,7 +33,7 @@ export class McpManager {
   private readonly servers = new Map<string, ConnectedServer>();
   private closed = false;
 
-  constructor(private readonly options: McpLocalClientOptions = {}) {}
+  constructor(private readonly options: McpManagerOptions = {}) {}
 
   async connectAll(
     configs: Record<string, McpServerConfig>,
@@ -52,6 +65,9 @@ export class McpManager {
           : await McpRemoteClient.connect(config, {
               ...(this.options.clientName ? { clientName: this.options.clientName } : {}),
               ...(this.options.clientVersion ? { clientVersion: this.options.clientVersion } : {}),
+              ...(this.options.authProviderFor?.(name, config)
+                ? { authProvider: this.options.authProviderFor(name, config)! }
+                : {}),
             });
       const tools = await client.listTools();
       // The manager may have been closed while this connect was in flight (it

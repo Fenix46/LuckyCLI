@@ -5,6 +5,8 @@
 
 import {
   McpManager,
+  authorizeMcpServer,
+  clearMcpAuthEntry,
   resolveConfig,
   type McpConnectionStatus,
   type McpServerConfig,
@@ -66,6 +68,36 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
     return 0;
   }
 
+  if (sub === "login" || sub === "logout") {
+    const name = args[1];
+    if (!name) {
+      err(`Usage: lucky mcp ${sub} <server-name>`);
+      return 1;
+    }
+    const server = mcp[name];
+    if (!server) {
+      err(`No MCP server named "${name}" is configured.`);
+      return 1;
+    }
+    if (sub === "logout") {
+      clearMcpAuthEntry(name);
+      out(`Logged out of ${name}.`);
+      return 0;
+    }
+    if (server.type !== "remote") {
+      err(`"${name}" is a local server; OAuth login only applies to remote servers.`);
+      return 1;
+    }
+    out(`Authorizing ${name} — a browser window will open...`);
+    const result = await authorizeMcpServer({ name, url: server.url });
+    out(
+      result.status === "already-authorized"
+        ? `${name} is already authorized.`
+        : `${name} authorized.`,
+    );
+    return 0;
+  }
+
   if (sub === "status" || sub === "doctor") {
     if (Object.keys(mcp).length === 0) {
       out("No MCP servers configured.");
@@ -84,6 +116,6 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
     }
   }
 
-  err(`Unknown mcp command "${sub}". Usage: lucky mcp list|status`);
+  err(`Unknown mcp command "${sub}". Usage: lucky mcp list|status|login|logout`);
   return 1;
 }

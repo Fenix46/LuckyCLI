@@ -35,6 +35,8 @@ Commands:
   graph rebuild [path]  rebuild it from scratch
   mcp list              list configured MCP servers
   mcp status            connect to each MCP server and report status
+  mcp login <name>      authorize a remote MCP server via OAuth
+  mcp logout <name>     forget a remote MCP server's stored tokens
 `;
 
 function printSessions(): void {
