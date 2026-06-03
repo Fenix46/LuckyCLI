@@ -80,6 +80,7 @@ export {
   javaExtractor,
   javascriptExtractor,
   pythonExtractor,
+  rubyExtractor,
   rustExtractor,
   tsxExtractor,
   typescriptExtractor,
