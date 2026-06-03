@@ -2,6 +2,7 @@ import { Box, Static, Text, useApp, useInput } from "ink";
 import os from "node:os";
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
+  CachedMcpCatalog,
   OfficialMcpRegistryCatalog,
   PROVIDER_CATALOG,
   catalogDetailToPreset,
@@ -712,7 +713,7 @@ export function App({
   );
 
   async function installCatalogServerByName(name: string) {
-    const catalog = new OfficialMcpRegistryCatalog();
+    const catalog = new CachedMcpCatalog(new OfficialMcpRegistryCatalog());
     const detail = await catalog.get(name);
     const preset = catalogDetailToPreset(detail);
     const cfg = loadStoredConfig();
@@ -911,7 +912,7 @@ export function App({
           return;
         }
         try {
-          const catalog = new OfficialMcpRegistryCatalog();
+          const catalog = new CachedMcpCatalog(new OfficialMcpRegistryCatalog());
           const detail = await catalog.get(name);
           const preset = catalogDetailToPreset(detail);
           setItems((prev) => [

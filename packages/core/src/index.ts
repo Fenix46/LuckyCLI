@@ -220,6 +220,18 @@ export type {
 // MCP catalog.
 export { OfficialMcpRegistryCatalog } from "./mcp-catalog/official.js";
 export {
+  CachedMcpCatalog,
+  catalogCacheFilePath,
+  isEntryFresh,
+  loadCatalogCache,
+  saveCatalogCache,
+} from "./mcp-catalog/cache.js";
+export type {
+  CachedCatalogEntry,
+  McpCatalogCacheData,
+  McpCatalogSource,
+} from "./mcp-catalog/cache.js";
+export {
   catalogDetailToPreset,
   presetToStoredMcpConfig,
 } from "./mcp-catalog/presets.js";
