@@ -24,21 +24,15 @@ export class OfficialMcpRegistryCatalog {
   ) {}
 
   async search(query: string): Promise<CatalogSearchResult> {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return { items: [] };
-
-    const servers = await this.listServers();
-    const ranked = servers
-      .map((server) => ({
-        server,
-        score: scoreServer(server, normalized),
-      }))
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score || a.server.name.localeCompare(b.server.name))
-      .slice(0, 12)
-      .map((item) => item.server);
-
-    return { items: ranked };
+    const normalized = query.trim();
+    if (!normalized) {
+      return { items: (await this.listServers()).slice(0, 20) };
+    }
+    const url = new URL(`${this.baseUrl()}/v0.1/servers`);
+    url.searchParams.set("limit", String(this.options.pageLimit ?? DEFAULT_PAGE_LIMIT));
+    url.searchParams.set("search", normalized);
+    const payload = normalizeListResponse(await this.fetchJson(url.toString()));
+    return { items: payload.items.slice(0, 20) };
   }
 
   async get(name: string): Promise<CatalogServerDetail> {
@@ -94,18 +88,32 @@ function normalizeListResponse(payload: unknown): {
 }
 
 function normalizeServerSummary(raw: unknown): CatalogServerSummary {
-  const value = (raw ?? {}) as Record<string, unknown>;
+  const wrapper = (raw ?? {}) as Record<string, unknown>;
+  const value =
+    wrapper.server && typeof wrapper.server === "object"
+      ? (wrapper.server as Record<string, unknown>)
+      : wrapper;
+  const meta = wrapper._meta as Record<string, unknown> | undefined;
+  const officialMeta = meta?.["io.modelcontextprotocol.registry/official"] as Record<string, unknown> | undefined;
   return {
     name: String(value.name ?? ""),
     ...(typeof value.title === "string" ? { title: value.title } : {}),
     ...(typeof value.description === "string" ? { description: value.description } : {}),
     ...(typeof value.version === "string" ? { version: value.version } : {}),
-    ...(typeof value.status === "string" ? { status: value.status } : {}),
+    ...(typeof value.status === "string"
+      ? { status: value.status }
+      : typeof officialMeta?.status === "string"
+        ? { status: String(officialMeta.status) }
+        : {}),
   };
 }
 
 function normalizeServerDetail(raw: unknown): CatalogServerDetail {
-  const value = (raw ?? {}) as Record<string, unknown>;
+  const wrapper = (raw ?? {}) as Record<string, unknown>;
+  const value =
+    wrapper.server && typeof wrapper.server === "object"
+      ? (wrapper.server as Record<string, unknown>)
+      : wrapper;
   return {
     ...normalizeServerSummary(raw),
     ...(Array.isArray(value.packages)
@@ -142,21 +150,4 @@ function normalizeServerDetail(raw: unknown): CatalogServerDetail {
         }
       : {}),
   };
-}
-
-function scoreServer(server: CatalogServerSummary, query: string): number {
-  const haystacks = [
-    server.name,
-    server.title ?? "",
-    server.description ?? "",
-  ].map((text) => text.toLowerCase());
-
-  let score = 0;
-  for (const text of haystacks) {
-    if (!text) continue;
-    if (text === query) score += 200;
-    else if (text.startsWith(query)) score += 120;
-    else if (text.includes(query)) score += 60;
-  }
-  return score;
 }
