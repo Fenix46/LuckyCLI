@@ -23,7 +23,8 @@ export type GraphLanguage =
   | "csharp"
   | "php"
   | "c"
-  | "cpp";
+  | "cpp"
+  | "kotlin";
 
 let initPromise: Promise<void> | undefined;
 const languages = new Map<GraphLanguage, Language>();

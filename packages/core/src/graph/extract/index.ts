@@ -7,6 +7,7 @@ import { cppExtractor } from "./cpp.js";
 import { csharpExtractor } from "./csharp.js";
 import { goExtractor } from "./go.js";
 import { javaExtractor } from "./java.js";
+import { kotlinExtractor } from "./kotlin.js";
 import type { GraphLanguage } from "./parser.js";
 import { phpExtractor } from "./php.js";
 import { pythonExtractor } from "./python.js";
@@ -28,6 +29,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   php: phpExtractor,
   c: cExtractor,
   cpp: cppExtractor,
+  kotlin: kotlinExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -45,4 +47,5 @@ export { csharpExtractor };
 export { phpExtractor };
 export { cExtractor };
 export { cppExtractor };
+export { kotlinExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";
