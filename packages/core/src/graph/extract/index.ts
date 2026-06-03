@@ -5,6 +5,7 @@
 import { cExtractor } from "./c.js";
 import { cppExtractor } from "./cpp.js";
 import { csharpExtractor } from "./csharp.js";
+import { dartExtractor } from "./dart.js";
 import { goExtractor } from "./go.js";
 import { javaExtractor } from "./java.js";
 import { kotlinExtractor } from "./kotlin.js";
@@ -32,6 +33,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   cpp: cppExtractor,
   kotlin: kotlinExtractor,
   swift: swiftExtractor,
+  dart: dartExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -51,4 +53,5 @@ export { cExtractor };
 export { cppExtractor };
 export { kotlinExtractor };
 export { swiftExtractor };
+export { dartExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";

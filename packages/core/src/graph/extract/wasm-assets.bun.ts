@@ -26,6 +26,7 @@ import cWasm from "tree-sitter-wasms/out/tree-sitter-c.wasm" with { type: "file"
 import cppWasm from "tree-sitter-wasms/out/tree-sitter-cpp.wasm" with { type: "file" };
 import kotlinWasm from "tree-sitter-wasms/out/tree-sitter-kotlin.wasm" with { type: "file" };
 import swiftWasm from "tree-sitter-wasms/out/tree-sitter-swift.wasm" with { type: "file" };
+import dartWasm from "tree-sitter-wasms/out/tree-sitter-dart.wasm" with { type: "file" };
 
 const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
   typescript: typescriptWasm,
@@ -42,6 +43,7 @@ const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
   cpp: cppWasm,
   kotlin: kotlinWasm,
   swift: swiftWasm,
+  dart: dartWasm,
 };
 
 export function coreWasmPath(): string {

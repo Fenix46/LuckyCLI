@@ -78,6 +78,7 @@ export {
   cExtractor,
   cppExtractor,
   csharpExtractor,
+  dartExtractor,
   extractorFor,
   goExtractor,
   javaExtractor,
