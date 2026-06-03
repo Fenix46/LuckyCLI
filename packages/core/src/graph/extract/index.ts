@@ -2,6 +2,7 @@
  * Extractor registry — maps a language to the extractor that handles it.
  * The build pipeline uses this to dispatch each detected file.
  */
+import { cExtractor } from "./c.js";
 import { csharpExtractor } from "./csharp.js";
 import { goExtractor } from "./go.js";
 import { javaExtractor } from "./java.js";
@@ -24,6 +25,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   ruby: rubyExtractor,
   csharp: csharpExtractor,
   php: phpExtractor,
+  c: cExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -39,4 +41,5 @@ export { javaExtractor };
 export { rubyExtractor };
 export { csharpExtractor };
 export { phpExtractor };
+export { cExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";

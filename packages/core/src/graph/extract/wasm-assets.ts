@@ -23,6 +23,7 @@ export const GRAMMAR_WASM: Record<GraphLanguage, string> = {
   ruby: "tree-sitter-ruby.wasm",
   csharp: "tree-sitter-c_sharp.wasm",
   php: "tree-sitter-php.wasm",
+  c: "tree-sitter-c.wasm",
 };
 
 const require = createRequire(import.meta.url);

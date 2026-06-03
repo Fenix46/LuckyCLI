@@ -75,6 +75,7 @@ export type {
   NodeKind,
 } from "./graph/types.js";
 export {
+  cExtractor,
   csharpExtractor,
   extractorFor,
   goExtractor,
