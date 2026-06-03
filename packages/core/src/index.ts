@@ -87,6 +87,7 @@ export {
   pythonExtractor,
   rubyExtractor,
   rustExtractor,
+  swiftExtractor,
   tsxExtractor,
   typescriptExtractor,
 } from "./graph/extract/index.js";

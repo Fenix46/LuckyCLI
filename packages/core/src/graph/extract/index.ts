@@ -13,6 +13,7 @@ import { phpExtractor } from "./php.js";
 import { pythonExtractor } from "./python.js";
 import { rubyExtractor } from "./ruby.js";
 import { rustExtractor } from "./rust.js";
+import { swiftExtractor } from "./swift.js";
 import type { Extractor } from "./types.js";
 import { javascriptExtractor, tsxExtractor, typescriptExtractor } from "./typescript.js";
 
@@ -30,6 +31,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   c: cExtractor,
   cpp: cppExtractor,
   kotlin: kotlinExtractor,
+  swift: swiftExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -48,4 +50,5 @@ export { phpExtractor };
 export { cExtractor };
 export { cppExtractor };
 export { kotlinExtractor };
+export { swiftExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";
