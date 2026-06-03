@@ -20,6 +20,7 @@ import goWasm from "tree-sitter-wasms/out/tree-sitter-go.wasm" with { type: "fil
 import rustWasm from "tree-sitter-wasms/out/tree-sitter-rust.wasm" with { type: "file" };
 import javaWasm from "tree-sitter-wasms/out/tree-sitter-java.wasm" with { type: "file" };
 import rubyWasm from "tree-sitter-wasms/out/tree-sitter-ruby.wasm" with { type: "file" };
+import csharpWasm from "tree-sitter-wasms/out/tree-sitter-c_sharp.wasm" with { type: "file" };
 
 const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
   typescript: typescriptWasm,
@@ -30,6 +31,7 @@ const GRAMMAR_PATHS: Record<GraphLanguage, string> = {
   rust: rustWasm,
   java: javaWasm,
   ruby: rubyWasm,
+  csharp: csharpWasm,
 };
 
 export function coreWasmPath(): string {

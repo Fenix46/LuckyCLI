@@ -19,7 +19,8 @@ export type GraphLanguage =
   | "go"
   | "rust"
   | "java"
-  | "ruby";
+  | "ruby"
+  | "csharp";
 
 let initPromise: Promise<void> | undefined;
 const languages = new Map<GraphLanguage, Language>();

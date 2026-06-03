@@ -30,6 +30,7 @@ const EXT_TO_LANGUAGE: Record<string, GraphLanguage> = {
   ".rs": "rust",
   ".java": "java",
   ".rb": "ruby",
+  ".cs": "csharp",
 };
 
 /** The language for a path, or undefined if no extractor handles it. */
