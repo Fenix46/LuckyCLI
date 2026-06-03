@@ -320,6 +320,7 @@ export function Root({
       setApprovalRequest={setApprovalRequest}
       userQuestionRequest={userQuestionRequest}
       setUserQuestionRequest={setUserQuestionRequest}
+      mcpManager={runtime.mcpManager}
       onTriggerSetup={onTriggerProviderSetup}
       onChangeModel={onChangeModel}
       onTriggerResume={() => setPicking(true)}

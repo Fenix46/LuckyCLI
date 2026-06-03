@@ -8,6 +8,7 @@ import {
   type AskUserRequest,
   type ContextStatus,
   type Message,
+  type McpManager,
   type ProviderStatus,
   type ProviderId,
   type ProviderQuotaStatus,
@@ -49,6 +50,27 @@ interface CommandRow {
   value: string;
 }
 
+export function buildMcpCommandRows(
+  mcpStatus: Record<string, { status: string; error?: string }>,
+  toolCount: number,
+): CommandRow[] {
+  return Object.keys(mcpStatus).length === 0
+    ? [
+        { label: "servers", value: "none configured for this session" },
+        { label: "tools", value: String(toolCount) },
+      ]
+    : [
+        { label: "tools", value: String(toolCount) },
+        ...Object.entries(mcpStatus).map(([name, status]) => ({
+          label: name,
+          value:
+            status.status === "failed"
+              ? `${status.status} · ${status.error}`
+              : status.status,
+        })),
+      ];
+}
+
 export interface ApprovalRequest {
   name: string;
   input: unknown;
@@ -69,6 +91,7 @@ interface AppProps {
   setApprovalRequest: (req: ApprovalRequest | null) => void;
   userQuestionRequest: UserQuestionRequest | null;
   setUserQuestionRequest: (req: UserQuestionRequest | null) => void;
+  mcpManager?: McpManager;
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
   onTriggerResume: () => void;
@@ -82,6 +105,7 @@ interface AppProps {
 
 const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
+  { name: "/mcp", desc: "Show MCP server and tool status for this session" },
   { name: "/status", desc: "Show provider auth, account, quota and context status" },
   { name: "/update", desc: "Check for a newer LuckyCLI release" },
   { name: "/compact", desc: "Summarize older chat history now" },
@@ -99,6 +123,7 @@ export function App({
   setApprovalRequest,
   userQuestionRequest,
   setUserQuestionRequest,
+  mcpManager,
   onTriggerSetup,
   onChangeModel,
   onTriggerResume,
@@ -630,6 +655,20 @@ export function App({
             },
           ]);
         }
+        setInput("");
+        return;
+      }
+      if (text === "/mcp" || text === "/mcp status" || text === "/mcp list") {
+        const mcpStatus = mcpManager?.status() ?? {};
+        const toolCount = mcpManager?.tools().length ?? 0;
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "command",
+            title: "MCP",
+            rows: buildMcpCommandRows(mcpStatus, toolCount),
+          },
+        ]);
         setInput("");
         return;
       }
@@ -1481,6 +1520,7 @@ function IntroBanner({
           <Text color={theme.muted}>Type / to open the command directory</Text>
           <Text color={theme.muted}>Run /model to switch model</Text>
           <Text color={theme.muted}>Run /status to check your provider</Text>
+          <Text color={theme.muted}>Run /mcp to inspect MCP servers</Text>
 
           <Box marginTop={1}>
             <Text bold color={theme.warning}>
