@@ -22,7 +22,8 @@ export type GraphLanguage =
   | "ruby"
   | "csharp"
   | "php"
-  | "c";
+  | "c"
+  | "cpp";
 
 let initPromise: Promise<void> | undefined;
 const languages = new Map<GraphLanguage, Language>();

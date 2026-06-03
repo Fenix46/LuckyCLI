@@ -24,6 +24,7 @@ export const GRAMMAR_WASM: Record<GraphLanguage, string> = {
   csharp: "tree-sitter-c_sharp.wasm",
   php: "tree-sitter-php.wasm",
   c: "tree-sitter-c.wasm",
+  cpp: "tree-sitter-cpp.wasm",
 };
 
 const require = createRequire(import.meta.url);

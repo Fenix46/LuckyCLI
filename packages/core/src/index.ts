@@ -76,6 +76,7 @@ export type {
 } from "./graph/types.js";
 export {
   cExtractor,
+  cppExtractor,
   csharpExtractor,
   extractorFor,
   goExtractor,

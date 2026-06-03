@@ -3,6 +3,7 @@
  * The build pipeline uses this to dispatch each detected file.
  */
 import { cExtractor } from "./c.js";
+import { cppExtractor } from "./cpp.js";
 import { csharpExtractor } from "./csharp.js";
 import { goExtractor } from "./go.js";
 import { javaExtractor } from "./java.js";
@@ -26,6 +27,7 @@ const EXTRACTORS: Record<GraphLanguage, Extractor | undefined> = {
   csharp: csharpExtractor,
   php: phpExtractor,
   c: cExtractor,
+  cpp: cppExtractor,
 };
 
 /** The extractor for a language, or undefined if none is registered yet. */
@@ -42,4 +44,5 @@ export { rubyExtractor };
 export { csharpExtractor };
 export { phpExtractor };
 export { cExtractor };
+export { cppExtractor };
 export type { Extractor, ExtractorContext } from "./types.js";
