@@ -1,5 +1,6 @@
 import {
   Agent,
+  McpManager,
   appendProjectMemoryToSystemPrompt,
   defaultToolRegistry,
   ensureProjectMemoryFile,
@@ -8,6 +9,7 @@ import {
   updateGraphForFiles,
   type AskUserRequest,
   type Message,
+  type McpServerConfig,
   type ProviderCredentials,
   type ProviderId,
   type ToolApproval,
@@ -61,6 +63,38 @@ export function createRuntimeToolRegistry(extraTools: Tool[] = []) {
   return registry;
 }
 
+export interface McpRuntimeTools {
+  extraTools: Tool[];
+  mcpManager?: McpManager;
+}
+
+export async function loadMcpRuntimeTools(
+  mcp: Record<string, McpServerConfig>,
+  cwd = process.cwd(),
+): Promise<McpRuntimeTools> {
+  if (Object.keys(mcp).length === 0) return { extraTools: [] };
+  const mcpManager = new McpManager({
+    cwd,
+    clientName: "lucky",
+    clientVersion: "0.2.0",
+  });
+  await mcpManager.connectAll(mcp);
+  return {
+    extraTools: mcpManager.tools(),
+    mcpManager,
+  };
+}
+
+export interface BuildAgentRuntimeOptions extends BuildAgentOptions {
+  mcp?: Record<string, McpServerConfig>;
+  cwd?: string;
+}
+
+export interface BuiltAgentRuntime {
+  agent: Agent;
+  mcpManager?: McpManager;
+}
+
 /**
  * Construct an Agent for the given provider/model/credentials. Resets any cached
  * provider instance first so changing credentials at runtime takes effect.
@@ -83,4 +117,18 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.messages?.length ? { messages: opts.messages } : {}),
   });
+}
+
+export async function buildAgentRuntime(
+  opts: BuildAgentRuntimeOptions,
+): Promise<BuiltAgentRuntime> {
+  const cwd = opts.cwd ?? process.cwd();
+  const { extraTools, mcpManager } = await loadMcpRuntimeTools(opts.mcp ?? {}, cwd);
+  return {
+    agent: buildAgent({
+      ...opts,
+      extraTools,
+    }),
+    ...(mcpManager ? { mcpManager } : {}),
+  };
 }

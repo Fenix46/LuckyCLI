@@ -1,6 +1,8 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { Text } from "ink";
 import {
   loadStoredConfig,
+  type McpManager,
   resolveConfig,
   saveProviderSetup,
   saveStoredConfig,
@@ -14,7 +16,7 @@ import {
   type ToolApproval,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
-import { buildAgent } from "../runtime.js";
+import { buildAgentRuntime } from "../runtime.js";
 import { App, type ApprovalRequest, type PermissionMode, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
@@ -33,6 +35,7 @@ interface ActiveRuntime {
   provider: ProviderId;
   model: string;
   credentials: ProviderCredentials;
+  mcpManager?: McpManager;
 }
 
 type SetupMode = "initial" | "provider";
@@ -61,8 +64,13 @@ export function Root({
   );
   const [pendingMessages, setPendingMessages] = useState<Message[] | null>(null);
   const [setupFallbackRuntime, setSetupFallbackRuntime] = useState<ActiveRuntime | null>(null);
+  const [booting, setBooting] = useState<boolean>(() =>
+    !forceSetup && !config.needsSetup && !!config.provider && !!config.model && !!config.credentials,
+  );
   const sessionApprovedTools = useRef<Set<string>>(new Set());
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("normal");
+  const runtimeRef = useRef<ActiveRuntime | null>(null);
+  const activationIdRef = useRef(0);
   // The agent captures `approveTool` at build time, so the closure must read the
   // mode from a ref (a state value would be stale inside the captured closure).
   const permissionModeRef = useRef<PermissionMode>("normal");
@@ -111,55 +119,89 @@ export function Root({
     });
   }
 
-  const [runtime, setRuntime] = useState<ActiveRuntime | null>(() => {
-    if (forceSetup || config.needsSetup) return null;
-    if (!config.provider || !config.model || !config.credentials) return null;
-    return {
-      agent: buildAgent({
-        provider: config.provider,
-        model: config.model,
-        credentials: config.credentials,
-        system: config.system,
-        permissions: config.permissions,
-        approveTool,
-        askUser,
-        ...(config.temperature !== undefined
-          ? { temperature: config.temperature }
-          : {}),
-        ...(config.maxTokens !== undefined
-          ? { maxTokens: config.maxTokens }
-          : {}),
-        ...(resume?.messages?.length ? { messages: resume.messages } : {}),
-      }),
+  const [runtime, setRuntime] = useState<ActiveRuntime | null>(null);
+
+  useEffect(() => {
+    runtimeRef.current = runtime;
+  }, [runtime]);
+
+  useEffect(() => {
+    return () => {
+      void runtimeRef.current?.mcpManager?.close();
+    };
+  }, []);
+
+  async function activateRuntime(next: {
+    provider: ProviderId;
+    model: string;
+    credentials: ProviderCredentials;
+    messages?: Message[];
+  }) {
+    const activationId = ++activationIdRef.current;
+    setBooting(true);
+    const built = await buildAgentRuntime({
+      provider: next.provider,
+      model: next.model,
+      credentials: next.credentials,
+      system: config.system,
+      permissions: config.permissions,
+      approveTool,
+      askUser,
+      mcp: config.mcp,
+      ...(config.temperature !== undefined
+        ? { temperature: config.temperature }
+        : {}),
+      ...(config.maxTokens !== undefined
+        ? { maxTokens: config.maxTokens }
+        : {}),
+      ...(next.messages?.length ? { messages: next.messages } : {}),
+    });
+
+    if (activationId !== activationIdRef.current) {
+      await built.mcpManager?.close();
+      return;
+    }
+
+    setRuntime((current) => {
+      void current?.mcpManager?.close();
+      return {
+        agent: built.agent,
+        provider: next.provider,
+        model: next.model,
+        credentials: next.credentials,
+        ...(built.mcpManager ? { mcpManager: built.mcpManager } : {}),
+      };
+    });
+    setBooting(false);
+  }
+
+  useEffect(() => {
+    if (forceSetup || config.needsSetup) {
+      setBooting(false);
+      return;
+    }
+    if (!config.provider || !config.model || !config.credentials) {
+      setBooting(false);
+      return;
+    }
+    void activateRuntime({
       provider: config.provider,
       model: config.model,
       credentials: config.credentials,
-    };
-  });
+      ...(resume?.messages?.length ? { messages: resume.messages } : {}),
+    });
+  // Intentionally one-shot for initial boot config.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function onSetupComplete(result: SetupResult) {
     saveProviderSetup(result.provider, result.model, result.credentials);
     const carriedMessages = pendingMessages ?? resumeSession?.messages ?? [];
-    setRuntime({
-      agent: buildAgent({
-        provider: result.provider,
-        model: result.model,
-        credentials: result.credentials,
-        system: config.system,
-        permissions: config.permissions,
-        approveTool,
-        askUser,
-        ...(config.temperature !== undefined
-          ? { temperature: config.temperature }
-          : {}),
-        ...(config.maxTokens !== undefined
-          ? { maxTokens: config.maxTokens }
-          : {}),
-        ...(carriedMessages.length ? { messages: carriedMessages } : {}),
-      }),
+    void activateRuntime({
       provider: result.provider,
       model: result.model,
       credentials: result.credentials,
+      ...(carriedMessages.length ? { messages: carriedMessages } : {}),
     });
     setPendingMessages(null);
     setSetupFallbackRuntime(null);
@@ -190,26 +232,11 @@ export function Root({
       setRuntime(null);
       return;
     }
-    setRuntime({
-      agent: buildAgent({
-        provider: resolved.provider,
-        model: resolved.model,
-        credentials: resolved.credentials,
-        system: config.system,
-        permissions: config.permissions,
-        approveTool,
-        askUser,
-        ...(config.temperature !== undefined
-          ? { temperature: config.temperature }
-          : {}),
-        ...(config.maxTokens !== undefined
-          ? { maxTokens: config.maxTokens }
-          : {}),
-        ...(session.messages.length ? { messages: session.messages } : {}),
-      }),
+    void activateRuntime({
       provider: resolved.provider,
       model: resolved.model,
       credentials: resolved.credentials,
+      ...(session.messages.length ? { messages: session.messages } : {}),
     });
   }
 
@@ -224,26 +251,11 @@ export function Root({
     // Carry the conversation over so switching models mid-session keeps context
     // (and doesn't truncate the saved session).
     const carried = [...runtime.agent.messages];
-    setRuntime({
-      agent: buildAgent({
-        provider: runtime.provider,
-        model,
-        credentials: runtime.credentials,
-        system: config.system,
-        permissions: config.permissions,
-        approveTool,
-        askUser,
-        ...(config.temperature !== undefined
-          ? { temperature: config.temperature }
-          : {}),
-        ...(config.maxTokens !== undefined
-          ? { maxTokens: config.maxTokens }
-          : {}),
-        ...(carried.length ? { messages: carried } : {}),
-      }),
+    void activateRuntime({
       provider: runtime.provider,
       model,
       credentials: runtime.credentials,
+      ...(carried.length ? { messages: carried } : {}),
     });
   }
 
@@ -263,26 +275,11 @@ export function Root({
     }
     if (!config.needsSetup && config.provider && config.model && config.credentials) {
       const carriedMessages = resumeSession?.messages ?? [];
-      setRuntime({
-        agent: buildAgent({
-          provider: config.provider,
-          model: config.model,
-          credentials: config.credentials,
-          system: config.system,
-          permissions: config.permissions,
-          approveTool,
-          askUser,
-          ...(config.temperature !== undefined
-            ? { temperature: config.temperature }
-            : {}),
-          ...(config.maxTokens !== undefined
-            ? { maxTokens: config.maxTokens }
-            : {}),
-          ...(carriedMessages.length ? { messages: carriedMessages } : {}),
-        }),
+      void activateRuntime({
         provider: config.provider,
         model: config.model,
         credentials: config.credentials,
+        ...(carriedMessages.length ? { messages: carriedMessages } : {}),
       });
     }
   }
@@ -294,6 +291,10 @@ export function Root({
         onCancel={() => setPicking(false)}
       />
     );
+  }
+
+  if (booting && !runtime) {
+    return <Text>Starting session...</Text>;
   }
 
   if (!runtime) {
