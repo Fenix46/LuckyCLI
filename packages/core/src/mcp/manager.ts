@@ -81,6 +81,11 @@ export class McpManager {
     return Object.fromEntries(this.statuses);
   }
 
+  /** Number of tools currently exposed by a connected server. */
+  toolCount(name: string): number {
+    return this.servers.get(name)?.tools.length ?? 0;
+  }
+
   private setStatus(name: string, status: McpConnectionStatus): McpConnectionStatus {
     this.statuses.set(name, status);
     return status;

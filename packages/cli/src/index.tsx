@@ -12,6 +12,7 @@ import {
   type Session,
 } from "@luckycli/core";
 import { Root } from "./ui/Root.js";
+import { runMcpCommand } from "./mcp-cli.js";
 
 const HELP = `lucky — a multi-provider terminal agent
 
@@ -32,6 +33,8 @@ Options:
 Commands:
   graph build [path]    build the project knowledge graph into .lucky/graph
   graph rebuild [path]  rebuild it from scratch
+  mcp list              list configured MCP servers
+  mcp status            connect to each MCP server and report status
 `;
 
 function printSessions(): void {
@@ -87,6 +90,18 @@ function main(): void {
       process.stderr.write(`graph build failed: ${err instanceof Error ? err.message : err}\n`);
       process.exit(1);
     });
+    return;
+  }
+
+  if (rawArgs[0] === "mcp") {
+    runMcpCommand(rawArgs.slice(1))
+      .then((code) => {
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        process.stderr.write(`mcp command failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
     return;
   }
 
