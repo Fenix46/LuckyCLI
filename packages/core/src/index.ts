@@ -201,6 +201,8 @@ export {
   makeMcpToolName,
 } from "./mcp/tool-adapter.js";
 export { McpLocalClient } from "./mcp/local-client.js";
+export { McpRemoteClient } from "./mcp/remote-client.js";
+export type { McpClient } from "./mcp/client.js";
 export { McpManager } from "./mcp/manager.js";
 export {
   isMcpServerConfig,

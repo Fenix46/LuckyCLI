@@ -2,16 +2,17 @@ import { describe, expect, it } from "vitest";
 import { catalogDetailToPreset } from "./presets.js";
 
 describe("catalogDetailToPreset", () => {
-  it("rejects a remote-only registry entry with a clear, actionable error", () => {
-    // The runtime can't connect to remote transports yet, so installing one
-    // would persist a config that always fails. Reject instead of producing it.
-    expect(() =>
+  it("maps a remote-only registry entry into a Lucky remote config", () => {
+    expect(
       catalogDetailToPreset({
         name: "com.example/analytics",
         title: "Analytics",
         remotes: [{ type: "streamable-http", url: "https://example.com/mcp" }],
       }),
-    ).toThrow(/remote MCP server/i);
+    ).toMatchObject({
+      name: "com.example/analytics",
+      config: { type: "remote", url: "https://example.com/mcp" },
+    });
   });
 
   it("prefers the installable npm stdio package over a remote transport", () => {

@@ -29,20 +29,28 @@ describe("McpManager", () => {
         command: ["node", fixtureServer],
         enabled: false,
       },
-      remote: {
-        type: "remote",
-        url: "https://example.com/mcp",
-      },
     });
 
     expect(status).toEqual({
       docs: { status: "connected" },
       disabled: { status: "disabled" },
+    });
+  });
+
+  it("reports a failed status for an unreachable remote server", async () => {
+    const manager = new McpManager();
+    managers.push(manager);
+
+    // Port 1 refuses fast and offline, so this is deterministic without network.
+    const status = await manager.connectAll({
       remote: {
-        status: "failed",
-        error: 'Remote MCP server "remote" is not supported yet.',
+        type: "remote",
+        url: "http://127.0.0.1:1/mcp",
+        timeout: 2_000,
       },
     });
+
+    expect(status.remote?.status).toBe("failed");
   });
 
   it("exposes adapted Lucky tools that execute through the MCP client", async () => {

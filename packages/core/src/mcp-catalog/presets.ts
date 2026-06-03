@@ -26,21 +26,26 @@ export function catalogDetailToPreset(detail: CatalogServerDetail): LuckyMcpPres
     };
   }
 
-  // The catalog can describe remote (HTTP/SSE) servers, but the runtime manager
-  // does not connect to remote transports yet. Producing a remote preset here
-  // would just persist a config that always fails to start, so reject it with a
-  // message that explains why instead of installing a dead server.
-  const hasRemote = detail.remotes?.some(
+  // Otherwise fall back to a remote (HTTP/SSE) transport. The runtime connects
+  // to unauthenticated remote servers; OAuth-protected ones will surface an auth
+  // failure at connect time until the auth flow lands.
+  const remote = detail.remotes?.find(
     (entry) => entry.url && (entry.type === "streamable-http" || entry.type === "sse"),
   );
-  if (hasRemote) {
-    throw new Error(
-      `${detail.name} is a remote MCP server, which Lucky cannot connect to yet. Only npm stdio servers are installable today.`,
-    );
+  if (remote?.url) {
+    return {
+      name: detail.name,
+      config: {
+        type: "remote",
+        url: remote.url,
+      },
+      source: "official-registry",
+      summary,
+    };
   }
 
   throw new Error(
-    `No Lucky-installable preset found for ${detail.name}. Supported today: npm stdio packages.`,
+    `No Lucky-installable preset found for ${detail.name}. Supported today: npm stdio packages and remote HTTP/SSE servers.`,
   );
 }
 

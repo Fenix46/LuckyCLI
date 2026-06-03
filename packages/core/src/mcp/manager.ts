@@ -1,16 +1,17 @@
 import { adaptMcpTool } from "./tool-adapter.js";
+import type { McpClient } from "./client.js";
 import { McpLocalClient, type McpLocalClientOptions } from "./local-client.js";
+import { McpRemoteClient } from "./remote-client.js";
 import type {
   McpConnectionStatus,
-  McpLocalServerConfig,
   McpServerConfig,
   McpToolDescriptor,
 } from "./types.js";
 import type { Tool } from "../tools/types.js";
 
 interface ConnectedServer {
-  config: McpLocalServerConfig;
-  client: McpLocalClient;
+  config: McpServerConfig;
+  client: McpClient;
   tools: McpToolDescriptor[];
 }
 
@@ -40,13 +41,14 @@ export class McpManager {
       return { status: "disabled" };
     }
 
-    if (config.type !== "local") {
-      await this.disconnect(name);
-      return { status: "failed", error: `Remote MCP server "${name}" is not supported yet.` };
-    }
-
     try {
-      const client = await McpLocalClient.connect(config, this.options);
+      const client =
+        config.type === "local"
+          ? await McpLocalClient.connect(config, this.options)
+          : await McpRemoteClient.connect(config, {
+              ...(this.options.clientName ? { clientName: this.options.clientName } : {}),
+              ...(this.options.clientVersion ? { clientVersion: this.options.clientVersion } : {}),
+            });
       const tools = await client.listTools();
       await this.disconnect(name);
       this.servers.set(name, { config, client, tools });
