@@ -199,6 +199,7 @@ each turn.
 | `/resume` | Pick a saved session to resume |
 | `/theme` | Choose terminal UI colors |
 | `/graph` | Build or refresh the project knowledge graph |
+| `/mcp` | Open the MCP control panel: browse the registry, install, enable/disable servers |
 | `/update` | Check for a newer LuckyCLI release |
 | `/exit` | Quit (alias: `/quit`) |
 
@@ -240,6 +241,72 @@ side-effecting ones prompt for approval.
 By default read-only tools run freely, while `write_file`, `edit_file`,
 `apply_patch` and `exec` ask for approval — and choosing **always** is remembered
 for the session.
+
+## MCP servers
+
+LuckyCLI is an [MCP](https://modelcontextprotocol.io) client: it connects to
+Model Context Protocol servers and exposes their tools to the agent alongside the
+built-in ones. Two transports are supported — **local** servers launched as a
+child process over stdio, and **remote** servers over Streamable HTTP (with an
+SSE fallback). Their tools register into the same approval flow as everything
+else.
+
+Servers are connected in the background at startup, so a slow or unreachable one
+never blocks your session — its tools simply appear once it's up.
+
+### Configuration
+
+MCP servers live under an `mcp` key in `~/.luckycli/config.json`, keyed by a name
+you choose:
+
+```json
+{
+  "mcp": {
+    "docs": {
+      "type": "local",
+      "command": ["npx", "-y", "@example/docs-mcp"],
+      "environment": { "DOCS_TOKEN": "…" }
+    },
+    "analytics": {
+      "type": "remote",
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer …" }
+    }
+  }
+}
+```
+
+Common fields: `enabled` (set `false` to keep a server configured but off) and
+`timeout` (connection timeout in ms). Local servers take `command` (argv array)
+and optional `environment`; remote servers take `url` and optional `headers`.
+
+You don't have to edit the file by hand — the in-app `/mcp` panel searches the
+official MCP registry and installs servers for you.
+
+### CLI
+
+```
+lucky mcp list             # show configured servers
+lucky mcp status           # connect to each and report status + tool count
+lucky mcp login <name>     # authorize a remote server via OAuth (opens a browser)
+lucky mcp logout <name>    # forget a remote server's stored tokens
+```
+
+### OAuth
+
+Remote servers that require OAuth are supported via `lucky mcp login <name>`,
+which runs the full authorization-code + PKCE flow through a loopback redirect
+and stores the tokens in `~/.luckycli/mcp-auth.json` (written `0600`). During a
+session those tokens are reused and refreshed automatically; a server that needs
+a fresh login fails with a clear message rather than interrupting you with a
+browser pop-up.
+
+### Current limits
+
+- Prompts and resources are available as internal APIs but are not yet surfaced
+  in the REPL.
+- Live `tools/list_changed` updates aren't watched yet — a server's tools are
+  captured when it connects.
 
 ## Knowledge graph
 
@@ -297,8 +364,10 @@ tunable via `AgentConfig.compaction` when embedding the library.
 
 After the first run, LuckyCLI stores everything in a single folder in your home
 directory: `~/.luckycli/`. It holds `config.json` (your provider, model,
-credentials and tool permissions — written `0600`) and a `sessions/` folder with
-your saved conversations.
+credentials, tool permissions and MCP servers — written `0600`) and a `sessions/`
+folder with your saved conversations. If you use MCP it may also hold
+`mcp-auth.json` (OAuth tokens, written `0600`) and `mcp-catalog-cache.json`
+(cached registry metadata).
 
 The exact location depends on your OS and account username (`<you>` below):
 
