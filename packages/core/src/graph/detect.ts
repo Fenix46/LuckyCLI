@@ -44,6 +44,8 @@ const EXT_TO_LANGUAGE: Record<string, GraphLanguage> = {
   ".kts": "kotlin",
   ".swift": "swift",
   ".dart": "dart",
+  ".json": "json",
+  ".jsonc": "json",
 };
 
 /** The language for a path, or undefined if no extractor handles it. */

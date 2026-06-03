@@ -83,6 +83,7 @@ export {
   goExtractor,
   javaExtractor,
   javascriptExtractor,
+  jsonExtractor,
   kotlinExtractor,
   phpExtractor,
   pythonExtractor,
