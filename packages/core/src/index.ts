@@ -197,6 +197,10 @@ export {
   withoutMcpServer,
 } from "./mcp/config.js";
 export {
+  adaptMcpTool,
+  makeMcpToolName,
+} from "./mcp/tool-adapter.js";
+export {
   isMcpServerConfig,
 } from "./mcp/types.js";
 export type {

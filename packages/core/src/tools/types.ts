@@ -40,6 +40,14 @@ export interface Tool<Schema extends z.ZodType = z.ZodType> {
   name: string;
   description: string;
   schema: Schema;
+  /**
+   * Optional provider-facing JSON Schema override.
+   *
+   * Built-in Lucky tools derive this from `schema`. MCP tools can supply the
+   * original server-advertised schema directly, while still using a tolerant
+   * local zod schema for runtime parsing.
+   */
+  parametersSchema?: Record<string, unknown>;
   readonly?: boolean;
   execute(input: z.infer<Schema>, ctx: ToolContext): Promise<ToolResult>;
 }

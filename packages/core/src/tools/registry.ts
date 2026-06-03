@@ -30,10 +30,12 @@ export class ToolRegistry {
     return [...this.tools.values()].map((tool) => ({
       name: tool.name,
       description: tool.description,
-      parameters: zodToJsonSchema(tool.schema, {
-        target: "openApi3",
-        $refStrategy: "none",
-      }) as Record<string, unknown>,
+      parameters:
+        tool.parametersSchema ??
+        (zodToJsonSchema(tool.schema, {
+          target: "openApi3",
+          $refStrategy: "none",
+        }) as Record<string, unknown>),
     }));
   }
 
