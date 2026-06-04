@@ -71,20 +71,30 @@ model mid-session without losing your conversation.
 
 ## Install
 
+**macOS / Linux** (Intel or ARM):
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Fenix46/LuckyCLI/main/install.sh | bash
 ```
 
-This downloads the prebuilt `lucky` binary for your platform (macOS and Linux,
-Intel or ARM) into `~/.local/bin` — no Node.js required. Then run:
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Fenix46/LuckyCLI/main/install.ps1 | iex
+```
+
+This downloads the prebuilt `lucky` binary for your platform — no Node.js
+required — and adds it to your `PATH`. macOS/Linux install into `~/.local/bin`;
+Windows installs into `%LOCALAPPDATA%\Programs\LuckyCLI`. Then run:
 
 ```bash
 lucky
 ```
 
-Options: set `LUCKY_INSTALL_DIR` to install elsewhere, or `LUCKY_VERSION=v0.1.6`
-to pin a version. On Windows, download `lucky-windows-x64.exe` from the
-[releases page](https://github.com/Fenix46/LuckyCLI/releases).
+Options: set `LUCKY_INSTALL_DIR` to install elsewhere, or `LUCKY_VERSION` to pin
+a version (e.g. `v0.2.1`). On Windows set them first, e.g.
+`$env:LUCKY_VERSION = "v0.2.1"`. Both work the same way: the Windows installer
+verifies the binary's SHA-256 checksum and updates your user `PATH`.
 
 ### From source
 
