@@ -38,10 +38,7 @@ import {
   getAvailableModels,
   validateModel,
 } from "./lib/model-picker.js";
-import {
-  formatNumber,
-  preview,
-} from "./lib/format.js";
+import { formatNumber } from "./lib/format.js";
 import {
   contextRows,
   formatStatusFooter,
