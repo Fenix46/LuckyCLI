@@ -5,7 +5,7 @@ import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import { isProviderId } from "../providers/types.js";
 import { DEFAULT_TOOL_PERMISSION_POLICY, parseToolPermissionPolicyEnv, type ToolPermissionPolicy } from "../tools/permissions.js";
 import { buildSystemPrompt } from "../prompts/index.js";
-import { getReasoningEffort, loadStoredConfig, type StoredConfig } from "./store.js";
+import { getReasoningEffort, getThinkingEnabled, loadStoredConfig, type StoredConfig } from "./store.js";
 
 /**
  * The default system prompt, composed from the section files in ../prompts.
@@ -27,8 +27,10 @@ export interface CliOverrides {
 export interface ResolvedConfig {
   provider?: ProviderId;
   model?: string;
-  /** Reasoning effort, only for providers that support it (currently openai-oauth). */
+  /** Reasoning effort, only for providers that support it. */
   reasoningEffort?: string;
+  /** Optional provider-specific thinking toggle (currently Claude). */
+  thinkingEnabled?: boolean;
   system: string;
   temperature?: number;
   maxTokens?: number;
@@ -70,11 +72,14 @@ export function resolveConfig(
     ? resolveCredentials(provider, stored, env)
     : undefined;
 
-  // Reasoning effort only applies to providers that support it. Today that's
-  // ChatGPT/Codex; other providers ignore the field even if it's stored.
+  // Reasoning effort only applies to providers that support it.
   const reasoningEffort =
-    provider === "openai-oauth"
-      ? (env.LUCKY_REASONING_EFFORT ?? getReasoningEffort(stored))
+    provider === "openai-oauth" || provider === "claude"
+      ? (env.LUCKY_REASONING_EFFORT ?? getReasoningEffort(stored, provider))
+      : undefined;
+  const thinkingEnabled =
+    provider === "claude"
+      ? parseThinkingEnv(env.LUCKY_THINKING) ?? getThinkingEnabled(stored, provider)
       : undefined;
 
   const envPermissions = parseToolPermissionPolicyEnv(env.LUCKY_TOOL_PERMISSIONS);
@@ -83,6 +88,7 @@ export function resolveConfig(
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(thinkingEnabled !== undefined ? { thinkingEnabled } : {}),
     system: env.LUCKY_SYSTEM ?? buildSystemPrompt(undefined, env),
     ...(env.LUCKY_TEMPERATURE
       ? { temperature: Number(env.LUCKY_TEMPERATURE) }
@@ -97,6 +103,14 @@ export function resolveConfig(
     },
     needsSetup: !provider || !credentials,
   };
+}
+
+function parseThinkingEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
 }
 
 /**

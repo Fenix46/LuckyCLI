@@ -26,8 +26,10 @@ export interface AgentConfig {
   cwd?: string;
   temperature?: number;
   maxTokens?: number;
-  /** Reasoning effort for providers that support it (ChatGPT). Forwarded as-is. */
+  /** Reasoning effort for providers that support it. Forwarded as-is. */
   reasoningEffort?: string;
+  /** Optional provider-specific thinking toggle (currently Claude). */
+  thinkingEnabled?: boolean;
   /**
    * Optional safety bound on provider round-trips per user turn. Unset means
    * unlimited: the agent keeps working until the model stops requesting tools
@@ -81,6 +83,7 @@ export class Agent {
   private readonly temperature: number | undefined;
   private readonly maxTokens: number | undefined;
   private readonly reasoningEffort: string | undefined;
+  private readonly thinkingEnabled: boolean | undefined;
   private readonly maxSteps: number | undefined;
   private readonly compaction: RequiredCompactionConfig;
   private readonly modelInfo: ModelInfo;
@@ -101,6 +104,7 @@ export class Agent {
     this.temperature = cfg.temperature;
     this.maxTokens = cfg.maxTokens;
     this.reasoningEffort = cfg.reasoningEffort;
+    this.thinkingEnabled = cfg.thinkingEnabled;
     this.maxSteps = cfg.maxSteps;
     this.compaction = {
       enabled: cfg.compaction?.enabled ?? true,
@@ -330,6 +334,7 @@ export class Agent {
         : {}),
       ...(this.maxTokens ? { maxTokens: this.maxTokens } : {}),
       ...(this.reasoningEffort ? { reasoningEffort: this.reasoningEffort } : {}),
+      ...(this.thinkingEnabled !== undefined ? { thinkingEnabled: this.thinkingEnabled } : {}),
       ...(signal ? { abortSignal: signal } : {}),
     };
   }

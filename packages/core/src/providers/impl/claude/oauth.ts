@@ -16,7 +16,10 @@ export const CLAUDE_OAUTH_REFERRAL_CAMPAIGN = "claude_code_guest_pass";
 export const CLAUDE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
 export const CLAUDE_CONTEXT_WINDOW_DEFAULT = 200_000;
 export const CLAUDE_CONTEXT_WINDOW_1M = 1_000_000;
+export const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 let claudeOAuthCaLoaded = false;
+
+export type ClaudeEffortLevel = typeof CLAUDE_EFFORT_LEVELS[number];
 
 const CLAUDE_OAUTH_SCOPES = [
   "org:create_api_key",
@@ -431,6 +434,43 @@ export function claudeContextWindowForModel(model: string): number {
   if (hasExplicitClaude1mSuffix(model)) return CLAUDE_CONTEXT_WINDOW_1M;
   if (modelSupportsClaude1m(model)) return CLAUDE_CONTEXT_WINDOW_1M;
   return CLAUDE_CONTEXT_WINDOW_DEFAULT;
+}
+
+export function claudeEffortLevelsForModel(model: string): ClaudeEffortLevel[] {
+  return claudeModelSupportsEffort(model) ? [...CLAUDE_EFFORT_LEVELS] : [];
+}
+
+export function claudeModelSupportsEffort(model: string): boolean {
+  const canonical = model.toLowerCase();
+  return canonical.includes("sonnet-4-6") || canonical.includes("opus-4-6") || canonical.includes("opus-4-8");
+}
+
+export function claudeModelSupportsAdaptiveThinking(model: string): boolean {
+  const canonical = model.toLowerCase();
+  return canonical.includes("sonnet-4-6") || canonical.includes("opus-4-6") || canonical.includes("opus-4-8");
+}
+
+export function claudeModelSupportsMaxEffort(model: string): boolean {
+  return model.toLowerCase().includes("opus-4");
+}
+
+export function normalizeClaudeEffort(
+  model: string,
+  effort: string | undefined,
+): "low" | "medium" | "high" | "max" | undefined {
+  if (!effort || !claudeModelSupportsEffort(model)) return undefined;
+  const normalized = effort.trim().toLowerCase();
+  switch (normalized) {
+    case "low":
+    case "medium":
+    case "high":
+      return normalized;
+    case "xhigh":
+    case "max":
+      return claudeModelSupportsMaxEffort(model) ? "max" : "high";
+    default:
+      return undefined;
+  }
 }
 
 export function isClaude1mContextDisabled(): boolean {

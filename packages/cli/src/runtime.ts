@@ -59,6 +59,7 @@ export interface BuildAgentOptions {
   temperature?: number;
   maxTokens?: number;
   reasoningEffort?: string;
+  thinkingEnabled?: boolean;
   permissions?: ToolPermissionPolicy;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
@@ -135,6 +136,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+    ...(opts.thinkingEnabled !== undefined ? { thinkingEnabled: opts.thinkingEnabled } : {}),
     ...(opts.messages?.length ? { messages: opts.messages } : {}),
   });
 }

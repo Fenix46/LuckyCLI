@@ -22,6 +22,8 @@ import type {
 } from "../../types.js";
 import {
   CLAUDE_OAUTH_BETA_HEADER,
+  claudeModelSupportsAdaptiveThinking,
+  normalizeClaudeEffort,
   claudeContextWindowForModel,
   fetchClaudeOAuthProfile,
   fetchClaudeOAuthReferralEligibility,
@@ -72,14 +74,15 @@ export class ClaudeProvider implements IProvider {
       config.systemPrompt,
     );
     try {
+      const request = {
+        model: config.model || INFO.defaultModel,
+        max_tokens: config.maxTokens ?? 8192,
+        ...this.systemParam(system),
+        messages: anthropicMessages,
+        ...buildOptions(config, config.model || INFO.defaultModel),
+      } as unknown as Anthropic.MessageCreateParamsNonStreaming;
       const response = await this.client.messages.create(
-        {
-          model: config.model || INFO.defaultModel,
-          max_tokens: config.maxTokens ?? 8192,
-          ...this.systemParam(system),
-          messages: anthropicMessages,
-          ...buildOptions(config),
-        },
+        request,
         { signal: config.abortSignal },
       );
       return fromAnthropicResponse(response);
@@ -101,14 +104,15 @@ export class ClaudeProvider implements IProvider {
       config.systemPrompt,
     );
     try {
+      const request = {
+        model: config.model || INFO.defaultModel,
+        max_tokens: config.maxTokens ?? 8192,
+        ...this.systemParam(system),
+        messages: anthropicMessages,
+        ...buildOptions(config, config.model || INFO.defaultModel),
+      } as unknown as Anthropic.MessageCreateParamsStreaming;
       const stream = this.client.messages.stream(
-        {
-          model: config.model || INFO.defaultModel,
-          max_tokens: config.maxTokens ?? 8192,
-          ...this.systemParam(system),
-          messages: anthropicMessages,
-          ...buildOptions(config),
-        },
+        request,
         { signal: config.abortSignal },
       );
 
@@ -221,14 +225,15 @@ export class ClaudeProvider implements IProvider {
         ? anthropicMessages
         : [{ role: "user", content: "count" }];
     try {
+      const request = {
+        model: CLAUDE_COUNT_PROBE_MODEL,
+        max_tokens: 1,
+        ...this.systemParam(system),
+        messages: probeMessages,
+        ...buildOptions(config, CLAUDE_COUNT_PROBE_MODEL),
+      } as unknown as Anthropic.MessageCreateParamsNonStreaming;
       const response = await this.client.messages.create(
-        {
-          model: CLAUDE_COUNT_PROBE_MODEL,
-          max_tokens: 1,
-          ...this.systemParam(system),
-          messages: probeMessages,
-          ...buildOptions(config),
-        },
+        request,
         { signal: config.abortSignal },
       );
       const usage = usageOf(response.usage);
@@ -454,13 +459,17 @@ export class ClaudeProvider implements IProvider {
   }
 }
 
-function buildOptions(config: GenerationConfig) {
+function buildOptions(config: GenerationConfig, model: string) {
+  const thinking = buildClaudeThinking(model, config);
+  const effort = normalizeClaudeEffort(model, config.reasoningEffort);
   return {
-    ...(config.temperature !== undefined
+    ...(thinking === undefined && config.temperature !== undefined
       ? { temperature: config.temperature }
       : {}),
     ...(config.topP !== undefined ? { top_p: config.topP } : {}),
     ...(config.stopSequences ? { stop_sequences: config.stopSequences } : {}),
+    ...(thinking ? { thinking } : {}),
+    ...(effort ? { output_config: { effort } } : {}),
     ...(config.tools && config.tools.length > 0
       ? {
           tools: config.tools.map((t) => ({
@@ -471,6 +480,15 @@ function buildOptions(config: GenerationConfig) {
         }
       : {}),
   };
+}
+
+function buildClaudeThinking(
+  model: string,
+  config: GenerationConfig,
+): { type: "adaptive" } | undefined {
+  if (config.thinkingEnabled !== true) return undefined;
+  if (!claudeModelSupportsAdaptiveThinking(model)) return undefined;
+  return { type: "adaptive" };
 }
 
 function usageQuotas(usage: ClaudeOAuthUsage | undefined): ProviderQuotaStatus[] {

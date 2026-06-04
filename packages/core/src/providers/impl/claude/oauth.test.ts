@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { claudeContextWindowForModel } from "./oauth.js";
+import {
+  claudeContextWindowForModel,
+  claudeEffortLevelsForModel,
+  normalizeClaudeEffort,
+} from "./oauth.js";
 
 describe("Claude OAuth context window", () => {
   afterEach(() => {
@@ -19,5 +23,21 @@ describe("Claude OAuth context window", () => {
   it("honors explicit max context override", () => {
     vi.stubEnv("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "123456");
     expect(claudeContextWindowForModel("claude-sonnet-4-6")).toBe(123_456);
+  });
+
+  it("returns Claude effort levels only for supported models", () => {
+    expect(claudeEffortLevelsForModel("claude-sonnet-4-6")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(claudeEffortLevelsForModel("claude-haiku-4-5-20251001")).toEqual([]);
+  });
+
+  it("maps xhigh to max for opus and clamps unsupported max to high", () => {
+    expect(normalizeClaudeEffort("claude-opus-4-8", "xhigh")).toBe("max");
+    expect(normalizeClaudeEffort("claude-sonnet-4-6", "max")).toBe("high");
   });
 });

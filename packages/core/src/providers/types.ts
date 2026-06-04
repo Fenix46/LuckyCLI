@@ -74,11 +74,17 @@ export interface GenerationConfig {
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
   /**
-   * Reasoning effort for models that support it (e.g. ChatGPT/Codex:
-   * low|medium|high|xhigh). An open string so new server-side levels work
-   * without a code change. Providers that don't support it ignore it.
+   * Reasoning effort for providers that expose it (e.g. ChatGPT/Codex,
+   * Claude output_config.effort). An open string so new server-side levels
+   * work without a code change. Providers that don't support it ignore it.
    */
   reasoningEffort?: string;
+  /**
+   * Optional thinking toggle for providers that expose an explicit thinking
+   * mode separate from effort (currently Claude). Providers that do not
+   * support it ignore the flag.
+   */
+  thinkingEnabled?: boolean;
 }
 
 // ─── Responses ───────────────────────────────────────────────────────────────

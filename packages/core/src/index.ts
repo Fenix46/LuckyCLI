@@ -155,11 +155,14 @@ export type { EnvironmentInfo } from "./prompts/index.js";
 // Persistent config store.
 export {
   DEFAULT_REASONING_EFFORT,
+  DEFAULT_THINKING_ENABLED,
   configFilePath,
   getReasoningEffort,
+  getThinkingEnabled,
   loadStoredConfig,
   saveProviderSetup,
   saveReasoningEffort,
+  saveThinkingEnabled,
   saveStoredConfig,
 } from "./config/store.js";
 export type {

@@ -82,8 +82,12 @@ export {
   defaultEffortFor,
   effortLevelsFor,
 } from "./impl/openai-oauth/model-cache.js";
-export { runClaudeBrowserOAuthFlow } from "./impl/claude/oauth.js";
-export type { ClaudeOAuthTokens } from "./impl/claude/oauth.js";
+export {
+  claudeEffortLevelsForModel,
+  claudeModelSupportsEffort,
+  runClaudeBrowserOAuthFlow,
+} from "./impl/claude/oauth.js";
+export type { ClaudeEffortLevel, ClaudeOAuthTokens } from "./impl/claude/oauth.js";
 export {
   startAntigravityOAuthFlow,
   refreshAntigravityAccessToken,

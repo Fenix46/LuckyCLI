@@ -22,8 +22,15 @@ import type { ToolPermissionPolicy } from "../tools/permissions.js";
 export interface StoredConfig {
   provider?: ProviderId;
   model?: string;
-  /** Reasoning effort for providers that support it (ChatGPT: low|medium|high|xhigh). */
+  /** Legacy global effort; preserved for backward compatibility. */
   reasoningEffort?: string;
+  /** Legacy global thinking toggle; preserved for backward compatibility. */
+  thinkingEnabled?: boolean;
+  /** Provider-specific runtime settings that must not leak across providers. */
+  providerSettings?: Partial<Record<ProviderId, {
+    reasoningEffort?: string;
+    thinkingEnabled?: boolean;
+  }>>;
   theme?: string;
   update?: {
     lastCheckedAt?: number;
@@ -116,16 +123,55 @@ export function saveProviderSetup(
 
 /** Default reasoning effort when the user hasn't picked one. */
 export const DEFAULT_REASONING_EFFORT = "medium";
+/** Claude Code defaults to thinking enabled unless explicitly turned off. */
+export const DEFAULT_THINKING_ENABLED = true;
 
 /** The effective reasoning effort (the stored value, or the default). */
-export function getReasoningEffort(cfg: StoredConfig): string {
-  return cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
+export function getReasoningEffort(
+  cfg: StoredConfig,
+  provider: ProviderId,
+): string {
+  return cfg.providerSettings?.[provider]?.reasoningEffort ?? cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
 }
 
 /** Persist a chosen reasoning effort, returning the merged config. */
-export function saveReasoningEffort(effort: string): StoredConfig {
+export function saveReasoningEffort(
+  provider: ProviderId,
+  effort: string,
+): StoredConfig {
   const cfg = loadStoredConfig();
-  cfg.reasoningEffort = effort;
+  cfg.providerSettings = {
+    ...cfg.providerSettings,
+    [provider]: {
+      ...cfg.providerSettings?.[provider],
+      reasoningEffort: effort,
+    },
+  };
+  saveStoredConfig(cfg);
+  return cfg;
+}
+
+/** The effective thinking toggle (the stored value, or the default). */
+export function getThinkingEnabled(
+  cfg: StoredConfig,
+  provider: ProviderId,
+): boolean {
+  return cfg.providerSettings?.[provider]?.thinkingEnabled ?? cfg.thinkingEnabled ?? DEFAULT_THINKING_ENABLED;
+}
+
+/** Persist the thinking toggle, returning the merged config. */
+export function saveThinkingEnabled(
+  provider: ProviderId,
+  enabled: boolean,
+): StoredConfig {
+  const cfg = loadStoredConfig();
+  cfg.providerSettings = {
+    ...cfg.providerSettings,
+    [provider]: {
+      ...cfg.providerSettings?.[provider],
+      thinkingEnabled: enabled,
+    },
+  };
   saveStoredConfig(cfg);
   return cfg;
 }

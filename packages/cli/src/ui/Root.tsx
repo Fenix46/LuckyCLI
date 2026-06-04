@@ -179,6 +179,9 @@ export function Root({
       ...(config.reasoningEffort
         ? { reasoningEffort: config.reasoningEffort }
         : {}),
+      ...(config.thinkingEnabled !== undefined
+        ? { thinkingEnabled: config.thinkingEnabled }
+        : {}),
       ...(next.messages?.length ? { messages: next.messages } : {}),
     });
 

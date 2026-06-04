@@ -18,6 +18,7 @@ import {
   type TokenUsage,
   CodexModelCache,
   buildAndSaveGraph,
+  claudeEffortLevelsForModel,
   createSessionId,
   defaultEffortFor,
   deriveTitle,
@@ -26,10 +27,12 @@ import {
   fetchCodexModels,
   getAutoUpdatePolicy,
   getReasoningEffort,
+  getThinkingEnabled,
   listSessions,
   loadStoredConfig,
   recordGraphBuilt,
   saveReasoningEffort,
+  saveThinkingEnabled,
   saveSession,
   saveStoredConfig,
   withAutoUpdatePolicy,
@@ -113,6 +116,7 @@ const CHROME_ROWS = 8;
 
 const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
+  { name: "/thinking", desc: "Toggle Claude adaptive thinking (/thinking on|off)" },
   { name: "/mcp", desc: "Open the interactive MCP control panel" },
   { name: "/status", desc: "Show provider auth, account, quota and context status" },
   { name: "/update", desc: "Check for updates (/update apply, /update auto <mode>)" },
@@ -591,7 +595,7 @@ export function App({
       return;
     }
 
-    // 3a. Interactive effort picker navigation (second step, openai-oauth)
+    // 3a. Interactive effort picker navigation (second step, provider-specific)
     if (effortPicker) {
       if (key.escape) {
         setEffortPicker(null);
@@ -766,7 +770,7 @@ export function App({
   const applyEffort = useCallback(
     (model: string, effort: string) => {
       try {
-        saveReasoningEffort(effort);
+        saveReasoningEffort(meta.provider, effort);
         onChangeModel(model);
         setItems((prev) => [
           ...prev,
@@ -800,21 +804,24 @@ export function App({
         return;
       }
 
-      // openai-oauth: if the model exposes >1 reasoning level, open the effort
-      // step (Codex-style) seeded to the current/default effort.
-      if (meta.provider === "openai-oauth") {
-        const levels = effortLevelsFor(codexModels, model);
-        if (levels.length > 1) {
-          const seed =
-            getReasoningEffort(loadStoredConfig()) ||
-            defaultEffortFor(codexModels, model) ||
-            levels[0]!;
-          const seedIdx = Math.max(0, levels.indexOf(seed));
-          setEffortPicker({ model, levels });
-          setSelectedEffortIndex(seedIdx);
-          setInput("");
-          return;
-        }
+      const levels =
+        meta.provider === "openai-oauth"
+          ? effortLevelsFor(codexModels, model)
+          : meta.provider === "claude"
+            ? claudeEffortLevelsForModel(model)
+            : [];
+      if (levels.length > 1) {
+        const seed =
+          getReasoningEffort(loadStoredConfig(), meta.provider) ||
+          (meta.provider === "openai-oauth"
+            ? defaultEffortFor(codexModels, model)
+            : undefined) ||
+          levels[0]!;
+        const seedIdx = Math.max(0, levels.indexOf(seed));
+        setEffortPicker({ model, levels });
+        setSelectedEffortIndex(seedIdx);
+        setInput("");
+        return;
       }
 
       try {
@@ -1261,6 +1268,56 @@ export function App({
         setInput("");
         return;
       }
+      if (text === "/thinking" || text === "/thinking on" || text === "/thinking off") {
+        if (meta.provider !== "claude") {
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "error",
+              text: "/thinking is currently only supported for Claude.",
+            },
+          ]);
+          setInput("");
+          return;
+        }
+        const arg = text.slice("/thinking".length).trim().toLowerCase();
+        if (!arg) {
+          const enabled = getThinkingEnabled(loadStoredConfig(), meta.provider);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "Thinking",
+              rows: [
+                { label: "provider", value: "Claude" },
+                { label: "adaptive", value: enabled ? "enabled" : "disabled" },
+              ],
+            },
+          ]);
+          setInput("");
+          return;
+        }
+        if (arg !== "on" && arg !== "off") {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: "Usage: /thinking on | /thinking off" },
+          ]);
+          setInput("");
+          return;
+        }
+        const enabled = arg === "on";
+        saveThinkingEnabled(meta.provider, enabled);
+        onChangeModel(meta.model);
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "assistant",
+            text: `Claude thinking ${enabled ? "enabled" : "disabled"}.`,
+          },
+        ]);
+        setInput("");
+        return;
+      }
       if (text === "/help") {
         setItems((prev) => [
           ...prev,
@@ -1286,8 +1343,11 @@ export function App({
             rows: [
               { label: "provider", value: `${providerInfo.displayName} (${meta.provider})` },
               { label: "model", value: meta.model },
-              ...(meta.provider === "openai-oauth"
-                ? [{ label: "effort", value: getReasoningEffort(loadStoredConfig()) }]
+              ...(meta.provider === "openai-oauth" || meta.provider === "claude"
+                ? [{ label: "effort", value: getReasoningEffort(loadStoredConfig(), meta.provider) }]
+                : []),
+              ...(meta.provider === "claude"
+                ? [{ label: "thinking", value: getThinkingEnabled(loadStoredConfig(), meta.provider) ? "adaptive" : "disabled" }]
                 : []),
               {
                 label: "context",

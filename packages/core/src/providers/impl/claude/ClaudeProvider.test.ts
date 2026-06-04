@@ -89,6 +89,46 @@ describe("ClaudeProvider", () => {
     });
   });
 
+  it("maps Claude effort into output_config and sends adaptive thinking when enabled", async () => {
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "oauth-access-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+
+    await provider.generate(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      { model: "claude-opus-4-8", reasoningEffort: "xhigh", thinkingEnabled: true },
+    );
+
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        output_config: { effort: "max" },
+        thinking: { type: "adaptive" },
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("omits Claude effort and thinking for unsupported models", async () => {
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "oauth-access-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+
+    await provider.generate(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      { model: "claude-haiku-4-5-20251001", reasoningEffort: "high", thinkingEnabled: true },
+    );
+
+    const request = createMock.mock.calls[0]?.[0];
+    expect(request.output_config).toBeUndefined();
+    expect(request.thinking).toBeUndefined();
+  });
+
   it("counts OAuth context via an inference probe instead of count_tokens", async () => {
     const provider = new ClaudeProvider({
       type: "claude",

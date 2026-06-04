@@ -55,15 +55,24 @@ describe("resolveConfig", () => {
     it("carries the stored effort for openai-oauth", () => {
       const r = resolveConfig(
         { provider: "openai-oauth" },
-        { ...creds, reasoningEffort: "xhigh" },
+        { ...creds, providerSettings: { "openai-oauth": { reasoningEffort: "xhigh" } } },
         {},
       );
       expect(r.reasoningEffort).toBe("xhigh");
     });
 
     it("ignores effort for other providers", () => {
-      const r = resolveConfig({ provider: "claude" }, { reasoningEffort: "high" }, {});
+      const r = resolveConfig({ provider: "openai" }, { reasoningEffort: "high" }, {});
       expect(r.reasoningEffort).toBeUndefined();
+    });
+
+    it("carries stored effort for claude", () => {
+      const r = resolveConfig(
+        { provider: "claude" },
+        { providerSettings: { claude: { reasoningEffort: "high" } } },
+        {},
+      );
+      expect(r.reasoningEffort).toBe("high");
     });
 
     it("lets LUCKY_REASONING_EFFORT override", () => {
@@ -71,6 +80,31 @@ describe("resolveConfig", () => {
         LUCKY_REASONING_EFFORT: "low",
       });
       expect(r.reasoningEffort).toBe("low");
+    });
+  });
+
+  describe("thinking toggle", () => {
+    it("defaults to enabled for claude", () => {
+      const r = resolveConfig({ provider: "claude" }, {}, {});
+      expect(r.thinkingEnabled).toBe(true);
+    });
+
+    it("carries the stored thinking toggle for claude", () => {
+      const r = resolveConfig(
+        { provider: "claude" },
+        { providerSettings: { claude: { thinkingEnabled: false } } },
+        {},
+      );
+      expect(r.thinkingEnabled).toBe(false);
+    });
+
+    it("lets LUCKY_THINKING override for claude", () => {
+      const r = resolveConfig({ provider: "claude" }, {
+        providerSettings: { claude: { thinkingEnabled: false } },
+      }, {
+        LUCKY_THINKING: "on",
+      });
+      expect(r.thinkingEnabled).toBe(true);
     });
   });
 });
