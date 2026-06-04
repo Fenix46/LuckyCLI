@@ -1,16 +1,15 @@
-import { Box } from "ink";
+import { Box, Text } from "ink";
 import React from "react";
 import type { Theme } from "../themes.js";
 import { Markdown } from "../markdown/Markdown.js";
 
 /**
- * The live, transient tail of the assistant reply while it streams.
+ * The live assistant message while the reply streams.
  *
- * The turn-runner commits each finished markdown block into the transcript
- * (<Static>) as it stabilizes, so this only ever renders the final, still-
- * growing block. That keeps the dynamic region small — it never grows past the
- * viewport and gets "frozen" into the scrollback — while the reply still
- * streams live with full rich markdown.
+ * Rendered as a single block with one "lucky" header — identical to the
+ * finalized transcript item (see ItemView's "assistant" case) — so the message
+ * does not jump or re-print its header when the turn ends and it moves into
+ * <Static>. The whole current narration grows here in real time.
  */
 function StreamingPreviewInner({
   text,
@@ -20,8 +19,14 @@ function StreamingPreviewInner({
   theme: Theme;
 }): React.JSX.Element {
   return (
-    <Box flexDirection="column">
-      <Markdown text={text} theme={theme} />
+    <Box flexDirection="column" marginY={0.2}>
+      <Box flexDirection="row" marginBottom={0.1}>
+        <Text bold color={theme.success}>● lucky</Text>
+        <Text color={theme.muted}> › </Text>
+      </Box>
+      <Box paddingLeft={2}>
+        <Markdown text={text} theme={theme} />
+      </Box>
     </Box>
   );
 }

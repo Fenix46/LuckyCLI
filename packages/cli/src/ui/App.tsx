@@ -48,7 +48,6 @@ import {
   formatStatusFooter,
 } from "./lib/status.js";
 import { humanizeError } from "./lib/errors.js";
-import { splitStreaming } from "./markdown/streaming.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { APP_VERSION } from "./components/constants.js";
@@ -1065,27 +1064,20 @@ export function App({
       setBusy(true);
       setStartedAt(Date.now());
 
+      // The current narration block streams as a SINGLE growing assistant
+      // message. It lives in `streaming` state (rendered once, live, with one
+      // "lucky" header) and is committed to the transcript as one item only
+      // when the block ends — never split into multiple items.
       let assistantBuf = "";
-      // How much of assistantBuf has already been committed into <Static> as
-      // finished assistant items. Streaming only ever shows the tail past this.
-      let committedLen = 0;
-
-      // Commit any newly-finished markdown blocks to the transcript and publish
-      // just the still-growing tail as the live preview. This keeps the dynamic
-      // region to a single block so it never overflows the viewport.
       const publishStreaming = () => {
         if (streamingFlushTimerRef.current) {
           clearTimeout(streamingFlushTimerRef.current);
           streamingFlushTimerRef.current = null;
         }
-        const { stable, unstable } = splitStreaming(assistantBuf, committedLen);
-        const newlyStable = stable.slice(committedLen);
-        if (newlyStable.trim()) {
-          committedLen = stable.length;
-          setItems((prev) => [...prev, { kind: "assistant", text: newlyStable.replace(/\n+$/, "") }]);
+        if (pendingStreamingRef.current) {
+          setStreaming(pendingStreamingRef.current);
+          pendingStreamingRef.current = "";
         }
-        setStreaming(unstable);
-        pendingStreamingRef.current = "";
       };
       const scheduleStreaming = () => {
         pendingStreamingRef.current = assistantBuf;
@@ -1093,22 +1085,19 @@ export function App({
         streamingFlushTimerRef.current = setTimeout(() => {
           streamingFlushTimerRef.current = null;
           if (!pendingStreamingRef.current) return;
-          publishStreaming();
+          setStreaming(pendingStreamingRef.current);
+          pendingStreamingRef.current = "";
         }, 180);
       };
-      // End the current narration block: commit everything not yet committed
-      // (stable + final tail) as one item and clear the live preview.
+      // End the current narration block: commit the whole buffer as one
+      // assistant item and clear the live preview.
       const flushAssistant = () => {
-        if (streamingFlushTimerRef.current) {
-          clearTimeout(streamingFlushTimerRef.current);
-          streamingFlushTimerRef.current = null;
-        }
-        const remainder = assistantBuf.slice(committedLen);
+        publishStreaming();
+        if (!assistantBuf.trim()) return;
+        const text = assistantBuf;
         assistantBuf = "";
-        committedLen = 0;
         setStreaming("");
-        if (!remainder.trim()) return;
-        setItems((prev) => [...prev, { kind: "assistant", text: remainder }]);
+        setItems((prev) => [...prev, { kind: "assistant", text }]);
       };
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -1259,19 +1248,18 @@ export function App({
 
         {busy && !approvalRequest && !userQuestionRequest ? (
           <Box marginY={0.5} flexDirection="column">
-            <ThinkingStatus
-              theme={activeTheme}
-              elapsedSeconds={elapsedSeconds}
-              frame={activityFrame}
-            />
             {streamingPreview ? (
-              <Box paddingLeft={2} marginTop={0.2}>
-                <StreamingPreview
-                  text={streamingPreview}
-                  theme={activeTheme}
-                />
-              </Box>
-            ) : null}
+              // The live assistant message: a single block with one "lucky"
+              // header, rendered identically to the finalized transcript item
+              // so it doesn't jump when the turn ends.
+              <StreamingPreview text={streamingPreview} theme={activeTheme} />
+            ) : (
+              <ThinkingStatus
+                theme={activeTheme}
+                elapsedSeconds={elapsedSeconds}
+                frame={activityFrame}
+              />
+            )}
           </Box>
         ) : null}
       </Box>
