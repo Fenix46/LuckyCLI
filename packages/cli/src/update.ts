@@ -1,4 +1,6 @@
-import { loadStoredConfig, saveStoredConfig } from "@luckycli/core";
+import { compareVersions, loadStoredConfig, saveStoredConfig, versionLabel } from "@luckycli/core";
+
+export { compareVersions };
 
 const REPO = "Fenix46/LuckyCLI";
 const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -82,16 +84,6 @@ export function buildInstallCommand(version: string): string {
   return `curl -fsSL ${INSTALL_SCRIPT_URL} | LUCKY_VERSION=${versionLabel(version)} bash`;
 }
 
-export function compareVersions(a: string, b: string): number {
-  const left = versionParts(a);
-  const right = versionParts(b);
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const diff = (left[i] ?? 0) - (right[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
 async function fetchLatestRelease(): Promise<GitHubRelease> {
   const res = await fetch(LATEST_RELEASE_URL, {
     headers: {
@@ -134,14 +126,3 @@ function updateInfo({
   };
 }
 
-function versionParts(version: string): number[] {
-  return versionLabel(version)
-    .replace(/^v/, "")
-    .split(/[.-]/)
-    .map((part) => Number(part))
-    .filter((part) => Number.isFinite(part));
-}
-
-function versionLabel(version: string): string {
-  return version.startsWith("v") ? version : `v${version}`;
-}

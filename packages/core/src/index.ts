@@ -160,6 +160,9 @@ export {
   saveStoredConfig,
 } from "./config/store.js";
 export type { ProjectRecord, StoredConfig } from "./config/store.js";
+
+// Self-update machinery.
+export { compareVersions, versionLabel } from "./update/versions.js";
 export {
   getProjectRecord,
   isProjectTrusted,
