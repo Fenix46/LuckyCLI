@@ -1117,6 +1117,25 @@ export function App({
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);
 
+  // An open picker/menu renders between the transcript and the input frame and
+  // is NOT part of CHROME_ROWS. In the fixed-height alternate screen that extra
+  // height would overflow the layout (the input/footer get pushed off and the
+  // menu misrenders). Reserve rows for whichever overlay is open so the
+  // transcript viewport shrinks to make room. Each list is header + items +
+  // hint (~3 rows of chrome); cap so a huge list still leaves a usable viewport.
+  let overlayRows = 0;
+  if (mcpPanelOpen) {
+    const rows = mcpPanelTab === "installed" ? installedMcpRows.length : mcpPanelResults.length;
+    overlayRows = Math.min(14, rows + 4);
+  } else if (modelPicker.open) {
+    overlayRows = Math.min(14, Math.max(1, modelPicker.items.length) + 3);
+  } else if (themePicker.open) {
+    overlayRows = Math.min(14, Math.max(1, themePicker.items.length) + 3);
+  } else if (showSlashMenu && filteredCommands.length > 0) {
+    overlayRows = Math.min(14, filteredCommands.length + 3);
+  }
+  const transcriptHeight = Math.max(3, terminalSize.height - CHROME_ROWS - overlayRows);
+
   const chatInput = (
     <ChatInput
       value={input}
@@ -1150,9 +1169,9 @@ export function App({
           streaming reply renders at full height with no scrollback duplication.
           PageUp/PageDown scroll back through the history. */}
       <ScrollViewport
-        height={Math.max(3, terminalSize.height - CHROME_ROWS)}
+        height={transcriptHeight}
         scrollUp={scrollUp}
-        contentKey={`${items.length}:${streaming.length}:${busy ? 1 : 0}:${terminalSize.width}x${terminalSize.height}`}
+        contentKey={`${items.length}:${streaming.length}:${busy ? 1 : 0}:${overlayRows}:${terminalSize.width}x${terminalSize.height}`}
         onMaxScrollChange={setMaxScroll}
       >
         {items.map((item, index) => (
