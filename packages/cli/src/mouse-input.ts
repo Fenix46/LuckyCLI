@@ -36,20 +36,20 @@ export interface MouseFilteredStdin {
 export function createMouseFilteredStdin(source: NodeJS.ReadStream): MouseFilteredStdin {
   const proxy = new PassThrough() as unknown as NodeJS.ReadStream & PassThrough;
 
+  // Proxy the bits Ink inspects/calls on a real stdin. PassThrough has no
+  // isTTY/setRawMode/ref/unref, so delegate them to the source stream.
   Object.defineProperty(proxy, "isTTY", { get: () => source.isTTY });
   proxy.setRawMode = (mode: boolean) => {
     source.setRawMode?.(mode);
     return proxy;
   };
-  const originalRef = proxy.ref.bind(proxy);
-  const originalUnref = proxy.unref.bind(proxy);
   proxy.ref = () => {
     source.ref?.();
-    return originalRef();
+    return proxy;
   };
   proxy.unref = () => {
     source.unref?.();
-    return originalUnref();
+    return proxy;
   };
 
   const onData = (chunk: Buffer | string) => {
