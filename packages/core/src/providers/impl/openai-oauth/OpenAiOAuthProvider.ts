@@ -1,7 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import * as tls from "node:tls";
 import type { IProvider } from "../../IProvider.js";
 import type {
   ContentPart,
@@ -22,6 +18,7 @@ import {
   tokensToOAuth,
   type OpenAiOAuthTokens,
 } from "./tokens.js";
+import { ensureChatGptCa } from "./chatgpt-tls.js";
 
 export type { OpenAiOAuthTokens } from "./tokens.js";
 
@@ -38,7 +35,6 @@ const INFO: ProviderInfo = {
 const CHATGPT_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage";
 const CHATGPT_USAGE_USER_AGENT =
   "codex-tui/0.135.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.135.0)";
-let chatGptUsageCaLoaded = false;
 
 type ResponsesInputItem =
   | {
@@ -321,7 +317,7 @@ export class OpenAiOAuthProvider implements IProvider {
 }
 
 async function fetchChatGptUsage(tokens: OpenAiOAuthTokens): Promise<ChatGptUsageResponse> {
-  ensureChatGptUsageCa();
+  ensureChatGptCa();
   const res = await fetch(CHATGPT_USAGE_ENDPOINT, {
     method: "GET",
     headers: {
@@ -335,26 +331,6 @@ async function fetchChatGptUsage(tokens: OpenAiOAuthTokens): Promise<ChatGptUsag
     throw new Error(`ChatGPT usage endpoint failed (${res.status}): ${await res.text()}`);
   }
   return res.json() as Promise<ChatGptUsageResponse>;
-}
-
-function ensureChatGptUsageCa(): void {
-  if (chatGptUsageCaLoaded) return;
-  chatGptUsageCaLoaded = true;
-
-  const proxy = process.env.https_proxy ?? process.env.HTTPS_PROXY ?? "";
-  if (!/https?:\/\/(127\.0\.0\.1|localhost):8000\b/.test(proxy)) return;
-
-  const httpToolkitCa = join(homedir(), "Library", "Preferences", "httptoolkit", "ca.pem");
-  const extraCaPaths = [
-    ...(process.env.NODE_EXTRA_CA_CERTS ? [process.env.NODE_EXTRA_CA_CERTS] : []),
-    httpToolkitCa,
-  ];
-  const extraCerts = extraCaPaths
-    .filter((path) => existsSync(path))
-    .map((path) => readFileSync(path, "utf8"));
-
-  if (!extraCerts.length || !tls.setDefaultCACertificates || !tls.getCACertificates) return;
-  tls.setDefaultCACertificates([...tls.getCACertificates("default"), ...extraCerts]);
 }
 
 function describeError(error: unknown): string {
