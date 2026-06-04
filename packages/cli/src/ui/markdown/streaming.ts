@@ -6,7 +6,17 @@
  * first line.
  */
 const STREAMING_TAIL_CHARS = 8_000;
-const STREAMING_TAIL_LINES = 40;
+
+/**
+ * How many trailing lines the *live* preview shows. This must stay small enough
+ * that the dynamic region never exceeds the viewport height: Ink can only
+ * redraw lines still on screen, so anything taller gets flushed permanently
+ * into the scrollback — which is what made the live (tail-capped) text appear
+ * "frozen and truncated" right above the full finalized message. Keeping the
+ * preview to a handful of lines avoids that overlap; the complete reply still
+ * lands in <Static> once the turn ends.
+ */
+const PREVIEW_TAIL_LINES = 6;
 
 export function capStreamingTail(text: string): string {
   if (text.length <= STREAMING_TAIL_CHARS) return text;
@@ -16,14 +26,16 @@ export function capStreamingTail(text: string): string {
 }
 
 /**
- * The text fed to the live markdown preview: the tail of the buffer, bounded by
- * both characters and lines. This keeps each streaming re-render O(viewport)
- * rather than O(whole reply) — the full message still lands in <Static> with
- * complete markdown once it finalizes.
+ * The text fed to the live markdown preview: the last few lines of the buffer,
+ * bounded by both characters and lines. Trailing blank lines are dropped so the
+ * preview box doesn't grow with empty padding. The full message still lands in
+ * <Static> with complete markdown once it finalizes.
  */
-export function streamingTail(text: string): string {
+export function streamingTail(text: string, maxLines: number = PREVIEW_TAIL_LINES): string {
   const capped = capStreamingTail(text);
-  const lines = capped.split("\n");
-  if (lines.length <= STREAMING_TAIL_LINES) return capped;
-  return lines.slice(lines.length - STREAMING_TAIL_LINES).join("\n");
+  // Drop trailing blank lines: they'd otherwise inflate the preview height for
+  // no visible content and push the box past the viewport.
+  const lines = capped.replace(/\n+$/, "").split("\n");
+  if (lines.length <= maxLines) return lines.join("\n");
+  return lines.slice(lines.length - maxLines).join("\n");
 }

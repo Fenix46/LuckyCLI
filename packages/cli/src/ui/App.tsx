@@ -48,12 +48,12 @@ import {
   formatStatusFooter,
 } from "./lib/status.js";
 import { humanizeError } from "./lib/errors.js";
-import { Markdown } from "./markdown/Markdown.js";
 import { streamingTail } from "./markdown/streaming.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { APP_VERSION } from "./components/constants.js";
 import { ThinkingStatus } from "./components/ThinkingStatus.js";
+import { StreamingPreview } from "./components/StreamingPreview.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
 import { TranscriptItem, ItemView } from "./components/Transcript.js";
@@ -1253,7 +1253,11 @@ export function App({
             />
             {streamingPreview ? (
               <Box paddingLeft={2} marginTop={0.2}>
-                <Markdown text={streamingPreview} theme={activeTheme} />
+                <StreamingPreview
+                  text={streamingPreview}
+                  theme={activeTheme}
+                  width={messageWidth - 2}
+                />
               </Box>
             ) : null}
           </Box>
