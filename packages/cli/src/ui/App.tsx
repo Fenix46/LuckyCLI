@@ -33,6 +33,38 @@ import {
 } from "@luckycli/core";
 import { checkForUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
+import type { Item, CommandRow } from "./lib/items.js";
+import { messagesToItems, patchLastTool } from "./lib/items.js";
+import { buildInstalledMcpRows, type InstalledMcpRow } from "./lib/mcp-rows.js";
+import {
+  getModelPickerState,
+  getThemePickerState,
+  getAvailableModels,
+  validateModel,
+} from "./lib/model-picker.js";
+import {
+  formatNumber,
+  preview,
+  truncateSingleLine,
+  inputString,
+  firstName,
+  prettyCwd,
+  formatToolAction,
+  formatToolResultSummary,
+  wrapText,
+} from "./lib/format.js";
+import {
+  contextRows,
+  statusDetails,
+  compactStatusNotes,
+  contextUsagePercent,
+  contextDetail,
+  quotaUsedPercent,
+  quotaResetDetail,
+  quotaLabel,
+  formatStatusFooter,
+} from "./lib/status.js";
+import { humanizeError } from "./lib/errors.js";
 
 /** Shown in the opening banner. Keep in sync with packages/cli/package.json. */
 const APP_VERSION = "0.2.0";
@@ -42,67 +74,7 @@ interface AppMeta {
   model: string;
 }
 
-/** A line in the scrollback transcript. */
-type Item =
-  | { kind: "intro" }
-  | { kind: "user"; text: string }
-  | { kind: "assistant"; text: string }
-  | { kind: "tool"; name: string; input: unknown; output?: string; error?: boolean }
-  | { kind: "command"; title: string; rows: CommandRow[] }
-  | { kind: "status"; provider: ProviderStatus; context: ContextStatus }
-  | { kind: "error"; text: string };
-
-interface CommandRow {
-  label: string;
-  value: string;
-}
-
-interface InstalledMcpRow {
-  name: string;
-  summary: string;
-}
-
 type McpPanelTab = "installed" | "search";
-
-export function buildMcpCommandRows(
-  mcpStatus: Record<string, { status: string; error?: string }>,
-  toolCount: number,
-): CommandRow[] {
-  return Object.keys(mcpStatus).length === 0
-    ? [
-        { label: "servers", value: "none configured for this session" },
-        { label: "tools", value: String(toolCount) },
-      ]
-    : [
-        { label: "tools", value: String(toolCount) },
-        ...Object.entries(mcpStatus).map(([name, status]) => ({
-          label: name,
-          value:
-            status.status === "failed"
-              ? `${status.status} · ${status.error}`
-              : status.status,
-        })),
-      ];
-}
-
-export function buildInstalledMcpRows(
-  mcpConfig: Record<string, McpServerConfig>,
-  mcpStatus: Record<string, { status: string; error?: string }>,
-): InstalledMcpRow[] {
-  return Object.entries(mcpConfig).map(([name, config]) => {
-    const status = mcpStatus[name];
-    const enabled = config.enabled === false ? "disabled" : "enabled";
-    const runtime =
-      status?.status === "failed"
-        ? `failed · ${status.error}`
-        : status?.status ?? "not_loaded";
-    const target = config.type === "local" ? config.command.join(" ") : config.url;
-    return {
-      name,
-      summary: `${enabled} · ${runtime} · ${target}`,
-    };
-  });
-}
 
 export interface ApprovalRequest {
   name: string;
@@ -1928,19 +1900,6 @@ function IntroBanner({
   );
 }
 
-/** Extract a friendly first name from a system username. */
-function firstName(username: string): string {
-  const cleaned = username.replace(/[._-]/g, " ").trim();
-  const first = cleaned.split(" ")[0] ?? username;
-  return first.charAt(0).toUpperCase() + first.slice(1);
-}
-
-/** Shorten an absolute path by collapsing the home directory to `~`. */
-function prettyCwd(cwd: string): string {
-  const home = os.homedir();
-  return cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
-}
-
 function TranscriptItem({
   item,
   previous,
@@ -2475,12 +2434,6 @@ function objectPreview(
     });
 }
 
-function inputString(input: unknown, key: string): string | undefined {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
-  const value = (input as Record<string, unknown>)[key];
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
-
 interface Block {
   type: "paragraph" | "code" | "list" | "header";
   text: string;
@@ -2615,12 +2568,6 @@ function parseInlineMarkdown(text: string, theme: Theme): React.ReactNode[] {
   }
 
   return parts.length > 0 ? parts : [text];
-}
-
-function pushWrappedLines(text: string, width: number): string[] {
-  const output: string[] = [];
-  pushWrapped(output, text, width);
-  return output;
 }
 
 function highlightCodeLine(line: string, language: string, theme: Theme): React.ReactNode[] {
@@ -2780,558 +2727,4 @@ function handleEvent(event: AgentEvent, h: EventHandlers): void {
       h.onAborted();
       break;
   }
-}
-
-/** Attach output to the most recent matching tool item. */
-function patchLastTool(
-  items: Item[],
-  name: string,
-  output: string,
-  error: boolean,
-): Item[] {
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    if (item && item.kind === "tool" && item.name === name && item.output === undefined) {
-      const next = [...items];
-      next[i] = { ...item, output, error };
-      return next;
-    }
-  }
-  return items;
-}
-
-function getModelPickerState(
-  input: string,
-  provider: ProviderId,
-  activeModel: string,
-): { open: boolean; query: string; items: string[] } {
-  if (input !== "/model" && !input.startsWith("/model ")) {
-    return { open: false, query: "", items: [] };
-  }
-
-  const query = input.slice("/model".length).trim().toLowerCase();
-  const models = getAvailableModels(provider, activeModel);
-  const items = query
-    ? models.filter((model) => model.toLowerCase().includes(query))
-    : models;
-  return { open: true, query, items };
-}
-
-function getThemePickerState(
-  input: string,
-  activeThemeId: string,
-): { open: boolean; query: string; items: Theme[] } {
-  if (input !== "/theme" && !input.startsWith("/theme ")) {
-    return { open: false, query: "", items: [] };
-  }
-
-  const query = input.slice("/theme".length).trim().toLowerCase();
-  const themes = [...THEMES].sort((a, b) => {
-    if (a.id === activeThemeId) return -1;
-    if (b.id === activeThemeId) return 1;
-    return 0;
-  });
-  const items = query
-    ? themes.filter(
-        (theme) =>
-          theme.id.toLowerCase().includes(query) ||
-          theme.name.toLowerCase().includes(query),
-      )
-    : themes;
-  return { open: true, query, items };
-}
-
-function getAvailableModels(provider: ProviderId, activeModel?: string): string[] {
-  const models = [...PROVIDER_CATALOG[provider].availableModels];
-  if (activeModel && !models.includes(activeModel)) {
-    models.unshift(activeModel);
-  }
-  return models;
-}
-
-function validateModel(
-  provider: ProviderId,
-  model: string,
-): { ok: true } | { ok: false; message: string } {
-  if (!model) return { ok: false, message: "model id cannot be empty" };
-  const knownModels = getAvailableModels(provider);
-  if (knownModels.includes(model)) return { ok: true };
-
-  if (provider === "ollama") {
-    return { ok: true };
-  }
-
-  return {
-    ok: false,
-    message: `unknown ${provider} model: ${model}. Use /model to pick one of: ${knownModels.join(", ")}`,
-  };
-}
-
-function formatCommandRows(title: string, rows: CommandRow[]): string {
-  const labelWidth = Math.max(
-    title.length,
-    ...rows.map((row) => row.label.length),
-  );
-  return [
-    title,
-    ...rows.map((row) => `${row.label.padEnd(labelWidth)}  ${row.value}`),
-  ].join("\n");
-}
-
-function contextRows(status: ContextStatus): CommandRow[] {
-  return [
-    { label: "model", value: status.model },
-    {
-      label: "window",
-      value: status.contextWindow ? `${formatNumber(status.contextWindow)} tokens` : "unknown",
-    },
-    {
-      label: "usable",
-      value: status.usableTokens ? `${formatNumber(status.usableTokens)} tokens` : "unknown",
-    },
-    {
-      label: "input cap",
-      value: status.maxInputTokens ? `${formatNumber(status.maxInputTokens)} tokens` : "not specified",
-    },
-    {
-      label: "used",
-      value: status.usedTokens ? `${formatNumber(status.usedTokens)} tokens` : "not available",
-    },
-    {
-      label: "remaining",
-      value: status.remainingPercentage !== undefined ? `${status.remainingPercentage}%` : "unknown",
-    },
-    {
-      label: "turn",
-      value:
-        status.currentInputTokens !== undefined
-          ? `${formatNumber(status.currentInputTokens)} in / ${formatNumber(status.currentOutputTokens ?? 0)} out`
-          : "not available",
-    },
-    {
-      label: "total",
-      value:
-        status.totalInputTokens !== undefined
-          ? `${formatNumber(status.totalInputTokens)} in / ${formatNumber(status.totalOutputTokens ?? 0)} out`
-          : "not available",
-    },
-    {
-      label: "pressure",
-      value: status.usedPercentage !== undefined ? `${status.usedPercentage}%` : status.ratio !== undefined ? `${Math.round(status.ratio * 100)}%` : "unknown",
-    },
-    { label: "counter", value: status.tokenCounter },
-    { label: "source", value: status.source ?? "unknown" },
-  ];
-}
-
-function statusDetails(
-  provider: ProviderStatus,
-  context: ContextStatus,
-): Array<{ label: string; value: string; hint?: string }> {
-  return [
-    { label: "Model", value: context.model },
-    { label: "Directory", value: prettyCwd(process.cwd()) },
-    { label: "Login", value: provider.authType },
-    {
-      label: "Account",
-      value: provider.account ?? "not available",
-      hint: provider.subscription ? `(${provider.subscription})` : undefined,
-    },
-    ...(provider.project ? [{ label: "Project", value: provider.project }] : []),
-    ...(provider.tier ? [{ label: "Tier", value: provider.tier }] : []),
-  ];
-}
-
-function compactStatusNotes(notes: string[]): string[] {
-  return notes
-    .filter((note) => !note.startsWith("subscription status:"))
-    .filter((note) => !note.startsWith("billing:"))
-    .filter((note) => note !== "extra usage enabled")
-    .map((note) => note.replace(/^organization role: /, "role: "))
-    .slice(0, 4);
-}
-
-function contextUsagePercent(context: ContextStatus): number | undefined {
-  if (typeof context.ratio !== "number" || !Number.isFinite(context.ratio)) return undefined;
-  return Math.round(Math.max(0, Math.min(1, context.ratio)) * 100);
-}
-
-function contextDetail(context: ContextStatus): string | undefined {
-  if (context.usedTokens !== undefined && context.usableTokens) {
-    return `(${formatNumber(context.usedTokens)} / ${formatNumber(context.usableTokens)})`;
-  }
-  if (context.contextWindow) return `(${formatNumber(context.contextWindow)} window)`;
-  return undefined;
-}
-
-function quotaUsedPercent(quota: ProviderQuotaStatus): number | undefined {
-  const match = quota.remaining?.match(/\((\d+)% used\)/);
-  if (match?.[1]) return Number(match[1]);
-  const remainingMatch = quota.remaining?.match(/^(\d+)% available/);
-  if (remainingMatch?.[1]) return 100 - Number(remainingMatch[1]);
-  return undefined;
-}
-
-function quotaResetDetail(quota: ProviderQuotaStatus): string | undefined {
-  if (!quota.resetTime) return quota.modelId ? `(model ${quota.modelId})` : undefined;
-  const reset = new Date(quota.resetTime);
-  const formatted = Number.isNaN(reset.getTime())
-    ? quota.resetTime
-    : reset.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-  return `(resets ${formatted}${quota.modelId ? ` · ${quota.modelId}` : ""})`;
-}
-
-function quotaLabel(label: string): string {
-  switch (label) {
-    case "5h limit":
-      return "Current session";
-    case "weekly limit":
-      return "Current week";
-    default:
-      return label;
-  }
-}
-
-function formatStatusFooter(
-  status: ContextStatus | null,
-  fallbackUsage: { input: number; output: number },
-): string {
-  const totalInput = status?.totalInputTokens ?? fallbackUsage.input;
-  const totalOutput = status?.totalOutputTokens ?? fallbackUsage.output;
-  const current =
-    status?.currentInputTokens !== undefined
-      ? `turn: ${formatNumber(status.currentInputTokens)} in / ${formatNumber(status.currentOutputTokens ?? 0)} out`
-      : "turn: n/a";
-  return `ctx: ${formatContextFooter(status)} ┃ ${current} ┃ total: ${formatNumber(totalInput)} in / ${formatNumber(totalOutput)} out`;
-}
-
-function formatContextFooter(status: ContextStatus | null): string {
-  if (!status) return "unknown";
-  if (status.usedTokens !== undefined && status.usableTokens) {
-    const used = status.usedPercentage ?? Math.round((status.ratio ?? 0) * 100);
-    const remaining = status.remainingPercentage ?? Math.max(0, 100 - used);
-    return `${remaining}% free (${used}% used) · ${formatNumber(status.usedTokens)}/${formatNumber(status.usableTokens)}`;
-  }
-  if (status.contextWindow) return `window ${formatNumber(status.contextWindow)} | counter ${status.tokenCounter}`;
-  return "unknown";
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
-function preview(value: unknown, max = 120): string {
-  const s = typeof value === "string" ? value : JSON.stringify(value);
-  const flat = s.replace(/\s+/g, " ").trim();
-  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
-}
-
-function formatToolAction(
-  name: string,
-  input: unknown,
-  running: boolean,
-  error?: boolean,
-): string {
-  const verb = toolVerb(name, running, error);
-  const target = toolTarget(name, input);
-  return target ? `${verb} ${target}` : verb;
-}
-
-function toolVerb(name: string, running: boolean, error?: boolean): string {
-  if (error) return `Failed ${name}`;
-  const pair: readonly [string, string] = (() => {
-    switch (name) {
-      case "exec":
-      case "PowerShell":
-        return ["Run", "Ran"];
-      case "read_file":
-        return ["Read", "Read"];
-      case "write_file":
-        return ["Write", "Wrote"];
-      case "edit_file":
-        return ["Edit", "Edited"];
-      case "apply_patch":
-        return ["Apply patch", "Applied patch"];
-      case "list_dir":
-        return ["List", "Listed"];
-      case "glob":
-        return ["Find", "Found"];
-      case "grep":
-        return ["Search", "Searched"];
-      case "http_fetch":
-        return ["Fetch", "Fetched"];
-      case "todo_write":
-        return ["Update todos", "Updated todos"];
-      case "project_memory":
-        return ["Remember", "Remembered"];
-      case "ask_user":
-        return ["Ask user", "Asked user"];
-      default:
-        return ["Run tool", "Ran tool"];
-    }
-  })();
-  return running ? pair[0] : pair[1];
-}
-
-function toolTarget(name: string, input: unknown): string {
-  const command = inputString(input, "command");
-  if ((name === "exec" || name === "PowerShell") && command) return command;
-
-  const path = inputString(input, "path");
-  if (["read_file", "write_file", "edit_file", "list_dir"].includes(name) && path) {
-    return quotePath(path);
-  }
-
-  if (name === "grep") {
-    const pattern = inputString(input, "pattern");
-    const include = inputString(input, "include");
-    return [pattern ? quotePath(pattern) : "", include ? `in ${include}` : ""]
-      .filter(Boolean)
-      .join(" ");
-  }
-
-  if (name === "glob") {
-    const pattern = inputString(input, "pattern");
-    return pattern ? quotePath(pattern) : "";
-  }
-
-  if (name === "http_fetch") {
-    return inputString(input, "url") ?? "";
-  }
-
-  if (name === "apply_patch") {
-    const patch = inputString(input, "patch");
-    return patch ? patchTargets(patch).join(", ") : "";
-  }
-
-  if (name === "todo_write") {
-    return todoSummary(input);
-  }
-
-  if (name === "project_memory") {
-    return inputString(input, "operation") ?? ".lucky/memory.md";
-  }
-
-  if (name === "ask_user") {
-    return inputString(input, "question") ?? "";
-  }
-
-  return preview(input, 120);
-}
-
-function formatToolResultSummary(name: string, output: string, error?: boolean): string {
-  const lines = output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length === 0) return "";
-  if (error) return firstUsefulLine(lines);
-
-  switch (name) {
-    case "exec":
-    case "PowerShell":
-      return firstUsefulLine(lines);
-    case "read_file":
-      return summarizeReadOutput(lines);
-    case "list_dir":
-      return `${lines.length} entries`;
-    case "glob":
-      return lines[0]?.startsWith("[no files") ? "no matches" : `${lines.length} files`;
-    case "grep":
-      return lines[0]?.startsWith("[no matches") ? "no matches" : `${lines.length} matches`;
-    case "write_file":
-    case "edit_file":
-    case "apply_patch":
-    case "todo_write":
-    case "project_memory":
-    case "ask_user":
-    case "http_fetch":
-      return firstUsefulLine(lines);
-    default:
-      return firstUsefulLine(lines);
-  }
-}
-
-function summarizeReadOutput(lines: string[]): string {
-  const rangeLine = lines.find((line) => /^\[showing \d+ of \d+ lines\]$/.test(line));
-  if (rangeLine) return rangeLine.replace(/^\[|\]$/g, "");
-  const noLines = lines.find((line) => line.startsWith("[no lines"));
-  if (noLines) return noLines.replace(/^\[|\]$/g, "");
-  return `${lines.length} lines`;
-}
-
-function firstUsefulLine(lines: string[]): string {
-  return lines.find((line) => !line.startsWith("[command failed:")) ?? lines[0] ?? "";
-}
-
-function quotePath(path: string): string {
-  return `"${path}"`;
-}
-
-function patchTargets(patch: string): string[] {
-  const targets = new Set<string>();
-  for (const line of patch.split("\n")) {
-    const match = /^\+\+\+\s+(?:b\/)?(.+)$/.exec(line);
-    if (!match) continue;
-    const target = match[1];
-    if (!target || target === "/dev/null") continue;
-    targets.add(quotePath(target));
-  }
-  return [...targets].slice(0, 3);
-}
-
-function todoSummary(input: unknown): string {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
-  const todos = (input as Record<string, unknown>).todos;
-  if (!Array.isArray(todos)) return "";
-  const counts = new Map<string, number>();
-  for (const todo of todos) {
-    if (!todo || typeof todo !== "object" || Array.isArray(todo)) continue;
-    const status = (todo as Record<string, unknown>).status;
-    if (typeof status === "string") counts.set(status, (counts.get(status) ?? 0) + 1);
-  }
-  const parts = [...counts.entries()].map(([status, count]) => `${count} ${status}`);
-  return parts.length ? parts.join(", ") : `${todos.length} items`;
-}
-
-function truncateSingleLine(value: string, max: number): string {
-  const safeMax = Math.max(8, max);
-  const flat = value.replace(/\s+/g, " ").trim();
-  return flat.length > safeMax ? `${flat.slice(0, safeMax - 1)}…` : flat;
-}
-
-/**
- * Rebuild the scrollback transcript from a resumed session's canonical
- * messages. Tool calls and their results are stitched back together by id.
- */
-function messagesToItems(messages: Message[]): Item[] {
-  const items: Item[] = [];
-  const toolIndexById = new Map<string, number>();
-
-  for (const message of messages) {
-    const assistantMessageHasToolCall =
-      message.role === "assistant" &&
-      message.content.some((part) => part.type === "tool_call");
-    for (const part of message.content) {
-      if (part.type === "text") {
-        const text = part.text.trim();
-        if (!text) continue;
-        if (message.role === "user") items.push({ kind: "user", text });
-        else if (message.role === "assistant" && !assistantMessageHasToolCall) {
-          items.push({ kind: "assistant", text });
-        }
-        // system summaries (from compaction) are context only — skip in the UI
-      } else if (part.type === "tool_call") {
-        toolIndexById.set(part.id, items.length);
-        items.push({ kind: "tool", name: part.name, input: part.arguments });
-      } else if (part.type === "tool_result") {
-        const index = toolIndexById.get(part.toolCallId);
-        const target = index !== undefined ? items[index] : undefined;
-        if (target && target.kind === "tool") {
-          target.output = part.content;
-          if (part.isError) target.error = true;
-        }
-      }
-    }
-  }
-
-  return items;
-}
-
-function wrapText(text: string, width: number): string[] {
-  const safeWidth = Math.max(16, width);
-  const output: string[] = [];
-  let inCodeBlock = false;
-
-  for (const rawLine of text.split("\n")) {
-    const trimmed = rawLine.trim();
-    if (trimmed.startsWith("```")) {
-      inCodeBlock = !inCodeBlock;
-      continue;
-    }
-
-    if (inCodeBlock) {
-      pushWrapped(output, `  ${rawLine.replace(/\t/g, "  ")}`, safeWidth);
-      continue;
-    }
-
-    if (!trimmed) {
-      output.push("");
-      continue;
-    }
-
-    const listMatch = rawLine.match(/^(\s*(?:[-*+]|\d+[.)])\s+)(.*)$/);
-    if (listMatch) {
-      const prefix = listMatch[1] ?? "";
-      const body = stripInlineMarkdown(listMatch[2] ?? "");
-      pushWrapped(output, `${prefix}${body}`, safeWidth, " ".repeat(prefix.length));
-      continue;
-    }
-
-    pushWrapped(output, stripInlineMarkdown(trimmed), safeWidth);
-  }
-
-  return output.length > 0 ? output : [""];
-}
-
-function pushWrapped(
-  output: string[],
-  text: string,
-  width: number,
-  continuationPrefix = "",
-): void {
-  if (text.length <= width) {
-    output.push(text);
-    return;
-  }
-
-  const firstPrefixLength = Math.max(0, text.length - text.trimStart().length);
-  const firstPrefix = " ".repeat(firstPrefixLength);
-  let prefix = firstPrefix;
-  let rest = text.trimStart();
-
-  while (rest.length > 0) {
-    const available = Math.max(8, width - prefix.length);
-    if (rest.length <= available) {
-      output.push(`${prefix}${rest}`);
-      return;
-    }
-
-    let splitAt = rest.lastIndexOf(" ", available);
-    if (splitAt <= 0) splitAt = available;
-    output.push(`${prefix}${rest.slice(0, splitAt).trimEnd()}`);
-    rest = rest.slice(splitAt).trimStart();
-    prefix = continuationPrefix || firstPrefix;
-  }
-}
-
-function stripInlineMarkdown(text: string): string {
-  return text
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/`([^`]+)`/g, "$1");
-}
-
-function humanizeError(message: string): string {
-  if (!message.includes("Code Assist request failed")) return message;
-
-  const statusMatch = message.match(/Code Assist request failed \((\d+)\)/);
-  const resetMatch = message.match(/reset after\s+(\d+s)/i);
-  const modelMatch = message.match(/"model":"([^"]+)"/);
-  const status = statusMatch?.[1];
-
-  if (status === "429") {
-    return [
-      "Code Assist quota exhausted",
-      modelMatch ? `for ${modelMatch[1]}` : "",
-      resetMatch ? `retry in ${resetMatch[1]}` : "",
-    ].filter(Boolean).join(" | ");
-  }
-
-  return message;
 }

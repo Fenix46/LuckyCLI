@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInstalledMcpRows, buildMcpCommandRows } from "./App.js";
+import { buildInstalledMcpRows, buildMcpCommandRows } from "./lib/mcp-rows.js";
 
 describe("buildMcpCommandRows", () => {
   it("renders an empty-state row set when no MCP servers are configured", () => {
