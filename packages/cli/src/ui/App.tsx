@@ -208,9 +208,11 @@ export function App({
   maxScrollRef.current = maxScroll;
 
   const onWheel = useCallback((direction: "up" | "down", ticks: number) => {
-    const step = 3 * ticks; // a few lines per wheel notch
+    // One line per wheel tick. macOS momentum scrolling fires many ticks for a
+    // flick and few for a gentle roll, so 1 line/tick feels natural (fast flick
+    // = fast scroll) without overshooting like a larger fixed step would.
     setScrollUp((prev) => {
-      const next = direction === "up" ? prev + step : prev - step;
+      const next = direction === "up" ? prev + ticks : prev - ticks;
       return Math.min(maxScrollRef.current, Math.max(0, next));
     });
   }, []);
@@ -1284,32 +1286,6 @@ export function App({
           loading={mcpPanelLoading}
           error={mcpPanelError}
         />
-      ) : showSlashMenu && filteredCommands.length > 0 ? (
-        <Box
-          flexDirection="column"
-          paddingLeft={2}
-          marginBottom={0.5}
-          width="100%"
-        >
-          <Text bold color={activeTheme.accent}>📂 AVAILABLE SLASH COMMANDS</Text>
-          <Box flexDirection="column" marginTop={0.2}>
-            {filteredCommands.map((cmd, idx) => (
-              <Box key={cmd.name} flexDirection="row">
-                <Text color={idx === selectedCommandIndex ? activeTheme.accent : "gray"}>
-                  {idx === selectedCommandIndex ? "❯ " : "  "}
-                </Text>
-                <Text bold color={idx === selectedCommandIndex ? activeTheme.primary : "white"}>
-                  {cmd.name.padEnd(12)}
-                </Text>
-                <Text color={idx === selectedCommandIndex ? "white" : activeTheme.muted}>
-                  {idx === selectedCommandIndex ? "┃ " : "┆ "}
-                  {cmd.desc}
-                </Text>
-              </Box>
-            ))}
-          </Box>
-          <PickerHint theme={activeTheme} selectLabel="complete" />
-        </Box>
       ) : null}
 
       <Box flexDirection="column" width="100%" marginTop={0.5}>
@@ -1343,6 +1319,22 @@ export function App({
         </Box>
         <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
       </Box>
+
+      {/* Slash-command menu sits just below the prompt (Claude Code style). */}
+      {showSlashMenu && filteredCommands.length > 0 ? (
+        <Box flexDirection="column" paddingLeft={2} marginTop={0.2} width="100%">
+          {filteredCommands.map((cmd, idx) => (
+            <Box key={cmd.name} flexDirection="row">
+              <Text bold color={idx === selectedCommandIndex ? activeTheme.primary : "white"}>
+                {cmd.name.padEnd(12)}
+              </Text>
+              <Text color={idx === selectedCommandIndex ? "white" : activeTheme.muted}>
+                {cmd.desc}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
 
       <Box width="100%" paddingX={0} justifyContent="space-between" marginTop={0.2}>
         <Box flexDirection="row" gap={1}>
