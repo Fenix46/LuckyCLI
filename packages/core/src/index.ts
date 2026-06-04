@@ -101,6 +101,11 @@ export type { BuildOptions, BuildProgress, GraphBuildSummary } from "./graph/bui
 export { updateGraphForFiles } from "./graph/update.js";
 export type { UpdateSummary } from "./graph/update.js";
 export {
+  diffSnapshots,
+  snapshotFiles,
+  trackedGraphFiles,
+} from "./graph/fs-snapshot.js";
+export {
   callersOf,
   calleesOf,
   godNodes,
