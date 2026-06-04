@@ -1,4 +1,5 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { diffSnapshots, snapshotFiles, trackedGraphFiles } from "../graph/fs-snapshot.js";
 import { adaptMcpTool } from "./tool-adapter.js";
 import type { McpClient } from "./client.js";
 import { McpLocalClient, type McpLocalClientOptions } from "./local-client.js";
@@ -11,7 +12,7 @@ import type {
   McpServerConfig,
   McpToolDescriptor,
 } from "./types.js";
-import type { Tool } from "../tools/types.js";
+import type { Tool, ToolContext } from "../tools/types.js";
 
 export interface McpManagerOptions extends McpLocalClientOptions {
   /**
@@ -142,9 +143,20 @@ export class McpManager {
   tools(): Tool[] {
     return [...this.servers.entries()].flatMap(([name, server]) =>
       server.tools.map((tool) =>
-        adaptMcpTool(name, tool, (invocation, _ctx) =>
-          server.client.callTool(invocation.tool, invocation.arguments).then((content) => ({ content })),
-        ),
+        adaptMcpTool(name, tool, async (invocation, ctx) => {
+          // MCP tools are opaque: their result is text, so we can't see which
+          // files they wrote. Snapshot the graph's tracked files around the
+          // call and report any that changed, so external edits keep the graph
+          // fresh through the same hook built-in tools use. Bounded by the
+          // graph's file count and free when no graph exists (tracked is empty).
+          const tracked = ctx.onFilesChanged ? await trackedGraphFiles(ctx.cwd) : [];
+          const before = tracked.length ? snapshotFiles(ctx.cwd, tracked) : undefined;
+
+          const content = await server.client.callTool(invocation.tool, invocation.arguments);
+
+          if (before) reportChangedFiles(ctx, ctx.cwd, tracked, before);
+          return { content };
+        }),
       ),
     );
   }
@@ -166,5 +178,24 @@ export class McpManager {
     const existing = this.servers.get(name);
     this.servers.delete(name);
     if (existing) await existing.client.close().catch(() => {});
+  }
+}
+
+/**
+ * Diff the tracked files against their pre-call snapshot and notify the host of
+ * any that changed. Fire-and-forget: graph upkeep must never alter the tool
+ * result or throw into the agent loop, mirroring createGraphMaintainer.
+ */
+function reportChangedFiles(
+  ctx: ToolContext,
+  cwd: string,
+  tracked: string[],
+  before: Map<string, string>,
+): void {
+  try {
+    const changed = diffSnapshots(before, snapshotFiles(cwd, tracked));
+    if (changed.length) ctx.onFilesChanged?.(changed);
+  } catch {
+    // Best-effort maintenance; never surface to the model.
   }
 }

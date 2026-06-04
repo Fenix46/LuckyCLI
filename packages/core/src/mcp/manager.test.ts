@@ -1,8 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { ToolRegistry } from "../tools/registry.js";
+import { buildAndSaveGraph } from "../graph/build.js";
+import { loadGraph } from "../graph/store.js";
 import { McpManager } from "./manager.js";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureServer = resolve(here, "__fixtures__/stdio-server.mjs");
@@ -130,5 +134,71 @@ describe("McpManager", () => {
     const manager = new McpManager();
     managers.push(manager);
     await expect(manager.listPrompts("ghost")).rejects.toThrow(/not connected/);
+  });
+
+  describe("graph upkeep after MCP edits", () => {
+    let root: string;
+
+    afterEach(async () => {
+      if (root) await rm(root, { recursive: true, force: true });
+    });
+
+    async function connectFsManager(): Promise<McpManager> {
+      const manager = new McpManager();
+      managers.push(manager);
+      await manager.connectAll({
+        fs: {
+          type: "local",
+          command: ["node", fixtureServer],
+          environment: { MCP_FIXTURE_ROOT: root },
+          timeout: 5_000,
+        },
+      });
+      return manager;
+    }
+
+    it("reports files an MCP tool changed so the graph stays fresh", async () => {
+      root = await mkdtemp(join(tmpdir(), "lucky-mcp-graph-"));
+      await mkdir(join(root, "src"), { recursive: true });
+      await writeFile(join(root, "src", "a.ts"), `export function alpha() { return 1; }\n`);
+      await buildAndSaveGraph(root);
+
+      const manager = await connectFsManager();
+      const onFilesChanged = vi.fn();
+      const registry = manager.tools().reduce((acc, tool) => acc.register(tool), new ToolRegistry());
+
+      await registry.execute(
+        "fs_write_file",
+        { path: "src/a.ts", content: `export function renamed() { return 1; }\n` },
+        { cwd: root, onFilesChanged },
+      );
+
+      expect(onFilesChanged).toHaveBeenCalledWith(["src/a.ts"]);
+
+      // The maintainer pipeline isn't wired here, so drive the update directly
+      // to confirm the reported path lands in the graph.
+      const { updateGraphForFiles } = await import("../graph/update.js");
+      await updateGraphForFiles(root, ["src/a.ts"]);
+      const graph = await loadGraph(root);
+      const labels = graph.nodes.map((n) => n.label);
+      expect(labels).toContain("renamed");
+      expect(labels).not.toContain("alpha");
+    });
+
+    it("does no graph work when the project has no graph", async () => {
+      root = await mkdtemp(join(tmpdir(), "lucky-mcp-nograph-"));
+      const manager = await connectFsManager();
+      const onFilesChanged = vi.fn();
+      const registry = manager.tools().reduce((acc, tool) => acc.register(tool), new ToolRegistry());
+
+      const result = await registry.execute(
+        "fs_write_file",
+        { path: "note.txt", content: "hi" },
+        { cwd: root, onFilesChanged },
+      );
+
+      expect(result).toEqual({ content: "wrote:note.txt" });
+      expect(onFilesChanged).not.toHaveBeenCalled();
+    });
   });
 });

@@ -24,23 +24,21 @@ describe("McpLocalClient", () => {
     const tools = await client.listTools();
 
     expect(client.pid).toBeTypeOf("number");
-    expect(tools).toEqual([
-      {
-        name: "echo",
-        description: "Echoes text back to the caller.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            message: {
-              type: "string",
-            },
+    expect(tools).toContainEqual({
+      name: "echo",
+      description: "Echoes text back to the caller.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          message: {
+            type: "string",
           },
-          required: ["message"],
-          additionalProperties: false,
-          $schema: "http://json-schema.org/draft-07/schema#",
         },
+        required: ["message"],
+        additionalProperties: false,
+        $schema: "http://json-schema.org/draft-07/schema#",
       },
-    ]);
+    });
   });
 
   it("calls a local MCP tool and returns text content", async () => {
