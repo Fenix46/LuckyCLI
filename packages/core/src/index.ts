@@ -174,6 +174,8 @@ export {
   withAutoUpdatePolicy,
   withStagedUpdate,
 } from "./update/policy.js";
+export { applyStagedUpdateIfAny } from "./update/startup.js";
+export type { StagedApplyResult } from "./update/startup.js";
 export {
   assetName,
   buildAssetUrls,

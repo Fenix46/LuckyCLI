@@ -15,6 +15,7 @@ import {
 import { Root } from "./ui/Root.js";
 import { runMcpCommand } from "./mcp-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
+import { applyStagedUpdateIfAny } from "@luckycli/core";
 
 const HELP = `lucky — a multi-provider terminal agent
 
@@ -90,6 +91,13 @@ async function runGraphCommand(args: string[]): Promise<void> {
 }
 
 function main(): void {
+  // Finish any update staged on a previous run before doing anything else, so a
+  // cold start always lands on the newest binary. Best-effort: never blocks startup.
+  const staged = applyStagedUpdateIfAny();
+  if (staged.swapped) {
+    process.stdout.write(`Updated to ${staged.version}. Running the new version.\n`);
+  }
+
   // Subcommands are handled before the TUI path (they print and exit).
   const rawArgs = process.argv.slice(2);
   if (rawArgs[0] === "graph") {

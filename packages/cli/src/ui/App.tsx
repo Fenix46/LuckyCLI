@@ -19,15 +19,18 @@ import {
   buildAndSaveGraph,
   createSessionId,
   deriveTitle,
+  detectSelfUpdate,
+  getAutoUpdatePolicy,
   listSessions,
   loadStoredConfig,
   recordGraphBuilt,
   saveSession,
   saveStoredConfig,
+  withAutoUpdatePolicy,
   withMcpServer,
   withoutMcpServer,
 } from "@luckycli/core";
-import { checkForUpdate, updateRows } from "../update.js";
+import { applyUpdateNow, checkForUpdate, stageUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { messagesToItems, patchLastTool } from "./lib/items.js";
@@ -105,7 +108,7 @@ const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
   { name: "/mcp", desc: "Open the interactive MCP control panel" },
   { name: "/status", desc: "Show provider auth, account, quota and context status" },
-  { name: "/update", desc: "Check for a newer LuckyCLI release" },
+  { name: "/update", desc: "Check for updates (/update apply, /update auto <mode>)" },
   { name: "/compact", desc: "Summarize older chat history now" },
   { name: "/resume", desc: "Pick a saved session to resume" },
   { name: "/provider", desc: "Switch provider and authenticate" },
@@ -255,10 +258,38 @@ export function App({
 
   useEffect(() => {
     if (process.env.LUCKY_DISABLE_UPDATE_CHECK === "1") return;
+    const policy = getAutoUpdatePolicy(loadStoredConfig());
+    if (policy === "off") return;
     let cancelled = false;
     checkForUpdate(APP_VERSION)
-      .then((info) => {
+      .then(async (info) => {
         if (cancelled || !info.updateAvailable) return;
+
+        // "auto": download + verify in the background and stage it; the next
+        // launch applies it. We never swap the binary under a live session.
+        if (policy === "auto" && info.latestVersion && detectSelfUpdate().ok) {
+          try {
+            const staged = await stageUpdate(info.latestVersion);
+            if (!cancelled && staged) {
+              setItems((prev) => [
+                ...prev,
+                {
+                  kind: "command",
+                  title: "Update Ready",
+                  rows: [
+                    { label: "version", value: info.latestVersion! },
+                    { label: "status", value: "downloaded — applies on next launch" },
+                  ],
+                },
+              ]);
+              return;
+            }
+          } catch {
+            // Staging is best-effort; fall through to the notify banner.
+          }
+        }
+
+        if (cancelled) return;
         setItems((prev) => [
           ...prev,
           {
@@ -936,15 +967,84 @@ export function App({
         setInput("");
         return;
       }
-      if (text === "/update") {
+      if (text === "/update" || text.startsWith("/update ")) {
+        const arg = text.slice("/update".length).trim();
+        setInput("");
+
+        // `/update auto <off|notify|auto>`: set the policy in-session.
+        if (arg.startsWith("auto")) {
+          const policy = arg.slice("auto".length).trim();
+          if (policy !== "off" && policy !== "notify" && policy !== "auto") {
+            setItems((prev) => [
+              ...prev,
+              { kind: "error", text: "usage: /update auto <off|notify|auto>" },
+            ]);
+            return;
+          }
+          saveStoredConfig(withAutoUpdatePolicy(loadStoredConfig(), policy));
+          setItems((prev) => [
+            ...prev,
+            { kind: "command", title: "Update", rows: [{ label: "policy", value: policy }] },
+          ]);
+          return;
+        }
+
         try {
           const info = await checkForUpdate(APP_VERSION, { force: true });
+
+          // `/update apply`: download, verify, swap, then exit cleanly. Typing
+          // the subcommand is the confirmation; we never swap mid-turn silently.
+          if (arg === "apply") {
+            if (!info.updateAvailable) {
+              setItems((prev) => [
+                ...prev,
+                { kind: "command", title: "Update", rows: updateRows(info) },
+              ]);
+              return;
+            }
+            const result = await applyUpdateNow(undefined);
+            if (result.applied) {
+              setItems((prev) => [
+                ...prev,
+                {
+                  kind: "command",
+                  title: "Updated",
+                  rows: [
+                    { label: "version", value: info.latestVersion ?? "latest" },
+                    { label: "status", value: "installed — restart lucky" },
+                  ],
+                },
+              ]);
+              exit();
+              return;
+            }
+            setItems((prev) => [
+              ...prev,
+              {
+                kind: "command",
+                title: "Update",
+                rows: [
+                  { label: "status", value: `cannot self-update (${result.reason})` },
+                  ...(result.installCommand
+                    ? [{ label: "command", value: result.installCommand }]
+                    : []),
+                ],
+              },
+            ]);
+            return;
+          }
+
+          // Plain `/update`: show status, and how to apply if available.
+          const rows = updateRows(info);
+          if (info.updateAvailable && detectSelfUpdate().ok) {
+            rows.push({ label: "apply", value: "run /update apply to install" });
+          }
           setItems((prev) => [
             ...prev,
             {
               kind: "command",
               title: info.updateAvailable ? "Update Available" : "Update",
-              rows: updateRows(info),
+              rows,
             },
           ]);
         } catch (error) {
@@ -956,7 +1056,6 @@ export function App({
             },
           ]);
         }
-        setInput("");
         return;
       }
       if (text === "/compact") {
