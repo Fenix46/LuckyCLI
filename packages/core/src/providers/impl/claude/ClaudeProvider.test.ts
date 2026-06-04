@@ -2,6 +2,18 @@ import Anthropic from "@anthropic-ai/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeProvider } from "./ClaudeProvider.js";
 
+const { refreshClaudeOAuthTokenMock } = vi.hoisted(() => ({
+  refreshClaudeOAuthTokenMock: vi.fn(),
+}));
+
+vi.mock("./oauth.js", async () => {
+  const actual = await vi.importActual<typeof import("./oauth.js")>("./oauth.js");
+  return {
+    ...actual,
+    refreshClaudeOAuthToken: refreshClaudeOAuthTokenMock,
+  };
+});
+
 const createMock = vi.fn().mockResolvedValue({
   content: [{ type: "text", text: "ok" }],
   stop_reason: "end_turn",
@@ -24,6 +36,7 @@ vi.mock("@anthropic-ai/sdk", () => {
 describe("ClaudeProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    refreshClaudeOAuthTokenMock.mockReset();
   });
 
   afterEach(() => {
@@ -140,6 +153,7 @@ describe("ClaudeProvider", () => {
         ok: true,
         json: async () => ({
           organization_name: "Test Org",
+          organization_uuid: "org-123",
           organization_role: "admin",
         }),
       })
@@ -166,6 +180,21 @@ describe("ClaudeProvider", () => {
             disabled_reason: null,
           },
         }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          eligible: true,
+          remaining_passes: 3,
+          referral_code_details: {
+            campaign: "claude_code_guest_pass_a47c",
+            referral_link: "https://claude.ai/referral/xPabIykAZQ",
+          },
+          referrer_reward: {
+            amount_minor_units: 1000,
+            currency: "EUR",
+          },
+        }),
       });
     vi.stubGlobal("fetch", fetchMock);
     const provider = new ClaudeProvider({
@@ -190,6 +219,18 @@ describe("ClaudeProvider", () => {
         }),
       }),
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.anthropic.com/api/oauth/organizations/org-123/referral/eligibility?campaign=claude_code_guest_pass",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer oauth-access-token",
+          "anthropic-client-platform": "claude_code_cli",
+          "anthropic-version": "2023-06-01",
+          "x-organization-uuid": "org-123",
+        }),
+      }),
+    );
     expect(status.account).toBe("user@example.com");
     expect(status.subscription).toBe("pro");
     expect(status.tier).toBe("default_claude_ai");
@@ -209,6 +250,49 @@ describe("ClaudeProvider", () => {
     ]);
     expect(status.notes).toContain("extra usage enabled");
     expect(status.notes).toContain("extra usage: enabled, monthly limit 4250 EUR, used 0 EUR");
+    expect(status.notes).toContain("guest pass eligible: yes");
+    expect(status.notes).toContain("guest passes remaining: 3");
+    expect(status.notes).toContain("guest pass reward: 10 EUR");
+  });
+
+  it("refreshes Claude OAuth credentials after an authentication error and retries", async () => {
+    refreshClaudeOAuthTokenMock.mockResolvedValue({
+      accessToken: "refreshed-access-token",
+      refreshToken: "oauth-refresh-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+    createMock
+      .mockRejectedValueOnce({
+        status: 401,
+        message: "Invalid authentication credentials",
+        error: { type: "authentication_error", message: "Invalid authentication credentials" },
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "text", text: "ok" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "stale-access-token",
+      refreshToken: "oauth-refresh-token",
+    });
+
+    const response = await provider.generate(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      { model: "claude-test" },
+    );
+
+    expect(response.content).toEqual([{ type: "text", text: "ok" }]);
+    expect(refreshClaudeOAuthTokenMock).toHaveBeenCalledWith("oauth-refresh-token");
+    expect(Anthropic).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        authToken: "refreshed-access-token",
+      }),
+    );
+    expect(createMock).toHaveBeenCalledTimes(2);
   });
 
   it("normalizes OpenAPI boolean exclusive minimums for Claude tools", async () => {

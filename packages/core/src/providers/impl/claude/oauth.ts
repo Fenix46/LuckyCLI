@@ -12,6 +12,7 @@ export const CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/toke
 export const CLAUDE_OAUTH_API_BASE = "https://api.anthropic.com";
 export const CLAUDE_OAUTH_ROLES_URL = `${CLAUDE_OAUTH_API_BASE}/api/oauth/claude_cli/roles`;
 export const CLAUDE_OAUTH_USAGE_URL = `${CLAUDE_OAUTH_API_BASE}/api/oauth/usage`;
+export const CLAUDE_OAUTH_REFERRAL_CAMPAIGN = "claude_code_guest_pass";
 export const CLAUDE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
 export const CLAUDE_CONTEXT_WINDOW_DEFAULT = 200_000;
 export const CLAUDE_CONTEXT_WINDOW_1M = 1_000_000;
@@ -119,6 +120,20 @@ export interface ClaudeOAuthUsage {
   iguana_necktie?: ClaudeOAuthUsageWindow | null;
   omelette_promotional?: ClaudeOAuthUsageWindow | null;
   extra_usage?: ClaudeOAuthExtraUsage | null;
+}
+
+export interface ClaudeOAuthReferralEligibility {
+  eligible?: boolean;
+  referral_code_details?: {
+    code?: string;
+    campaign?: string;
+    referral_link?: string;
+  };
+  referrer_reward?: {
+    amount_minor_units?: number;
+    currency?: string;
+  };
+  remaining_passes?: number;
 }
 
 export async function runClaudeBrowserOAuthFlow(): Promise<{ tokens: ClaudeOAuthTokens }> {
@@ -280,6 +295,35 @@ export async function fetchClaudeOAuthUsage(accessToken: string): Promise<Claude
     throw new Error(`Claude OAuth usage failed (${res.status}): ${await res.text()}`);
   }
   return res.json() as Promise<ClaudeOAuthUsage>;
+}
+
+export async function fetchClaudeOAuthReferralEligibility(
+  accessToken: string,
+  organizationUuid: string,
+  campaign = CLAUDE_OAUTH_REFERRAL_CAMPAIGN,
+): Promise<ClaudeOAuthReferralEligibility> {
+  const url = new URL(
+    `${CLAUDE_OAUTH_API_BASE}/api/oauth/organizations/${organizationUuid}/referral/eligibility`,
+  );
+  url.searchParams.set("campaign", campaign);
+  const res = await claudeFetch(
+    url.toString(),
+    {
+      method: "GET",
+      headers: authHeaders(accessToken, {
+        "anthropic-client-platform": "claude_code_cli",
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+        "User-Agent": "claude-cli/2.1.158 (external, cli)",
+        "x-organization-uuid": organizationUuid,
+      }),
+    },
+    "Claude OAuth referral eligibility",
+  );
+  if (!res.ok) {
+    throw new Error(`Claude OAuth referral eligibility failed (${res.status}): ${await res.text()}`);
+  }
+  return res.json() as Promise<ClaudeOAuthReferralEligibility>;
 }
 
 async function postClaudeToken(body: Record<string, string>): Promise<ClaudeOAuthTokenResponse> {

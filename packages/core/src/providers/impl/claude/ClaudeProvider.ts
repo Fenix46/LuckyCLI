@@ -24,10 +24,12 @@ import {
   CLAUDE_OAUTH_BETA_HEADER,
   claudeContextWindowForModel,
   fetchClaudeOAuthProfile,
+  fetchClaudeOAuthReferralEligibility,
   fetchClaudeOAuthRoles,
   fetchClaudeOAuthUsage,
   refreshClaudeOAuthToken,
   subscriptionType,
+  type ClaudeOAuthReferralEligibility,
   type ClaudeOAuthTokens,
   type ClaudeOAuthUsage,
   type ClaudeOAuthUsageWindow,
@@ -82,6 +84,9 @@ export class ClaudeProvider implements IProvider {
       );
       return fromAnthropicResponse(response);
     } catch (e) {
+      if (await this.tryRefreshOnAuthError(e)) {
+        return this.generate(messages, config);
+      }
       throw anthropicError(e);
     }
   }
@@ -155,6 +160,10 @@ export class ClaudeProvider implements IProvider {
       const final = await stream.finalMessage();
       yield { finishReason: mapStopReason(final.stop_reason), usage: usageOf(final.usage) };
     } catch (e) {
+      if (await this.tryRefreshOnAuthError(e)) {
+        yield* this.generateStream(messages, config);
+        return;
+      }
       throw anthropicError(e);
     }
   }
@@ -185,6 +194,9 @@ export class ClaudeProvider implements IProvider {
       });
       return { inputTokens: result.input_tokens, outputTokens: 0 };
     } catch (e) {
+      if (await this.tryRefreshOnAuthError(e)) {
+        return this.countTokens(messages, config);
+      }
       throw anthropicError(e);
     }
   }
@@ -230,6 +242,9 @@ export class ClaudeProvider implements IProvider {
         ...(usage.cacheWriteTokens != null ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
       };
     } catch (e) {
+      if (await this.tryRefreshOnAuthError(e)) {
+        return this.countTokensViaProbe(messages, config);
+      }
       throw anthropicError(e);
     }
   }
@@ -244,6 +259,9 @@ export class ClaudeProvider implements IProvider {
       });
       return { ok: true };
     } catch (e) {
+      if (await this.tryRefreshOnAuthError(e)) {
+        return this.healthCheck();
+      }
       return { ok: false, error: String(e) };
     }
   }
@@ -251,13 +269,9 @@ export class ClaudeProvider implements IProvider {
   async getStatus(): Promise<ProviderStatus> {
     if (this.credentials.authMethod === "oauth") {
       const credentials = await this.ensureFreshToken();
-      const [profile, roles, usage] = credentials.accessToken
-        ? await Promise.all([
-            fetchClaudeOAuthProfile(credentials.accessToken).catch(() => undefined),
-            fetchClaudeOAuthRoles(credentials.accessToken).catch(() => undefined),
-            fetchClaudeOAuthUsage(credentials.accessToken).catch(() => undefined),
-          ])
-        : [undefined, undefined, undefined];
+      const { profile, roles, usage, referralEligibility } = credentials.accessToken
+        ? await this.fetchOAuthStatusSnapshot(credentials)
+        : { profile: undefined, roles: undefined, usage: undefined, referralEligibility: undefined };
       const sub =
         subscriptionType(profile?.organization?.organization_type) ??
         credentials.subscriptionType;
@@ -290,6 +304,7 @@ export class ClaudeProvider implements IProvider {
           roles?.organization_role ? `organization role: ${roles.organization_role}` : undefined,
           roles?.workspace_role ? `workspace role: ${roles.workspace_role}` : undefined,
           ...usageNotes,
+          ...referralNotes(referralEligibility),
           sub ? undefined : "Claude OAuth account does not report a Pro/Max/Team/Enterprise subscription.",
         ].filter((note): note is string => Boolean(note)),
       };
@@ -361,7 +376,14 @@ export class ClaudeProvider implements IProvider {
     if (!this.credentials.expiresAt || this.credentials.expiresAt - Date.now() >= 5 * 60 * 1000) {
       return this.credentials;
     }
-    if (!this.credentials.refreshToken) return this.credentials;
+    await this.forceRefreshToken();
+    return this.credentials;
+  }
+
+  private async forceRefreshToken(): Promise<ClaudeCredentials> {
+    if (this.credentials.authMethod !== "oauth" || !this.credentials.refreshToken) {
+      return this.credentials;
+    }
 
     this.refreshPromise ??= refreshClaudeOAuthToken(this.credentials.refreshToken)
       .then((tokens) => {
@@ -376,6 +398,59 @@ export class ClaudeProvider implements IProvider {
       });
     await this.refreshPromise;
     return this.credentials;
+  }
+
+  private async tryRefreshOnAuthError(error: unknown): Promise<boolean> {
+    if (!isOAuthAuthenticationError(error)) return false;
+    if (this.credentials.authMethod !== "oauth" || !this.credentials.refreshToken) return false;
+    await this.forceRefreshToken();
+    return true;
+  }
+
+  private async fetchOAuthStatusSnapshot(
+    credentials: ClaudeCredentials,
+    retried = false,
+  ): Promise<{
+    profile?: Awaited<ReturnType<typeof fetchClaudeOAuthProfile>>;
+    roles?: Awaited<ReturnType<typeof fetchClaudeOAuthRoles>>;
+    usage?: Awaited<ReturnType<typeof fetchClaudeOAuthUsage>>;
+    referralEligibility?: ClaudeOAuthReferralEligibility;
+  }> {
+    const accessToken = credentials.accessToken;
+    if (!accessToken) return {};
+
+    const [profileResult, rolesResult, usageResult] = await Promise.allSettled([
+      fetchClaudeOAuthProfile(accessToken),
+      fetchClaudeOAuthRoles(accessToken),
+      fetchClaudeOAuthUsage(accessToken),
+    ]);
+    const profile = settledValue(profileResult);
+    const roles = settledValue(rolesResult);
+    const usage = settledValue(usageResult);
+    const organizationUuid =
+      profile?.organization?.uuid ?? roles?.organization_uuid ?? credentials.organizationUuid;
+    const referralResult = organizationUuid
+      ? await Promise.allSettled([
+          fetchClaudeOAuthReferralEligibility(accessToken, organizationUuid),
+        ]).then(([result]) => result)
+      : undefined;
+    const referralEligibility = settledValue(referralResult);
+
+    const authFailure =
+      isRejectedAuth(profileResult) ||
+      isRejectedAuth(rolesResult) ||
+      isRejectedAuth(usageResult) ||
+      isRejectedAuth(referralResult);
+    if (authFailure && !retried && await this.tryRefreshOnAuthError(rejectedReason(
+      profileResult,
+      rolesResult,
+      usageResult,
+      referralResult,
+    ))) {
+      return this.fetchOAuthStatusSnapshot(this.credentials, true);
+    }
+
+    return { profile, roles, usage, referralEligibility };
   }
 }
 
@@ -447,6 +522,51 @@ function extraUsageNotes(usage: ClaudeOAuthUsage | undefined): string[] {
   ].filter((part): part is string => Boolean(part));
 
   return parts.length ? [`extra usage: ${parts.join(", ")}`] : [];
+}
+
+function referralNotes(referral: ClaudeOAuthReferralEligibility | undefined): string[] {
+  if (!referral) return [];
+
+  const notes: string[] = [];
+  if (typeof referral.eligible === "boolean") {
+    notes.push(`guest pass eligible: ${referral.eligible ? "yes" : "no"}`);
+  }
+  if (typeof referral.remaining_passes === "number") {
+    notes.push(`guest passes remaining: ${referral.remaining_passes}`);
+  }
+  if (referral.referral_code_details?.campaign) {
+    notes.push(`guest pass campaign: ${referral.referral_code_details.campaign}`);
+  }
+  if (referral.referral_code_details?.referral_link) {
+    notes.push(`guest pass referral link: ${referral.referral_code_details.referral_link}`);
+  }
+  const reward = formatReward(referral);
+  if (reward) notes.push(`guest pass reward: ${reward}`);
+  return notes;
+}
+
+function formatReward(referral: ClaudeOAuthReferralEligibility): string | undefined {
+  const amount = referral.referrer_reward?.amount_minor_units;
+  const currency = referral.referrer_reward?.currency;
+  if (amount === undefined || !currency) return undefined;
+  const normalized = amount / 100;
+  return `${Number.isInteger(normalized) ? normalized.toFixed(0) : normalized.toFixed(2)} ${currency}`;
+}
+
+function settledValue<T>(
+  result: PromiseSettledResult<T> | undefined,
+): T | undefined {
+  return result?.status === "fulfilled" ? result.value : undefined;
+}
+
+function isRejectedAuth(
+  result: PromiseSettledResult<unknown> | undefined,
+): boolean {
+  return result?.status === "rejected" && isOAuthAuthenticationError(result.reason);
+}
+
+function rejectedReason(...results: Array<PromiseSettledResult<unknown> | undefined>): unknown {
+  return results.find((result) => result?.status === "rejected")?.reason;
 }
 
 function toAnthropic(
@@ -655,6 +775,18 @@ function anthropicErrorDetails(error: unknown): string | undefined {
   ]
     .filter(Boolean)
     .join(" - ");
+}
+
+function isOAuthAuthenticationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    status?: unknown;
+    error?: { type?: unknown };
+    message?: unknown;
+  };
+  if (candidate.status === 401) return true;
+  if (candidate.error?.type === "authentication_error") return true;
+  return typeof candidate.message === "string" && /invalid authentication credentials/i.test(candidate.message);
 }
 
 function headerPart(
