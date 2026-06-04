@@ -1140,6 +1140,7 @@ export function App({
       <ScrollViewport
         height={Math.max(3, terminalSize.height - CHROME_ROWS)}
         scrollUp={scrollUp}
+        contentKey={`${items.length}:${streaming.length}:${busy ? 1 : 0}:${terminalSize.width}x${terminalSize.height}`}
         onMaxScrollChange={setMaxScroll}
       >
         {items.map((item, index) => (
@@ -1328,6 +1329,12 @@ export function App({
           )}
         </Box>
         <Box flexDirection="row" gap={1}>
+          {maxScroll > 0 ? (
+            <Text color={activeTheme.accent} dimColor>
+              {scrollUp > 0 ? `↑ ${scrollUp}/${maxScroll} scrolled · PgUp/PgDn` : "PgUp to scroll back"}
+              {"  "}
+            </Text>
+          ) : null}
           <Text color={activeTheme.muted} dimColor>
             {formatStatusFooter(contextStatus, tokenUsage)}
           </Text>
