@@ -75,6 +75,13 @@ export {
 export type { AuthMethod, ProviderCatalogEntry } from "./catalog.js";
 export { runOpenAiBrowserOAuthFlow } from "./impl/openai-oauth/oauthFlow.js";
 export type { OpenAiOAuthTokens } from "./impl/openai-oauth/OpenAiOAuthProvider.js";
+export { fetchCodexModels } from "./impl/openai-oauth/models.js";
+export type { CodexModel, CodexReasoningLevel } from "./impl/openai-oauth/models.js";
+export {
+  CodexModelCache,
+  defaultEffortFor,
+  effortLevelsFor,
+} from "./impl/openai-oauth/model-cache.js";
 export { runClaudeBrowserOAuthFlow } from "./impl/claude/oauth.js";
 export type { ClaudeOAuthTokens } from "./impl/claude/oauth.js";
 export {
