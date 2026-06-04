@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
-import SelectInput from "ink-select-input";
 import React, { useState } from "react";
+import { SelectList } from "./components/SelectList.js";
 import {
   buildAndSaveGraph,
   loadStoredConfig,
@@ -71,7 +71,7 @@ export function TrustPrompt({ cwd, onDone }: TrustPromptProps): React.JSX.Elemen
               Trust this folder? Lucky will read and operate on its files in this session.
             </Text>
             <Box marginTop={1}>
-              <SelectInput
+              <SelectList
                 items={[
                   { label: "Yes, trust this folder", value: "yes" },
                   { label: "No", value: "no" },
@@ -90,7 +90,7 @@ export function TrustPrompt({ cwd, onDone }: TrustPromptProps): React.JSX.Elemen
             </Text>
             <Text color={theme.muted}>AST-only, no API cost. Saved in .lucky/graph/.</Text>
             <Box marginTop={1}>
-              <SelectInput
+              <SelectList
                 items={[
                   { label: "Build the knowledge graph now (recommended)", value: "build" },
                   { label: "Skip for now (you can run /graph later)", value: "skip" },
@@ -113,7 +113,7 @@ export function TrustPrompt({ cwd, onDone }: TrustPromptProps): React.JSX.Elemen
               <Text color={theme.success}>Graph built — {summary}.</Text>
             )}
             <Box marginTop={1}>
-              <SelectInput
+              <SelectList
                 items={[{ label: "Continue", value: "continue" }]}
                 onSelect={() => onDone()}
               />

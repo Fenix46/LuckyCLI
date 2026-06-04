@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
-import SelectInput from "ink-select-input";
 import React, { useMemo } from "react";
+import { SelectList } from "./components/SelectList.js";
 import { listSessions, loadSession, type Session } from "@luckycli/core";
 
 interface SessionPickerProps {
@@ -64,7 +64,7 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
         Choose a saved session to restore your conversation context and continue collaborating.
       </Text>
       <Box marginY={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5} flexDirection="column">
-        <SelectInput
+        <SelectList
           items={items}
           onSelect={(item) => {
             const session = loadSession(item.value);
