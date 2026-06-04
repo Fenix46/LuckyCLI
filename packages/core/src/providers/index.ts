@@ -93,6 +93,12 @@ export {
   refreshAntigravityAccessToken,
 } from "./impl/gemini/GoogleAuthHelper.js";
 export {
+  ANTIGRAVITY_VISIBLE_MODEL_IDS,
+  antigravityModelInfo,
+  antigravityModelLabel,
+  antigravityVisibleModelIds,
+} from "./impl/antigravity/models.js";
+export {
   getProvider,
   getRegisteredProviderIds,
   registerProviderFactory,

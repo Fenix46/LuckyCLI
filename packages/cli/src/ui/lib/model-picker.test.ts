@@ -54,4 +54,12 @@ describe("validateModel", () => {
     expect(validateModel("claude", "claude-sonnet-4-6").ok).toBe(true);
     expect(validateModel("claude", "made-up").ok).toBe(false);
   });
+
+  it("validates antigravity models against the live catalog when available", () => {
+    expect(
+      validateModel("antigravity", "gemini-3.5-flash-low", ["gemini-3.5-flash-low"]).ok,
+    ).toBe(true);
+    const bad = validateModel("antigravity", "made-up", ["gemini-3.5-flash-low"]);
+    expect(bad.ok).toBe(false);
+  });
 });

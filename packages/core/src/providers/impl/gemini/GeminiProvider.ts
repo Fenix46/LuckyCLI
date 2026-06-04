@@ -33,6 +33,12 @@ import {
 import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
 import { CodeAssistClient, type CodeAssistClientOptions } from "./CodeAssistClient.js";
 import { CodeAssistRequestError } from "./CodeAssistErrors.js";
+import {
+  antigravityModelInfo,
+  antigravityModelLabel,
+  antigravityVisibleModelIds,
+  type AntigravityAvailableModel,
+} from "../antigravity/models.js";
 
 const INFO: ProviderInfo = providerInfo("gemini");
 const SYNTHETIC_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
@@ -52,6 +58,7 @@ export class GeminiProvider implements IProvider {
   private readonly codeAssistClient: CodeAssistClient | undefined;
   private readonly credentials: CodeAssistCredentials;
   private readonly refreshToken: (refreshToken: string) => Promise<RefreshedGoogleTokens>;
+  private liveModelCatalogPromise: Promise<void> | undefined;
 
   constructor(credentials: CodeAssistCredentials, options: GeminiProviderOptions = {}) {
     this.credentials = credentials;
@@ -125,6 +132,37 @@ export class GeminiProvider implements IProvider {
       // Keep the existing token for the first attempt; a 401 path retries with
       // a forced refresh so transient refresh failures don't block healthy tokens.
     }
+  }
+
+  private syncLiveModelCatalog(
+    models: Record<string, AntigravityAvailableModel> | undefined,
+  ): void {
+    if (!models || this.info.id !== "antigravity") return;
+    const visibleIds = antigravityVisibleModelIds(models);
+    if (visibleIds.length === 0) return;
+    this.info.availableModels = visibleIds;
+    this.info.models = {
+      ...(this.info.models ?? {}),
+      ...Object.fromEntries(
+        visibleIds.map((id) => [id, antigravityModelInfo(id, models[id])]),
+      ),
+    };
+  }
+
+  private async ensureLiveModelCatalog(): Promise<void> {
+    if (!this.codeAssistClient || this.info.id !== "antigravity") return;
+    if (!this.liveModelCatalogPromise) {
+      this.liveModelCatalogPromise = this.codeAssistClient
+        .getAvailableModels()
+        .then((response) => {
+          this.syncLiveModelCatalog(response?.models);
+        })
+        .catch((error) => {
+          this.liveModelCatalogPromise = undefined;
+          throw error;
+        });
+    }
+    await this.liveModelCatalogPromise;
   }
 
   private isAuthFailure(error: unknown): boolean {
@@ -269,6 +307,10 @@ export class GeminiProvider implements IProvider {
     config: GenerationConfig,
   ): Promise<TokenUsage | undefined> {
     const model = config.model || INFO.defaultModel;
+    await this.ensureLiveModelCatalog().catch(() => {
+      // Context counting still works with the stale/static catalog; don't fail
+      // token counting just because the live model metadata endpoint is down.
+    });
     const result = this.codeAssistClient
       ? await this.withAuthRetry(() =>
           this.codeAssistClient!.countTokens(
@@ -328,21 +370,32 @@ export class GeminiProvider implements IProvider {
     }
 
     const status = await this.withAuthRetry(() => this.codeAssistClient!.getStatus());
+    this.syncLiveModelCatalog(status.models as Record<string, AntigravityAvailableModel> | undefined);
     const creditNotes = status.credits?.map(
       (credit) =>
         `credit ${credit.creditType ?? "unknown"}: ${credit.creditAmount ?? "unknown"}`,
     );
-    const modelQuotas = Object.entries(status.models ?? {}).flatMap(([id, model]) => {
-      const quota = model.quotaInfo;
+    const quotaEntries =
+      this.info.id === "antigravity"
+        ? antigravityVisibleModelIds(status.models as Record<string, AntigravityAvailableModel> | undefined).map((id) => [
+            id,
+            status.models?.[id],
+          ] as const)
+        : Object.entries(status.models ?? {});
+    const modelQuotas = quotaEntries.flatMap(([id, model]) => {
+      const quota = model?.quotaInfo;
       if (!quota) return [];
       return [
         {
-          label: model.displayName ?? id,
+          label:
+            this.info.id === "antigravity"
+              ? antigravityModelLabel(id, model?.displayName)
+              : model?.displayName ?? id,
           modelId: id,
           ...(quota.remainingAmount
             ? { remaining: quota.remainingAmount }
             : quota.remainingFraction !== undefined
-              ? { remaining: `${Math.round(quota.remainingFraction * 100)}%` }
+              ? { remaining: `${Math.round(quota.remainingFraction * 100)}% available` }
               : {}),
           ...(quota.resetTime ? { resetTime: quota.resetTime } : {}),
         },
@@ -365,7 +418,7 @@ export class GeminiProvider implements IProvider {
               ...(bucket.remainingAmount
                 ? { remaining: bucket.remainingAmount }
                 : bucket.remainingFraction !== undefined
-                  ? { remaining: `${Math.round(bucket.remainingFraction * 100)}%` }
+                  ? { remaining: `${Math.round(bucket.remainingFraction * 100)}% available` }
                   : {}),
               ...(bucket.resetTime ? { resetTime: bucket.resetTime } : {}),
               ...(bucket.modelId ? { modelId: bucket.modelId } : {}),

@@ -127,6 +127,10 @@ export class Agent {
     return this.history;
   }
 
+  private currentModelInfo(): ModelInfo {
+    return this.provider.info.models?.[this.model] ?? this.modelInfo;
+  }
+
   async contextStatus(): Promise<ContextStatus> {
     return this.contextStatusFor(this.history);
   }
@@ -340,24 +344,24 @@ export class Agent {
   }
 
   private async contextStatusFor(messages: Message[]): Promise<ContextStatus> {
-    const contextWindow = this.modelInfo.contextWindow;
-    const maxInputTokens = this.modelInfo.maxInputTokens;
-    const maxOutputTokens = this.modelInfo.maxOutputTokens;
-    const base: ContextStatus = {
-      model: this.model,
-      ...(contextWindow !== undefined ? { contextWindow } : {}),
-      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
-      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-      ...(this.modelInfo.source ? { source: this.modelInfo.source } : {}),
-      tokenCounter: "unavailable",
-    };
-
     let usage: TokenUsage | undefined;
     try {
       usage = await this.provider.countTokens(messages, this.generationConfig());
     } catch {
       usage = undefined;
     }
+    const info = this.currentModelInfo();
+    const contextWindow = info.contextWindow;
+    const maxInputTokens = info.maxInputTokens;
+    const maxOutputTokens = info.maxOutputTokens;
+    const base: ContextStatus = {
+      model: this.model,
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+      ...(info.source ? { source: info.source } : {}),
+      tokenCounter: "unavailable",
+    };
 
     // If pre-counting failed, fall back to the last stream usage. That usage
     // measured the full transcript actually sent, so it is authoritative for
@@ -417,7 +421,7 @@ export class Agent {
       {
         model: this.model,
         ...(this.system ? { systemPrompt: this.system } : {}),
-        maxTokens: Math.min(2048, this.modelInfo.maxOutputTokens ?? 2048),
+        maxTokens: Math.min(2048, this.currentModelInfo().maxOutputTokens ?? 2048),
       },
     );
     const text = response.content
@@ -433,7 +437,8 @@ export class Agent {
     base?: ContextStatus,
     tokenCounter: "provider" | "usage" = "usage",
   ): ContextStatus {
-    const contextWindow = base?.contextWindow ?? this.modelInfo.contextWindow;
+    const info = this.currentModelInfo();
+    const contextWindow = base?.contextWindow ?? info.contextWindow;
     const usedTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
     const usableTokens = contextWindow ? this.usableInputTokens(contextWindow) : undefined;
     const ratio = usableTokens ? usedTokens / usableTokens : undefined;
@@ -442,9 +447,9 @@ export class Agent {
       ...(base ?? {
         model: this.model,
         ...(contextWindow !== undefined ? { contextWindow } : {}),
-        ...(this.modelInfo.maxInputTokens !== undefined ? { maxInputTokens: this.modelInfo.maxInputTokens } : {}),
-        ...(this.modelInfo.maxOutputTokens !== undefined ? { maxOutputTokens: this.modelInfo.maxOutputTokens } : {}),
-        ...(this.modelInfo.source ? { source: this.modelInfo.source } : {}),
+        ...(info.maxInputTokens !== undefined ? { maxInputTokens: info.maxInputTokens } : {}),
+        ...(info.maxOutputTokens !== undefined ? { maxOutputTokens: info.maxOutputTokens } : {}),
+        ...(info.source ? { source: info.source } : {}),
         tokenCounter,
       }),
       tokenCounter: base?.tokenCounter === "provider" ? "provider" : tokenCounter,
@@ -474,13 +479,14 @@ export class Agent {
   }
 
   private usableInputTokens(contextWindow: number): number {
-    if (this.modelInfo.maxInputTokens !== undefined) {
-      return this.modelInfo.maxInputTokens;
+    const info = this.currentModelInfo();
+    if (info.maxInputTokens !== undefined) {
+      return info.maxInputTokens;
     }
     const reserved =
       this.compaction.reservedOutputTokens ??
       this.maxTokens ??
-      Math.min(20_000, this.modelInfo.maxOutputTokens ?? Math.floor(contextWindow * 0.1));
+      Math.min(20_000, info.maxOutputTokens ?? Math.floor(contextWindow * 0.1));
     return Math.max(0, contextWindow - reserved);
   }
 }

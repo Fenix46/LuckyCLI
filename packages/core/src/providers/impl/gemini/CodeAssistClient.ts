@@ -278,6 +278,11 @@ export class CodeAssistClient {
     };
   }
 
+  async getAvailableModels(): Promise<AvailableModelsResponse | undefined> {
+    const user = await this.getUser();
+    return this.fetchAvailableModels(user.projectId);
+  }
+
   private async getUser(): Promise<CodeAssistUser> {
     this.user ??= this.setupUser();
     return this.user;

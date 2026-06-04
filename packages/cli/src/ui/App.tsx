@@ -17,6 +17,7 @@ import {
   type Session,
   type TokenUsage,
   CodexModelCache,
+  antigravityModelLabel,
   buildAndSaveGraph,
   claudeEffortLevelsForModel,
   createSessionId,
@@ -25,6 +26,7 @@ import {
   detectSelfUpdate,
   effortLevelsFor,
   fetchCodexModels,
+  getProvider,
   getAutoUpdatePolicy,
   getReasoningEffort,
   getThinkingEnabled,
@@ -327,8 +329,14 @@ export function App({
   // for the session. The picker reads these slugs instead of a hardcoded list.
   const codexCacheRef = useRef<CodexModelCache | null>(null);
   const [codexModels, setCodexModels] = useState<CodexModel[]>([]);
+  const antigravityModelsRef = useRef<Promise<string[]> | null>(null);
+  const [antigravityModels, setAntigravityModels] = useState<string[]>([]);
   const liveModels =
-    meta.provider === "openai-oauth" ? codexModels.map((m) => m.slug) : undefined;
+    meta.provider === "openai-oauth"
+      ? codexModels.map((m) => m.slug)
+      : meta.provider === "antigravity"
+        ? antigravityModels
+        : undefined;
 
   const modelPicker = getModelPickerState(input, meta.provider, meta.model, liveModels);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
@@ -761,6 +769,34 @@ export function App({
     [],
   );
 
+  const loadAntigravityModels = useCallback(
+    async (refresh = false): Promise<string[]> => {
+      const creds = loadStoredConfig().credentials?.antigravity;
+      if (!creds || creds.type !== "antigravity") return [];
+      if (!antigravityModelsRef.current || refresh) {
+        antigravityModelsRef.current = (async () => {
+          const provider = getProvider("antigravity", creds);
+          await provider.getStatus?.();
+          const models = provider.info.availableModels ?? [];
+          setAntigravityModels(models);
+          return models;
+        })().catch((error) => {
+          antigravityModelsRef.current = null;
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "error",
+              text: `Could not fetch Antigravity models: ${error instanceof Error ? error.message : error}`,
+            },
+          ]);
+          return [];
+        });
+      }
+      return antigravityModelsRef.current;
+    },
+    [],
+  );
+
   // Fetch the live Codex catalog when the picker opens for openai-oauth, and
   // re-fetch on `/model --refresh`. Memoized for the session by the cache.
   useEffect(() => {
@@ -768,6 +804,12 @@ export function App({
     const refresh = input.slice("/model".length).trim() === "--refresh";
     void loadCodexModels(refresh);
   }, [modelPicker.open, meta.provider, input, loadCodexModels]);
+
+  useEffect(() => {
+    if (!modelPicker.open || meta.provider !== "antigravity") return;
+    const refresh = input.slice("/model".length).trim() === "--refresh";
+    void loadAntigravityModels(refresh);
+  }, [modelPicker.open, meta.provider, input, loadAntigravityModels]);
 
   const applyEffort = useCallback(
     (model: string, effort: string) => {
@@ -1566,7 +1608,8 @@ export function App({
                   </Text>
                   <Text bold={model === meta.model} color={idx === selectedModelIndex ? activeTheme.primary : "white"}>
                     {model === meta.model ? "★ " : "  "}
-                    {model}
+                    {meta.provider === "antigravity" ? antigravityModelLabel(model) : model}
+                    {meta.provider === "antigravity" ? <Text color={activeTheme.muted}> {" · "}{model}</Text> : null}
                   </Text>
                 </Box>
               ))
