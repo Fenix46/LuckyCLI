@@ -14,6 +14,7 @@ import {
 } from "@luckycli/core";
 import { Root } from "./ui/Root.js";
 import { runMcpCommand } from "./mcp-cli.js";
+import { runUpdateCommand } from "./update-cli.js";
 
 const HELP = `lucky — a multi-provider terminal agent
 
@@ -38,6 +39,9 @@ Commands:
   mcp status            connect to each MCP server and report status
   mcp login <name>      authorize a remote MCP server via OAuth
   mcp logout <name>     forget a remote MCP server's stored tokens
+  update                check for a newer release
+  update --apply        download, verify, and install the latest release
+  update --auto <mode>  set auto-update: off | notify | auto (default auto)
 `;
 
 function printSessions(): void {
@@ -103,6 +107,18 @@ function main(): void {
       })
       .catch((err) => {
         process.stderr.write(`mcp command failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
+    return;
+  }
+
+  if (rawArgs[0] === "update" || rawArgs[0] === "upgrade") {
+    runUpdateCommand(rawArgs.slice(1))
+      .then((code) => {
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        process.stderr.write(`update failed: ${err instanceof Error ? err.message : err}\n`);
         process.exit(1);
       });
     return;
