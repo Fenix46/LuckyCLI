@@ -160,7 +160,7 @@ export async function buildAgentRuntime(
   const mcpManager = new McpManager({
     cwd,
     clientName: "lucky",
-    clientVersion: "0.2.1",
+    clientVersion: "0.2.2",
     // Use stored OAuth tokens (and let the SDK refresh them) for remote servers,
     // but never pop a browser mid-session: a server needing fresh login fails
     // with a clear "run lucky mcp login" message instead.

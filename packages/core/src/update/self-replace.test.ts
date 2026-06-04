@@ -52,12 +52,12 @@ describe("buildAssetUrls", () => {
   });
 
   it("targets a pinned version tag", () => {
-    const urls = buildAssetUrls("v0.2.1", "linux", "x64");
+    const urls = buildAssetUrls("v0.2.2", "linux", "x64");
     expect(urls.assetUrl).toBe(
-      "https://github.com/Fenix46/LuckyCLI/releases/download/v0.2.1/lucky-linux-x64",
+      "https://github.com/Fenix46/LuckyCLI/releases/download/v0.2.2/lucky-linux-x64",
     );
     expect(urls.checksumsUrl).toBe(
-      "https://github.com/Fenix46/LuckyCLI/releases/download/v0.2.1/SHA256SUMS",
+      "https://github.com/Fenix46/LuckyCLI/releases/download/v0.2.2/SHA256SUMS",
     );
   });
 });

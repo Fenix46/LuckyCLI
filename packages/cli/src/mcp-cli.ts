@@ -103,7 +103,7 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
       out("No MCP servers configured.");
       return 0;
     }
-    const manager = new McpManager({ clientName: "lucky", clientVersion: "0.2.1" });
+    const manager = new McpManager({ clientName: "lucky", clientVersion: "0.2.2" });
     try {
       const status = await manager.connectAll(mcp);
       const toolCounts = Object.fromEntries(

@@ -50,7 +50,7 @@ export async function authorizeMcpServer(
 
   const newTransport = () =>
     new StreamableHTTPClientTransport(new URL(options.url), { authProvider: provider });
-  const newClient = () => new Client({ name: options.clientName ?? "lucky", version: "0.2.1" });
+  const newClient = () => new Client({ name: options.clientName ?? "lucky", version: "0.2.2" });
 
   try {
     const transport = newTransport();

@@ -11,7 +11,7 @@
     irm https://raw.githubusercontent.com/Fenix46/LuckyCLI/main/install.ps1 | iex
 
   Pin a version or change the install dir with environment variables:
-    $env:LUCKY_VERSION = "v0.2.1"
+    $env:LUCKY_VERSION = "v0.2.2"
     $env:LUCKY_INSTALL_DIR = "C:\tools\lucky"
     irm https://raw.githubusercontent.com/Fenix46/LuckyCLI/main/install.ps1 | iex
 #>

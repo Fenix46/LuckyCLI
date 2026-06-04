@@ -92,8 +92,8 @@ lucky
 ```
 
 Options: set `LUCKY_INSTALL_DIR` to install elsewhere, or `LUCKY_VERSION` to pin
-a version (e.g. `v0.2.1`). On Windows set them first, e.g.
-`$env:LUCKY_VERSION = "v0.2.1"`. Both work the same way: the Windows installer
+a version (e.g. `v0.2.2`). On Windows set them first, e.g.
+`$env:LUCKY_VERSION = "v0.2.2"`. Both work the same way: the Windows installer
 verifies the binary's SHA-256 checksum and updates your user `PATH`.
 
 ### Updating
