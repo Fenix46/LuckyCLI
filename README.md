@@ -327,8 +327,11 @@ It works in three phases:
   orient) and `graph_query` (to find definitions, callers, callees, neighbors, or
   a file's symbols) before grepping or reading widely.
 - **Maintain.** After the agent edits files, the affected files are re-extracted
-  into the graph automatically — no rebuild needed. `lucky graph rebuild` (or
-  `/graph rebuild`) forces a full rebuild.
+  into the graph automatically — no rebuild needed. This now covers external
+  (MCP) tools too: when an MCP tool changes a file the graph already tracks, that
+  edit is picked up the same way. Brand-new files an MCP tool creates aren't
+  detected yet — they land on the next built-in edit or a rebuild.
+  `lucky graph rebuild` (or `/graph rebuild`) forces a full rebuild.
 
 Languages: TypeScript, TSX, JavaScript, Python, Go, Rust, Java, Ruby, C#, PHP, C,
 C++, Kotlin, Swift and Dart (Flutter). Data/markup formats are mapped

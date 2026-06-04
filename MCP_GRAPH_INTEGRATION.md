@@ -1,9 +1,13 @@
 # MCP ↔ Knowledge Graph Integration
 
 Plan for letting **external (MCP) tools** keep the knowledge graph fresh, the
-same way built-in file tools already do. Deferred work — to pick up when we have
-time. Same discipline as `MCP_TASKLIST.md`: one task = test(s) + a focused
-commit.
+same way built-in file tools already do. Same discipline as `MCP_TASKLIST.md`:
+one task = test(s) + a focused commit.
+
+> **Status: Option A (v1) shipped.** Tasks 1–3 and the docs task below are done —
+> MCP tools now report edits to already-tracked files through `onFilesChanged`.
+> The optional v2 watcher (Task 4) and v3 per-server extraction (Task 5) remain
+> deferred; the "new files created by MCP tools" gap is still open by design.
 
 ## Background: how graph maintenance works today
 
@@ -178,13 +182,13 @@ maintainer + `updateGraphForFiles` no-op handle the rest.
 
 ## Task breakdown (do later)
 
-1. **Thread `ctx` through the MCP adapter and invoker.**
+1. **[done] Thread `ctx` through the MCP adapter and invoker.**
    `adaptMcpTool` `execute(input, ctx)`; `McpToolInvoker` carries `ctx`;
    `McpManager.tools()` passes it. Tests: adapter forwards ctx; existing tool
    execution still works. Commit: `refactor: pass tool context into mcp adapter`.
-2. **Add `graph/fs-snapshot.ts` (snapshot/diff/trackedGraphFiles).**
+2. **[done] Add `graph/fs-snapshot.ts` (snapshot/diff/trackedGraphFiles).**
    Unit-tested in isolation. Commit: `feat: add filesystem snapshot helpers for graph upkeep`.
-3. **Wire snapshot-diff into the MCP invoker.**
+3. **[done] Wire snapshot-diff into the MCP invoker.**
    After `callTool`, report changed tracked files via `ctx.onFilesChanged`.
    Integration test with a mutating fixture tool + temp graph. Commit:
    `feat: keep the graph fresh after mcp tools edit files`.
@@ -194,8 +198,9 @@ maintainer + `updateGraphForFiles` no-op handle the rest.
 5. **(Optional, v3) Per-server declarative path extraction.**
    Config schema + extraction; only for servers that document output. Commit:
    `feat: declarative changed-path extraction for mcp servers`.
-6. **Docs.** Update README "MCP servers → Current limits": remove the "MCP edits
-   don't update the graph" caveat once v1 lands. Commit: `docs: mcp tools now keep the graph fresh`.
+6. **[done] Docs.** README "Knowledge graph → Maintain" now states MCP edits to
+   tracked files keep the graph fresh (and notes the new-file gap). Commit:
+   `docs: mcp tools now keep the graph fresh`.
 
 ## Open questions (decide before starting)
 
