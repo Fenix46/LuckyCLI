@@ -96,6 +96,32 @@ a version (e.g. `v0.2.1`). On Windows set them first, e.g.
 `$env:LUCKY_VERSION = "v0.2.1"`. Both work the same way: the Windows installer
 verifies the binary's SHA-256 checksum and updates your user `PATH`.
 
+### Updating
+
+LuckyCLI keeps itself current. By default (`auto`) it checks for a new release on
+startup, downloads and SHA-256-verifies it in the background, and **applies it on
+the next launch** — never mid-session, so a running agent turn is never disturbed.
+On Windows the previous binary is parked next to the new one and cleaned up on the
+following launch.
+
+Drive it manually any time:
+
+```bash
+lucky update                 # check; show current/latest + whether self-update works
+lucky update --apply         # download, verify, and install the latest release now
+LUCKY_VERSION=v0.3.0 lucky update --apply   # install a specific release
+lucky update --auto off      # off | notify | auto  (default: auto)
+```
+
+Inside the REPL: `/update` (status), `/update apply` (install + restart), and
+`/update auto <mode>`. Set `--auto notify` to be told about updates without
+auto-downloading, or `--auto off` to disable checks entirely;
+`LUCKY_DISABLE_UPDATE_CHECK=1` also turns off the startup check for one run.
+
+Self-update only works when running the installed binary; from a dev checkout
+(`npm run dev`) or a read-only install dir, `lucky update` prints the manual
+`curl … install.sh` / `irm … install.ps1` command instead.
+
 ### From source
 
 Requires Node.js ≥ 20.
@@ -210,7 +236,7 @@ each turn.
 | `/theme` | Choose terminal UI colors |
 | `/graph` | Build or refresh the project knowledge graph |
 | `/mcp` | Open the MCP control panel: browse the registry, install, enable/disable servers |
-| `/update` | Check for a newer LuckyCLI release |
+| `/update` | Check for updates; `/update apply` installs, `/update auto <mode>` sets the policy |
 | `/exit` | Quit (alias: `/quit`) |
 
 ## Tools
