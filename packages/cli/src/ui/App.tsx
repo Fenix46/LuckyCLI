@@ -65,6 +65,8 @@ import {
   formatStatusFooter,
 } from "./lib/status.js";
 import { humanizeError } from "./lib/errors.js";
+import { Markdown } from "./markdown/Markdown.js";
+import { streamingTail } from "./markdown/streaming.js";
 
 /** Shown in the opening banner. Keep in sync with packages/cli/package.json. */
 const APP_VERSION = "0.2.0";
@@ -1294,7 +1296,7 @@ export function App({
             />
             {streamingPreview ? (
               <Box paddingLeft={2} marginTop={0.2}>
-                {parseMarkdownToReact(streamingPreview, activeTheme)}
+                <Markdown text={streamingPreview} theme={activeTheme} />
               </Box>
             ) : null}
           </Box>
@@ -1991,7 +1993,7 @@ function ItemView({
             <Text color={theme.muted}> › </Text>
           </Box>
           <Box paddingLeft={2}>
-            {parseMarkdownToReact(item.text, theme)}
+            <Markdown text={item.text} theme={theme} />
           </Box>
         </Box>
       );
@@ -2434,260 +2436,6 @@ function objectPreview(
     });
 }
 
-interface Block {
-  type: "paragraph" | "code" | "list" | "header";
-  text: string;
-  codeLines?: string[];
-  language?: string;
-  level?: number;
-}
-
-/**
- * Bound the live streaming preview to its tail. The full message is rendered
- * (with rich markdown) once it finalizes into a <Static> item, so the live
- * region only needs the most recent output — keeping each re-render cheap no
- * matter how large the reply grows. Cut on a line boundary to avoid a partial
- * first line.
- */
-const STREAMING_TAIL_CHARS = 8_000;
-const STREAMING_TAIL_LINES = 40;
-function capStreamingTail(text: string): string {
-  if (text.length <= STREAMING_TAIL_CHARS) return text;
-  const tail = text.slice(text.length - STREAMING_TAIL_CHARS);
-  const nl = tail.indexOf("\n");
-  return nl >= 0 ? tail.slice(nl + 1) : tail;
-}
-
-/**
- * The text fed to the live markdown preview: the tail of the buffer, bounded by
- * both characters and lines. This keeps each streaming re-render O(viewport)
- * rather than O(whole reply) — the full message still lands in <Static> with
- * complete markdown once it finalizes.
- */
-function streamingTail(text: string): string {
-  const capped = capStreamingTail(text);
-  const lines = capped.split("\n");
-  if (lines.length <= STREAMING_TAIL_LINES) return capped;
-  return lines.slice(lines.length - STREAMING_TAIL_LINES).join("\n");
-}
-
-function parseMessageIntoBlocks(text: string): Block[] {
-  const lines = text.split("\n");
-  const blocks: Block[] = [];
-  let currentCodeBlock: { language: string; lines: string[] } | null = null;
-
-  for (const line of lines) {
-    if (line.trim().startsWith("```")) {
-      if (currentCodeBlock) {
-        blocks.push({
-          type: "code",
-          text: "",
-          codeLines: currentCodeBlock.lines,
-          language: currentCodeBlock.language,
-        });
-        currentCodeBlock = null;
-      } else {
-        const lang = line.trim().slice(3).trim();
-        currentCodeBlock = { language: lang || "code", lines: [] };
-      }
-      continue;
-    }
-
-    if (currentCodeBlock) {
-      currentCodeBlock.lines.push(line);
-      continue;
-    }
-
-    const trimmed = line.trim();
-    if (!trimmed) {
-      blocks.push({ type: "paragraph", text: "" });
-      continue;
-    }
-
-    const headerMatch = line.match(/^(#{1,6})\s+(.*)$/);
-    if (headerMatch) {
-      blocks.push({
-        type: "header",
-        text: headerMatch[2] ?? "",
-        level: headerMatch[1]?.length ?? 1,
-      });
-      continue;
-    }
-
-    const listMatch = line.match(/^(\s*(?:[-*+]|\d+[.)])\s+)(.*)$/);
-    if (listMatch) {
-      blocks.push({
-        type: "list",
-        text: line,
-      });
-      continue;
-    }
-
-    blocks.push({
-      type: "paragraph",
-      text: line,
-    });
-  }
-
-  if (currentCodeBlock) {
-    blocks.push({
-      type: "code",
-      text: "",
-      codeLines: currentCodeBlock.lines,
-      language: currentCodeBlock.language,
-    });
-  }
-
-  return blocks;
-}
-
-function parseInlineMarkdown(text: string, theme: Theme): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
-  const tokens = text.split(regex);
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token) continue;
-
-    if (token.startsWith("**") && token.endsWith("**")) {
-      parts.push(
-        <Text key={i} bold color={theme.accent}>
-          {token.slice(2, -2)}
-        </Text>
-      );
-    } else if (token.startsWith("`") && token.endsWith("`")) {
-      parts.push(
-        <Text key={i} color="yellow">
-          {token.slice(1, -1)}
-        </Text>
-      );
-    } else {
-      parts.push(<Text key={i}>{token}</Text>);
-    }
-  }
-
-  return parts.length > 0 ? parts : [text];
-}
-
-function highlightCodeLine(line: string, language: string, theme: Theme): React.ReactNode[] {
-  const lowercaseLang = language.toLowerCase();
-  
-  let commentMatch = null;
-  if (lowercaseLang === "python" || lowercaseLang === "bash" || lowercaseLang === "sh" || lowercaseLang === "yaml" || lowercaseLang === "dockerfile") {
-    commentMatch = line.match(/^(.*?)(#.*)$/);
-  } else {
-    commentMatch = line.match(/^(.*?)(\/\/.*)$/);
-  }
-  
-  if (commentMatch) {
-    const codePart = commentMatch[1] ?? "";
-    const commentPart = commentMatch[2] ?? "";
-    return [
-      ...highlightCodeCode(codePart, lowercaseLang, theme),
-      <Text key="comment" color={theme.muted} italic>{commentPart}</Text>
-    ];
-  }
-  
-  return highlightCodeCode(line, lowercaseLang, theme);
-}
-
-function highlightCodeCode(code: string, language: string, theme: Theme): React.ReactNode[] {
-  const keywords = /\b(const|let|var|function|return|import|export|from|class|extends|if|else|for|while|do|switch|case|break|continue|try|catch|finally|async|await|def|import|as|from|print|in|is|not|and|or|elif|try|except|with|lambda)\b/g;
-  const builtins = /\b(string|number|boolean|any|void|unknown|never|null|undefined|true|false|self|this|Object|Array|Promise|console)\b/g;
-  const numbers = /\b(\d+(?:\.\d+)?)\b/g;
-
-  const stringRegex = /(["'`].*?["'`])/g;
-  const stringTokens = code.split(stringRegex);
-  const elements: React.ReactNode[] = [];
-
-  stringTokens.forEach((token, idx) => {
-    if ((token.startsWith('"') && token.endsWith('"')) ||
-        (token.startsWith("'") && token.endsWith("'")) ||
-        (token.startsWith("`") && token.endsWith("`"))) {
-      elements.push(<Text key={`str-${idx}`} color="green">{token}</Text>);
-    } else {
-      const subTokens = token.split(/(\s+|\b)/);
-      subTokens.forEach((subToken, subIdx) => {
-        const key = `sub-${idx}-${subIdx}`;
-        if (subToken.match(keywords)) {
-          elements.push(<Text key={key} color={theme.primary} bold>{subToken}</Text>);
-        } else if (subToken.match(builtins)) {
-          elements.push(<Text key={key} color={theme.accent}>{subToken}</Text>);
-        } else if (subToken.match(numbers)) {
-          elements.push(<Text key={key} color="magenta">{subToken}</Text>);
-        } else {
-          elements.push(<Text key={key}>{subToken}</Text>);
-        }
-      });
-    }
-  });
-
-  return elements;
-}
-
-function parseMarkdownToReact(text: string, theme: Theme): React.JSX.Element {
-  const blocks = parseMessageIntoBlocks(text);
-
-  return (
-    <Box flexDirection="column">
-      {blocks.map((block, blockIdx) => {
-        if (block.type === "code" && block.codeLines) {
-          return (
-            <Box key={blockIdx} flexDirection="column" marginY={0.5} paddingLeft={2}>
-              <Box marginBottom={0.2}>
-                <Text bold dimColor color={theme.accent}>
-                  ⌨ {block.language?.toUpperCase() || "CODE"}
-                </Text>
-              </Box>
-              <Box flexDirection="column">
-                {block.codeLines.map((line, lineIdx) => (
-                  <Text key={lineIdx}>
-                    {highlightCodeLine(line, block.language || "code", theme)}
-                  </Text>
-                ))}
-              </Box>
-            </Box>
-          );
-        }
-
-        if (block.type === "header") {
-          const headerPrefix = "#".repeat(block.level || 1) + " ";
-          return (
-            <Box key={blockIdx} marginY={0.5}>
-              <Text bold underline color={theme.primary}>
-                {headerPrefix}
-                {block.text}
-              </Text>
-            </Box>
-          );
-        }
-
-        if (block.type === "list") {
-          return (
-            <Box key={blockIdx} paddingLeft={2} marginY={0.1}>
-              <Text>
-                {parseInlineMarkdown(block.text, theme)}
-              </Text>
-            </Box>
-          );
-        }
-
-        if (!block.text.trim()) {
-          return <Box key={blockIdx} height={0.5} />;
-        }
-
-        return (
-          <Box key={blockIdx} marginY={0.2}>
-            <Text>
-              {parseInlineMarkdown(block.text, theme)}
-            </Text>
-          </Box>
-        );
-      })}
-    </Box>
-  );
-}
 
 interface EventHandlers {
   onText: (delta: string) => void;
