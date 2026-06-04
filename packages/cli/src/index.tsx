@@ -173,6 +173,10 @@ function main(): void {
       ...(resume ? { resume } : {}),
       ...(pickResume ? { pickResume: true } : {}),
     }),
+    // Render in the terminal's alternate screen (like vim/less): Ink owns the
+    // whole screen and redraws in place, so the streaming reply renders at full
+    // height with no scrollback duplication. The transcript scrolls internally.
+    { alternateScreen: true },
   );
 }
 

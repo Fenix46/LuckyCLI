@@ -1,4 +1,4 @@
-import { Box, Static, Text, useApp, useInput, useWindowSize } from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
   CachedMcpCatalog,
@@ -50,7 +50,7 @@ import { ThinkingStatus } from "./components/ThinkingStatus.js";
 import { StreamingPreview } from "./components/StreamingPreview.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
-import { TranscriptItem, ItemView } from "./components/Transcript.js";
+import { TranscriptItem } from "./components/Transcript.js";
 import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
@@ -1073,12 +1073,6 @@ export function App({
     },
     [busy, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest],
   );
-  const lastItem = items.at(-1);
-  const liveTail =
-    lastItem?.kind === "tool" && lastItem.output === undefined
-      ? lastItem
-      : undefined;
-  const staticItems = liveTail ? items.slice(0, -1) : items;
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);
 
@@ -1108,59 +1102,51 @@ export function App({
   );
 
   return (
-    <Box flexDirection="column" width={terminalSize.width} paddingX={1} paddingY={0}>
-      <Static items={staticItems}>
-        {(item, index) => (
-          <TranscriptItem
-            key={`static-${index}`}
-            item={item}
-            previous={index > 0 ? staticItems[index - 1] : undefined}
-            theme={activeTheme}
-            width={messageWidth}
-            provider={meta.provider}
-            model={meta.model}
-          />
-        )}
-      </Static>
+    <Box flexDirection="column" width={terminalSize.width} height={terminalSize.height} paddingX={1} paddingY={0}>
+      {/* Transcript viewport: fills the space above the input frame and clips
+          its top, so the newest content stays pinned to the bottom (chat-style
+          auto-scroll). In the alternate screen Ink owns the screen and redraws
+          in place, so the streaming reply renders at full height with no
+          scrollback duplication. */}
+      <Box flexGrow={1} flexDirection="column" justifyContent="flex-end" overflow="hidden">
+        <Box flexDirection="column">
+          {items.map((item, index) => (
+            <TranscriptItem
+              key={`item-${index}`}
+              item={item}
+              previous={index > 0 ? items[index - 1] : undefined}
+              theme={activeTheme}
+              width={messageWidth}
+              provider={meta.provider}
+              model={meta.model}
+            />
+          ))}
 
-      <Box flexDirection="column" marginY={0.5}>
-        {staticItems.length === 1 && staticItems[0]?.kind === "intro" && !liveTail && !busy ? (
-          <Box marginTop={1}>
-            <Text color={activeTheme.muted}>
-              lucky › Input instruction payload or type / for command directory...
-            </Text>
-          </Box>
-        ) : null}
+          {items.length === 1 && items[0]?.kind === "intro" && !busy ? (
+            <Box marginTop={1}>
+              <Text color={activeTheme.muted}>
+                lucky › Input instruction payload or type / for command directory...
+              </Text>
+            </Box>
+          ) : null}
 
-        {liveTail ? (
-          <Box marginY={0.5} flexDirection="column">
-            <ItemView item={liveTail} theme={activeTheme} width={messageWidth} />
-          </Box>
-        ) : null}
-
-        {busy && !approvalRequest && !userQuestionRequest ? (
-          <Box marginY={0.5} flexDirection="column">
-            {streamingPreview ? (
-              // The live assistant message: a single block with one "lucky"
-              // header, rendered identically to the finalized transcript item
-              // so it doesn't jump when the turn ends. Bounded to the terminal
-              // height so the dynamic region never overflows the viewport and
-              // gets duplicated into the scrollback (a stock-Ink <Static>
-              // limitation; see notes on the planned Ink upgrade).
-              <StreamingPreview
-                text={streamingPreview}
-                theme={activeTheme}
-                maxLines={Math.max(4, terminalSize.height - 6)}
-              />
-            ) : (
-              <ThinkingStatus
-                theme={activeTheme}
-                elapsedSeconds={elapsedSeconds}
-                frame={activityFrame}
-              />
-            )}
-          </Box>
-        ) : null}
+          {busy && !approvalRequest && !userQuestionRequest ? (
+            <Box marginY={0.5} flexDirection="column">
+              {streamingPreview ? (
+                // The live assistant message: one block with one "lucky" header,
+                // rendered identically to the finalized transcript item so it
+                // doesn't jump when the turn ends.
+                <StreamingPreview text={streamingPreview} theme={activeTheme} />
+              ) : (
+                <ThinkingStatus
+                  theme={activeTheme}
+                  elapsedSeconds={elapsedSeconds}
+                  frame={activityFrame}
+                />
+              )}
+            </Box>
+          ) : null}
+        </Box>
       </Box>
 
       {modelPicker.open ? (
