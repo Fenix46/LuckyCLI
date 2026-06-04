@@ -1,33 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { streamingTail } from "./streaming.js";
+import { splitStreaming, streamBoundary } from "./streaming.js";
 
-describe("streamingTail", () => {
-  it("returns short text unchanged", () => {
-    expect(streamingTail("hello\nworld")).toBe("hello\nworld");
+describe("splitStreaming", () => {
+  it("keeps a single growing block fully unstable", () => {
+    const { stable, unstable } = splitStreaming("the model is still writing this");
+    expect(stable).toBe("");
+    expect(unstable).toBe("the model is still writing this");
   });
 
-  it("caps to the last few lines by default so the preview fits the viewport", () => {
-    const text = Array.from({ length: 100 }, (_, i) => `line ${i}`).join("\n");
-    const tail = streamingTail(text);
-    const lines = tail.split("\n");
-    expect(lines).toHaveLength(6);
-    expect(lines[0]).toBe("line 94");
-    expect(lines.at(-1)).toBe("line 99");
+  it("commits a finished paragraph once a blank line follows it", () => {
+    const { stable, unstable } = splitStreaming("first paragraph\n\nsecond para");
+    expect(stable).toBe("first paragraph\n\n");
+    expect(unstable).toBe("second para");
   });
 
-  it("honors an explicit max-lines budget", () => {
-    const text = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
-    const lines = streamingTail(text, 3).split("\n");
-    expect(lines).toEqual(["line 17", "line 18", "line 19"]);
+  it("does not commit an unterminated code fence", () => {
+    const { stable, unstable } = splitStreaming("intro\n\n```ts\nconst x = 1;");
+    expect(stable).toBe("intro\n\n");
+    expect(unstable).toBe("```ts\nconst x = 1;");
   });
 
-  it("drops trailing blank lines so the box doesn't grow with padding", () => {
-    expect(streamingTail("a\nb\n\n\n")).toBe("a\nb");
+  it("commits a code fence once it closes", () => {
+    const { stable, unstable } = splitStreaming("```ts\nconst x = 1;\n```\nnext");
+    expect(stable).toBe("```ts\nconst x = 1;\n```\n");
+    expect(unstable).toBe("next");
   });
 
-  it("caps to the last 8000 chars on a line boundary", () => {
-    const text = `${"x".repeat(10_000)}\ntail line`;
-    const tail = streamingTail(text);
-    expect(tail).toBe("tail line");
+  it("never returns a boundary below the committed lower bound", () => {
+    const text = "first\n\nsecond\n\nthird in progress";
+    // pretend everything up to and including the second blank line is committed
+    const committed = "first\n\nsecond\n\n".length;
+    const { stable, unstable } = splitStreaming(text, committed);
+    expect(stable.length).toBeGreaterThanOrEqual(committed);
+    expect(unstable).toBe("third in progress");
+  });
+});
+
+describe("streamBoundary", () => {
+  it("returns 0 when no block has finished", () => {
+    expect(streamBoundary("still going")).toBe(0);
+  });
+
+  it("honors the lower bound", () => {
+    expect(streamBoundary("abc", 2)).toBe(2);
   });
 });
