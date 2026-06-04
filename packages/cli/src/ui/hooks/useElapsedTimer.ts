@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useAnimation } from "ink";
 
 export interface ElapsedTimer {
   /** Whole seconds since the turn started; 0 when idle. */
@@ -8,25 +8,15 @@ export interface ElapsedTimer {
 }
 
 /**
- * A single 500ms interval that drives both the elapsed-time readout and the
- * thinking animation while a turn is in progress. The interval only runs while
- * `busy` is true, so an idle session does no periodic work.
+ * Drives the elapsed-time readout and the thinking animation while a turn is in
+ * progress, on top of Ink's useAnimation (single shared timer; resets to 0 when
+ * isActive flips off). `startedAt` is unused now that useAnimation tracks
+ * elapsed time itself, but kept in the signature for call-site clarity.
  */
-export function useElapsedTimer(busy: boolean, startedAt: number | null): ElapsedTimer {
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [activityFrame, setActivityFrame] = useState(0);
-
-  useEffect(() => {
-    if (!busy || startedAt === null) {
-      setElapsedSeconds(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
-      setActivityFrame((frame) => frame + 1);
-    }, 500);
-    return () => clearInterval(timer);
-  }, [busy, startedAt]);
-
-  return { elapsedSeconds, activityFrame };
+export function useElapsedTimer(busy: boolean, _startedAt: number | null): ElapsedTimer {
+  const { frame, time } = useAnimation({ interval: 500, isActive: busy });
+  return {
+    elapsedSeconds: busy ? Math.floor(time / 1000) : 0,
+    activityFrame: frame,
+  };
 }

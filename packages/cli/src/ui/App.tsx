@@ -1,4 +1,4 @@
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput, useWindowSize } from "ink";
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
   CachedMcpCatalog,
@@ -43,7 +43,6 @@ import {
   contextRows,
   formatStatusFooter,
 } from "./lib/status.js";
-import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
@@ -219,8 +218,9 @@ export function App({
   });
   const { elapsedSeconds, activityFrame } = useElapsedTimer(busy, startedAt);
 
-  // Terminal resizing support (Ink-native: tracks the renderer's stdout).
-  const terminalSize = useTerminalSize();
+  // Terminal dimensions, re-rendering on resize (Ink's official hook).
+  const { columns, rows } = useWindowSize();
+  const terminalSize = { width: columns, height: rows };
 
   useEffect(() => {
     if (process.env.LUCKY_DISABLE_UPDATE_CHECK === "1") return;
