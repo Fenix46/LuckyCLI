@@ -67,6 +67,7 @@ interface ResponsesRequest {
   store: boolean;
   stream: boolean;
   max_output_tokens?: number;
+  reasoning?: { effort: string };
   tools?: ResponsesTool[];
 }
 
@@ -442,6 +443,7 @@ function buildRequestBody(
     store: false,
     stream,
     ...(config.maxTokens !== undefined ? { max_output_tokens: config.maxTokens } : {}),
+    ...(config.reasoningEffort ? { reasoning: { effort: config.reasoningEffort } } : {}),
     ...(config.tools?.length
       ? {
           tools: config.tools.map((tool) => ({

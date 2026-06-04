@@ -73,6 +73,12 @@ export interface GenerationConfig {
   systemPrompt?: string;
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
+  /**
+   * Reasoning effort for models that support it (e.g. ChatGPT/Codex:
+   * low|medium|high|xhigh). An open string so new server-side levels work
+   * without a code change. Providers that don't support it ignore it.
+   */
+  reasoningEffort?: string;
 }
 
 // ─── Responses ───────────────────────────────────────────────────────────────
