@@ -27,6 +27,10 @@ export interface StoredConfig {
     lastCheckedAt?: number;
     latestVersion?: string;
     releaseUrl?: string;
+    /** How aggressively to self-update. Unset is treated as "auto". */
+    autoUpdate?: AutoUpdatePolicy;
+    /** A verified new binary staged on disk, applied on the next cold start. */
+    staged?: StagedUpdate;
   };
   /** Tool permission policy. Keys can be tool names or wildcard patterns; values are allow/ask/deny. */
   permissions?: ToolPermissionPolicy;
@@ -36,6 +40,23 @@ export interface StoredConfig {
   mcp?: Record<string, McpServerConfig>;
   /** Per-folder trust + graph state, keyed by absolute path. See project-trust.ts. */
   projects?: Record<string, ProjectRecord>;
+}
+
+/**
+ * Self-update aggressiveness:
+ * - `off`    — never check or download.
+ * - `notify` — check and show a banner; the user applies updates manually.
+ * - `auto`   — download + verify in the background and apply on next launch.
+ */
+export type AutoUpdatePolicy = "off" | "notify" | "auto";
+
+/** A verified binary downloaded ahead of time, waiting to replace the running one. */
+export interface StagedUpdate {
+  version: string;
+  /** Absolute path of the staged, checksum-verified binary. */
+  path: string;
+  sha256: string;
+  stagedAt: number;
 }
 
 /** What we remember about a project folder once the agent has opened it. */

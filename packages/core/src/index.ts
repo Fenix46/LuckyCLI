@@ -159,10 +159,21 @@ export {
   saveProviderSetup,
   saveStoredConfig,
 } from "./config/store.js";
-export type { ProjectRecord, StoredConfig } from "./config/store.js";
+export type {
+  AutoUpdatePolicy,
+  ProjectRecord,
+  StagedUpdate,
+  StoredConfig,
+} from "./config/store.js";
 
 // Self-update machinery.
 export { compareVersions, versionLabel } from "./update/versions.js";
+export {
+  clearStagedUpdate,
+  getAutoUpdatePolicy,
+  withAutoUpdatePolicy,
+  withStagedUpdate,
+} from "./update/policy.js";
 export {
   assetName,
   buildAssetUrls,
