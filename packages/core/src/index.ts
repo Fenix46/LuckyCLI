@@ -164,6 +164,26 @@ export type { ProjectRecord, StoredConfig } from "./config/store.js";
 // Self-update machinery.
 export { compareVersions, versionLabel } from "./update/versions.js";
 export {
+  assetName,
+  buildAssetUrls,
+  canSelfUpdate,
+  cleanupStaleBinary,
+  detectSelfUpdate,
+  downloadVerified,
+  isCompiledBinary,
+  isDirWritable,
+  parseSha256Sums,
+  resolvePlatform,
+  swapInPlace,
+} from "./update/self-replace.js";
+export type {
+  AssetUrls,
+  DownloadDeps,
+  LuckyArch,
+  LuckyOs,
+  SelfUpdateCapability,
+} from "./update/self-replace.js";
+export {
   getProjectRecord,
   isProjectTrusted,
   needsTrustPrompt,
