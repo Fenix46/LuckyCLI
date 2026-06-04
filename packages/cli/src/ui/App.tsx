@@ -6,7 +6,6 @@ import {
   PROVIDER_CATALOG,
   catalogDetailToPreset,
   type Agent,
-  type AgentEvent,
   type CatalogServerSummary,
   type ContextStatus,
   type Message,
@@ -47,9 +46,9 @@ import {
   contextRows,
   formatStatusFooter,
 } from "./lib/status.js";
-import { humanizeError } from "./lib/errors.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
+import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
 import { ThinkingStatus } from "./components/ThinkingStatus.js";
 import { StreamingPreview } from "./components/StreamingPreview.js";
@@ -155,13 +154,6 @@ export function App({
     }
   }, [agent, meta.provider, meta.model]);
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [streaming, setStreaming] = useState("");
-  const streamingFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingStreamingRef = useRef("");
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const { elapsedSeconds, activityFrame } = useElapsedTimer(busy, startedAt);
-  const abortControllerRef = useRef<AbortController | null>(null);
   // Timestamp of the last Ctrl+C while busy, so a quick second press can force
   // quit even if the running turn is wedged and won't honor the abort.
   const lastBusyCtrlCRef = useRef<number>(0);
@@ -203,16 +195,35 @@ export function App({
   const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 });
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
+  const appendItems = useCallback(
+    (next: Item[]) => setItems((prev) => [...prev, ...next]),
+    [],
+  );
+  const patchTool = useCallback(
+    (name: string, output: string, error: boolean) =>
+      setItems((prev) => patchLastTool(prev, name, output, error)),
+    [],
+  );
+  const onUsage = useCallback(
+    (usage: TokenUsage) =>
+      setTokenUsage((prev) => ({
+        input: prev.input + usage.inputTokens,
+        output: prev.output + usage.outputTokens,
+      })),
+    [],
+  );
+  const { busy, startedAt, streaming, abort, runTurn } = useTurnRunner({
+    agent,
+    appendItems,
+    patchTool,
+    onContext: setContextStatus,
+    onUsage,
+    persist: persistSession,
+  });
+  const { elapsedSeconds, activityFrame } = useElapsedTimer(busy, startedAt);
+
   // Terminal resizing support (Ink-native: tracks the renderer's stdout).
   const terminalSize = useTerminalSize();
-
-  useEffect(() => {
-    return () => {
-      if (streamingFlushTimerRef.current) {
-        clearTimeout(streamingFlushTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (process.env.LUCKY_DISABLE_UPDATE_CHECK === "1") return;
@@ -351,7 +362,7 @@ export function App({
       if (key.ctrl && _in === "c") {
         approvalRequest.resolve("deny");
         setApprovalRequest(null);
-        abortControllerRef.current?.abort();
+        abort();
         return;
       }
       if (key.leftArrow || key.upArrow || _in === "h" || _in === "k") {
@@ -370,13 +381,13 @@ export function App({
         setApprovalRequest(null);
         // Refusing a tool stops the whole turn, like Esc — the model does not
         // get to react to the denial and keep working.
-        if (decision === "deny") abortControllerRef.current?.abort();
+        if (decision === "deny") abort();
         return;
       }
       if (key.escape) {
         approvalRequest.resolve("deny");
         setApprovalRequest(null);
-        abortControllerRef.current?.abort();
+        abort();
       }
       return;
     }
@@ -387,7 +398,7 @@ export function App({
       if (key.ctrl && _in === "c") {
         userQuestionRequest.resolve("User cancelled the question.");
         setUserQuestionRequest(null);
-        abortControllerRef.current?.abort();
+        abort();
         return;
       }
       if (options.length > 0 && (key.leftArrow || key.upArrow || _in === "h" || _in === "k")) {
@@ -408,7 +419,7 @@ export function App({
       if (key.escape) {
         userQuestionRequest.resolve("User skipped the question.");
         setUserQuestionRequest(null);
-        abortControllerRef.current?.abort();
+        abort();
         return;
       }
       return;
@@ -573,7 +584,7 @@ export function App({
 
     // 5. Esc interrupts the running turn (like other coding agents).
     if (key.escape && busy) {
-      abortControllerRef.current?.abort();
+      abort();
       return;
     }
 
@@ -586,7 +597,7 @@ export function App({
         return;
       }
       lastBusyCtrlCRef.current = now;
-      abortControllerRef.current?.abort();
+      abort();
       return;
     }
     if (key.ctrl && _in === "c" && !busy) exit();
@@ -1061,125 +1072,9 @@ export function App({
 
       setItems((prev) => [...prev, { kind: "user", text }]);
       setInput("");
-      setBusy(true);
-      setStartedAt(Date.now());
-
-      // The current narration block streams as a SINGLE growing assistant
-      // message. It lives in `streaming` state (rendered once, live, with one
-      // "lucky" header) and is committed to the transcript as one item only
-      // when the block ends — never split into multiple items.
-      let assistantBuf = "";
-      const publishStreaming = () => {
-        if (streamingFlushTimerRef.current) {
-          clearTimeout(streamingFlushTimerRef.current);
-          streamingFlushTimerRef.current = null;
-        }
-        if (pendingStreamingRef.current) {
-          setStreaming(pendingStreamingRef.current);
-          pendingStreamingRef.current = "";
-        }
-      };
-      const scheduleStreaming = () => {
-        pendingStreamingRef.current = assistantBuf;
-        if (streamingFlushTimerRef.current) return;
-        streamingFlushTimerRef.current = setTimeout(() => {
-          streamingFlushTimerRef.current = null;
-          if (!pendingStreamingRef.current) return;
-          setStreaming(pendingStreamingRef.current);
-          pendingStreamingRef.current = "";
-        }, 180);
-      };
-      // End the current narration block: commit the whole buffer as one
-      // assistant item and clear the live preview.
-      const flushAssistant = () => {
-        publishStreaming();
-        if (!assistantBuf.trim()) return;
-        const text = assistantBuf;
-        assistantBuf = "";
-        setStreaming("");
-        setItems((prev) => [...prev, { kind: "assistant", text }]);
-      };
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      try {
-        for await (const event of agent.send(text, controller.signal)) {
-          handleEvent(event, {
-            onText: (delta) => {
-              assistantBuf += delta;
-              scheduleStreaming();
-            },
-            onToolStart: (name, rawInput) => {
-              // A tool call ends the current narration block — commit it to the
-              // transcript instead of discarding it, so text the model wrote
-              // before the tool is preserved (and the live preview clears).
-              flushAssistant();
-              setItems((prev) => [
-                ...prev,
-                { kind: "tool", name, input: rawInput },
-              ]);
-            },
-            onToolEnd: (name, output, error) =>
-              setItems((prev) => patchLastTool(prev, name, output, error)),
-            onError: (message) => {
-              flushAssistant();
-              setItems((prev) => [
-                ...prev,
-                { kind: "error", text: humanizeError(message) },
-              ]);
-            },
-            onContext: (status) => {
-              setContextStatus(status);
-            },
-            onCompacted: (result) => {
-              setItems((prev) => [
-                ...prev,
-                {
-                  kind: "command",
-                  title: "Auto Compaction",
-                  rows: [
-                    { label: "removed", value: `${result.removedMessages} messages` },
-                    { label: "kept", value: `${result.keptMessages} messages` },
-                    {
-                      label: "tokens",
-                      value:
-                        result.beforeTokens !== undefined && result.afterTokens !== undefined
-                          ? `${formatNumber(result.beforeTokens)} -> ${formatNumber(result.afterTokens)}`
-                          : "not available",
-                    },
-                  ],
-                },
-              ]);
-            },
-            onTurnEnd: (usage) => {
-              if (usage) {
-                setTokenUsage((prev) => ({
-                  input: prev.input + usage.inputTokens,
-                  output: prev.output + usage.outputTokens,
-                }));
-              }
-            },
-            onAborted: () => {
-              flushAssistant();
-              setItems((prev) => [
-                ...prev,
-                { kind: "error", text: "Interrupted by user." },
-              ]);
-            },
-          });
-        }
-      } finally {
-        publishStreaming();
-        if (abortControllerRef.current === controller) {
-          abortControllerRef.current = null;
-        }
-        flushAssistant();
-        setStreaming("");
-        setBusy(false);
-        setStartedAt(null);
-        persistSession();
-      }
+      await runTurn(text);
     },
-    [agent, busy, meta, exit, activeTheme.id, contextStatus, onTriggerSetup, onTriggerResume, selectModel, selectTheme, persistSession, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest],
+    [busy, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest],
   );
   const lastItem = items.at(-1);
   const liveTail =
@@ -1426,47 +1321,4 @@ export function App({
       </Box>
     </Box>
   );
-}
-
-
-
-
-interface EventHandlers {
-  onText: (delta: string) => void;
-  onToolStart: (name: string, rawInput: unknown) => void;
-  onToolEnd: (name: string, output: string, error: boolean) => void;
-  onError: (message: string) => void;
-  onContext: (status: ContextStatus) => void;
-  onCompacted: (result: { beforeTokens?: number; afterTokens?: number; removedMessages: number; keptMessages: number }) => void;
-  onTurnEnd: (usage?: TokenUsage) => void;
-  onAborted: () => void;
-}
-
-function handleEvent(event: AgentEvent, h: EventHandlers): void {
-  switch (event.type) {
-    case "text":
-      h.onText(event.delta);
-      break;
-    case "tool_start":
-      h.onToolStart(event.name, event.input);
-      break;
-    case "tool_end":
-      h.onToolEnd(event.name, event.content, event.isError);
-      break;
-    case "error":
-      h.onError(event.message);
-      break;
-    case "context":
-      h.onContext(event.status);
-      break;
-    case "context_compacted":
-      h.onCompacted(event.result);
-      break;
-    case "turn_end":
-      h.onTurnEnd(event.usage);
-      break;
-    case "aborted":
-      h.onAborted();
-      break;
-  }
 }
