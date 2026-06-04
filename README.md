@@ -200,7 +200,11 @@ the others are implemented and unit-tested with mocked transports.
 
 Defaults in **bold**. Use `/model` in the REPL or `-m` on the CLI to switch.
 
-- **ChatGPT** (`openai-oauth`): **gpt-5.5**, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-4o
+- **ChatGPT** (`openai-oauth`): fetched **live** from the Codex backend once you
+  sign in — `/model` lists exactly what your account can use (no hardcoded list).
+  Picking a model also lets you choose a **reasoning effort**
+  (`low` · `medium` · `high` · `xhigh`, default `medium`), Codex-style. The choice
+  persists; `/model --refresh` re-fetches the catalog.
 - **Claude** (`claude`): claude-opus-4-8, **claude-sonnet-4-6**, claude-haiku-4-5
 - **Gemini** (`gemini`): gemini-3.1-pro-preview, gemini-3.1-flash-lite, gemini-3-pro-preview, gemini-3-flash-preview, **gemini-2.5-pro**, gemini-2.5-flash, gemma-4-31b-it, gemma-4-26b-a4b-it
 - **Antigravity** (`antigravity`): **gemini-3.5-flash-low**, gemini-3-flash-agent, gemini-3.1-pro-low, gemini-pro-agent, gemini-2.5-pro/flash, claude-sonnet-4-6, claude-opus-4-6-thinking, gpt-oss-120b-medium, …

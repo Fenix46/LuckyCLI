@@ -25,6 +25,8 @@ export type { OpenAiOAuthTokens } from "./tokens.js";
 const INFO: ProviderInfo = {
   id: "openai-oauth",
   displayName: "ChatGPT",
+  // Bootstrap list only — the live model list comes from /codex/models
+  // (fetchCodexModels) once authenticated.
   availableModels: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-4o"],
   defaultModel: "gpt-5.5",
   supportsStreaming: true,

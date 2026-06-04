@@ -100,6 +100,10 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
   },
   "openai-oauth": {
     id: "openai-oauth",
+    // NOTE: the real model list is fetched live from /codex/models once
+    // authenticated (see fetchCodexModels). These entries are only a bootstrap
+    // for the pre-auth setup dialog and a source of context-window metadata for
+    // modelInfo(); the picker and validation use the live catalog.
     displayName: "ChatGPT",
     company: "OpenAI",
     availableModels: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-4o"],
