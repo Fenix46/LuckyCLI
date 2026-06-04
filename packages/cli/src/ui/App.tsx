@@ -51,6 +51,7 @@ import { StreamingPreview } from "./components/StreamingPreview.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
 import { TranscriptItem } from "./components/Transcript.js";
+import { ScrollViewport } from "./components/ScrollViewport.js";
 import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
@@ -91,6 +92,13 @@ interface AppProps {
   /** A session loaded via --continue/--resume, replayed into the transcript. */
   resumed?: Session;
 }
+
+/**
+ * Rows reserved at the bottom for the input frame and status line (two rule
+ * lines, the prompt, the footer, and margins). The transcript viewport gets the
+ * remaining terminal height.
+ */
+const CHROME_ROWS = 8;
 
 const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
@@ -191,8 +199,17 @@ export function App({
   const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 });
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
+  // Scrollback within the alternate-screen viewport. scrollUp = lines revealed
+  // above the bottom (0 = pinned to newest); maxScroll is reported by the viewport.
+  const [scrollUp, setScrollUp] = useState(0);
+  const [maxScroll, setMaxScroll] = useState(0);
+
   const appendItems = useCallback(
-    (next: Item[]) => setItems((prev) => [...prev, ...next]),
+    (next: Item[]) => {
+      // New content arrived: snap back to the bottom so it's visible.
+      setScrollUp(0);
+      setItems((prev) => [...prev, ...next]);
+    },
     [],
   );
   const patchTool = useCallback(
@@ -351,6 +368,18 @@ export function App({
         themePicker.open ||
         showSlashMenu;
       if (!modalActive) onCyclePermissionMode();
+      return;
+    }
+
+    // 0b. PageUp/PageDown scroll the transcript viewport. Safe to handle even
+    // while typing — text input never produces these keys. A page is most of
+    // the viewport height.
+    if (key.pageUp || key.pageDown) {
+      const page = Math.max(1, terminalSize.height - CHROME_ROWS - 1);
+      setScrollUp((prev) => {
+        const next = key.pageUp ? prev + page : prev - page;
+        return Math.min(maxScroll, Math.max(0, next));
+      });
       return;
     }
 
@@ -1103,51 +1132,53 @@ export function App({
 
   return (
     <Box flexDirection="column" width={terminalSize.width} height={terminalSize.height} paddingX={1} paddingY={0}>
-      {/* Transcript viewport: fills the space above the input frame and clips
-          its top, so the newest content stays pinned to the bottom (chat-style
-          auto-scroll). In the alternate screen Ink owns the screen and redraws
-          in place, so the streaming reply renders at full height with no
-          scrollback duplication. */}
-      <Box flexGrow={1} flexDirection="column" justifyContent="flex-end" overflow="hidden">
-        <Box flexDirection="column">
-          {items.map((item, index) => (
-            <TranscriptItem
-              key={`item-${index}`}
-              item={item}
-              previous={index > 0 ? items[index - 1] : undefined}
-              theme={activeTheme}
-              width={messageWidth}
-              provider={meta.provider}
-              model={meta.model}
-            />
-          ))}
+      {/* Transcript viewport: a fixed-height region that pins the newest content
+          to the bottom and clips older content off the top (chat-style). In the
+          alternate screen Ink owns the screen and redraws in place, so the
+          streaming reply renders at full height with no scrollback duplication.
+          PageUp/PageDown scroll back through the history. */}
+      <ScrollViewport
+        height={Math.max(3, terminalSize.height - CHROME_ROWS)}
+        scrollUp={scrollUp}
+        onMaxScrollChange={setMaxScroll}
+      >
+        {items.map((item, index) => (
+          <TranscriptItem
+            key={`item-${index}`}
+            item={item}
+            previous={index > 0 ? items[index - 1] : undefined}
+            theme={activeTheme}
+            width={messageWidth}
+            provider={meta.provider}
+            model={meta.model}
+          />
+        ))}
 
-          {items.length === 1 && items[0]?.kind === "intro" && !busy ? (
-            <Box marginTop={1}>
-              <Text color={activeTheme.muted}>
-                lucky › Input instruction payload or type / for command directory...
-              </Text>
-            </Box>
-          ) : null}
+        {items.length === 1 && items[0]?.kind === "intro" && !busy ? (
+          <Box marginTop={1}>
+            <Text color={activeTheme.muted}>
+              lucky › Input instruction payload or type / for command directory...
+            </Text>
+          </Box>
+        ) : null}
 
-          {busy && !approvalRequest && !userQuestionRequest ? (
-            <Box marginY={0.5} flexDirection="column">
-              {streamingPreview ? (
-                // The live assistant message: one block with one "lucky" header,
-                // rendered identically to the finalized transcript item so it
-                // doesn't jump when the turn ends.
-                <StreamingPreview text={streamingPreview} theme={activeTheme} />
-              ) : (
-                <ThinkingStatus
-                  theme={activeTheme}
-                  elapsedSeconds={elapsedSeconds}
-                  frame={activityFrame}
-                />
-              )}
-            </Box>
-          ) : null}
-        </Box>
-      </Box>
+        {busy && !approvalRequest && !userQuestionRequest ? (
+          <Box marginY={0.5} flexDirection="column">
+            {streamingPreview ? (
+              // The live assistant message: one block with one "lucky" header,
+              // rendered identically to the finalized transcript item so it
+              // doesn't jump when the turn ends.
+              <StreamingPreview text={streamingPreview} theme={activeTheme} />
+            ) : (
+              <ThinkingStatus
+                theme={activeTheme}
+                elapsedSeconds={elapsedSeconds}
+                frame={activityFrame}
+              />
+            )}
+          </Box>
+        ) : null}
+      </ScrollViewport>
 
       {modelPicker.open ? (
         <Box
