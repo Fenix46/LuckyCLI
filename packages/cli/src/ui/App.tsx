@@ -67,6 +67,8 @@ import {
 import { humanizeError } from "./lib/errors.js";
 import { Markdown } from "./markdown/Markdown.js";
 import { streamingTail } from "./markdown/streaming.js";
+import { useTerminalSize } from "./hooks/useTerminalSize.js";
+import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 
 /** Shown in the opening banner. Keep in sync with packages/cli/package.json. */
 const APP_VERSION = "0.2.0";
@@ -175,8 +177,7 @@ export function App({
   const streamingFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingStreamingRef = useRef("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [activityFrame, setActivityFrame] = useState(0);
+  const { elapsedSeconds, activityFrame } = useElapsedTimer(busy, startedAt);
   const abortControllerRef = useRef<AbortController | null>(null);
   // Timestamp of the last Ctrl+C while busy, so a quick second press can force
   // quit even if the running turn is wedged and won't honor the abort.
@@ -219,24 +220,8 @@ export function App({
   const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 });
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
-  // Terminal resizing support
-  const [terminalSize, setTerminalSize] = useState({
-    width: process.stdout.columns ?? 100,
-    height: process.stdout.rows ?? 30,
-  });
-
-  useEffect(() => {
-    function handleResize() {
-      setTerminalSize({
-        width: process.stdout.columns ?? 100,
-        height: process.stdout.rows ?? 30,
-      });
-    }
-    process.stdout.on("resize", handleResize);
-    return () => {
-      process.stdout.off("resize", handleResize);
-    };
-  }, []);
+  // Terminal resizing support (Ink-native: tracks the renderer's stdout).
+  const terminalSize = useTerminalSize();
 
   useEffect(() => {
     return () => {
@@ -245,18 +230,6 @@ export function App({
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (!busy || startedAt === null) {
-      setElapsedSeconds(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
-      setActivityFrame((frame) => frame + 1);
-    }, 500);
-    return () => clearInterval(timer);
-  }, [busy, startedAt]);
 
   useEffect(() => {
     if (process.env.LUCKY_DISABLE_UPDATE_CHECK === "1") return;
