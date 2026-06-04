@@ -58,6 +58,7 @@ export interface BuildAgentOptions {
   system: string;
   temperature?: number;
   maxTokens?: number;
+  reasoningEffort?: string;
   permissions?: ToolPermissionPolicy;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
@@ -133,6 +134,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     onFilesChanged: createGraphMaintainer(cwd),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+    ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.messages?.length ? { messages: opts.messages } : {}),
   });
 }

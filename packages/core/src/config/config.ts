@@ -5,7 +5,7 @@ import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import { isProviderId } from "../providers/types.js";
 import { DEFAULT_TOOL_PERMISSION_POLICY, parseToolPermissionPolicyEnv, type ToolPermissionPolicy } from "../tools/permissions.js";
 import { buildSystemPrompt } from "../prompts/index.js";
-import { loadStoredConfig, type StoredConfig } from "./store.js";
+import { getReasoningEffort, loadStoredConfig, type StoredConfig } from "./store.js";
 
 /**
  * The default system prompt, composed from the section files in ../prompts.
@@ -27,6 +27,8 @@ export interface CliOverrides {
 export interface ResolvedConfig {
   provider?: ProviderId;
   model?: string;
+  /** Reasoning effort, only for providers that support it (currently openai-oauth). */
+  reasoningEffort?: string;
   system: string;
   temperature?: number;
   maxTokens?: number;
@@ -68,11 +70,19 @@ export function resolveConfig(
     ? resolveCredentials(provider, stored, env)
     : undefined;
 
+  // Reasoning effort only applies to providers that support it. Today that's
+  // ChatGPT/Codex; other providers ignore the field even if it's stored.
+  const reasoningEffort =
+    provider === "openai-oauth"
+      ? (env.LUCKY_REASONING_EFFORT ?? getReasoningEffort(stored))
+      : undefined;
+
   const envPermissions = parseToolPermissionPolicyEnv(env.LUCKY_TOOL_PERMISSIONS);
 
   return {
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     system: env.LUCKY_SYSTEM ?? buildSystemPrompt(undefined, env),
     ...(env.LUCKY_TEMPERATURE
       ? { temperature: Number(env.LUCKY_TEMPERATURE) }

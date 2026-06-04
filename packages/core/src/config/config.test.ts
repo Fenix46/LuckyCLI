@@ -41,4 +41,36 @@ describe("resolveConfig", () => {
   it("always resolves an MCP record, even when config is empty", () => {
     expect(resolveConfig({}, {}, {}).mcp).toEqual({});
   });
+
+  describe("reasoning effort", () => {
+    const creds: StoredConfig = {
+      credentials: { "openai-oauth": { type: "openai-oauth", access: "a", refresh: "r", expires: 0 } },
+    } as StoredConfig;
+
+    it("defaults to medium for openai-oauth", () => {
+      const r = resolveConfig({ provider: "openai-oauth" }, creds, {});
+      expect(r.reasoningEffort).toBe("medium");
+    });
+
+    it("carries the stored effort for openai-oauth", () => {
+      const r = resolveConfig(
+        { provider: "openai-oauth" },
+        { ...creds, reasoningEffort: "xhigh" },
+        {},
+      );
+      expect(r.reasoningEffort).toBe("xhigh");
+    });
+
+    it("ignores effort for other providers", () => {
+      const r = resolveConfig({ provider: "claude" }, { reasoningEffort: "high" }, {});
+      expect(r.reasoningEffort).toBeUndefined();
+    });
+
+    it("lets LUCKY_REASONING_EFFORT override", () => {
+      const r = resolveConfig({ provider: "openai-oauth" }, creds, {
+        LUCKY_REASONING_EFFORT: "low",
+      });
+      expect(r.reasoningEffort).toBe("low");
+    });
+  });
 });

@@ -22,6 +22,8 @@ import type { ToolPermissionPolicy } from "../tools/permissions.js";
 export interface StoredConfig {
   provider?: ProviderId;
   model?: string;
+  /** Reasoning effort for providers that support it (ChatGPT: low|medium|high|xhigh). */
+  reasoningEffort?: string;
   theme?: string;
   update?: {
     lastCheckedAt?: number;
@@ -108,6 +110,22 @@ export function saveProviderSetup(
   cfg.provider = provider;
   cfg.model = model;
   cfg.credentials = { ...cfg.credentials, [provider]: credentials };
+  saveStoredConfig(cfg);
+  return cfg;
+}
+
+/** Default reasoning effort when the user hasn't picked one. */
+export const DEFAULT_REASONING_EFFORT = "medium";
+
+/** The effective reasoning effort (the stored value, or the default). */
+export function getReasoningEffort(cfg: StoredConfig): string {
+  return cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
+}
+
+/** Persist a chosen reasoning effort, returning the merged config. */
+export function saveReasoningEffort(effort: string): StoredConfig {
+  const cfg = loadStoredConfig();
+  cfg.reasoningEffort = effort;
   saveStoredConfig(cfg);
   return cfg;
 }

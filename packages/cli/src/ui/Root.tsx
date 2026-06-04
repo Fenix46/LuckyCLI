@@ -176,6 +176,9 @@ export function Root({
       ...(config.maxTokens !== undefined
         ? { maxTokens: config.maxTokens }
         : {}),
+      ...(config.reasoningEffort
+        ? { reasoningEffort: config.reasoningEffort }
+        : {}),
       ...(next.messages?.length ? { messages: next.messages } : {}),
     });
 
