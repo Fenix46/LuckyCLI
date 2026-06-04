@@ -56,13 +56,32 @@ describe("mcp tool adapter", () => {
       invoke,
     );
 
-    const result = await tool.execute({ query: "repo:openai" }, { cwd: "/" });
+    const ctx = { cwd: "/" };
+    const result = await tool.execute({ query: "repo:openai" }, ctx);
 
     expect(result).toEqual({ content: "done" });
-    expect(invoke).toHaveBeenCalledWith({
-      server: "github",
-      tool: "search",
-      arguments: { query: "repo:openai" },
-    });
+    expect(invoke).toHaveBeenCalledWith(
+      {
+        server: "github",
+        tool: "search",
+        arguments: { query: "repo:openai" },
+      },
+      ctx,
+    );
+  });
+
+  it("forwards the tool context to the invoker", async () => {
+    const onFilesChanged = vi.fn();
+    const invoke = vi.fn(async () => ({ content: "ok" }));
+    const tool = adaptMcpTool(
+      "fs",
+      { name: "write", inputSchema: { type: "object" } },
+      invoke,
+    );
+
+    const ctx = { cwd: "/repo", onFilesChanged };
+    await tool.execute({}, ctx);
+
+    expect(invoke).toHaveBeenCalledWith(expect.anything(), ctx);
   });
 });

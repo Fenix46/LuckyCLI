@@ -142,7 +142,7 @@ export class McpManager {
   tools(): Tool[] {
     return [...this.servers.entries()].flatMap(([name, server]) =>
       server.tools.map((tool) =>
-        adaptMcpTool(name, tool, (invocation) =>
+        adaptMcpTool(name, tool, (invocation, _ctx) =>
           server.client.callTool(invocation.tool, invocation.arguments).then((content) => ({ content })),
         ),
       ),

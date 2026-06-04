@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineTool, type Tool, type ToolResult } from "../tools/types.js";
+import { defineTool, type Tool, type ToolContext, type ToolResult } from "../tools/types.js";
 import type { McpToolDescriptor } from "./types.js";
 
 export interface McpToolInvocation {
@@ -10,6 +10,7 @@ export interface McpToolInvocation {
 
 export type McpToolInvoker = (
   invocation: McpToolInvocation,
+  ctx: ToolContext,
 ) => Promise<ToolResult>;
 
 function sanitizeNamePart(value: string): string {
@@ -30,12 +31,15 @@ export function adaptMcpTool(
     description: descriptor.description ?? `MCP tool ${descriptor.name} from server ${server}.`,
     schema: z.object({}).passthrough(),
     parametersSchema: normalizeToolInputSchema(descriptor.inputSchema),
-    async execute(input) {
-      return invoke({
-        server,
-        tool: descriptor.name,
-        arguments: input,
-      });
+    async execute(input, ctx) {
+      return invoke(
+        {
+          server,
+          tool: descriptor.name,
+          arguments: input,
+        },
+        ctx,
+      );
     },
   });
 }
