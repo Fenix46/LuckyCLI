@@ -84,6 +84,37 @@ class CompactingProvider implements IProvider {
   }
 }
 
+class RuntimeModelInfoProvider implements IProvider {
+  readonly info: ProviderInfo = {
+    ...INFO,
+    models: {
+      mock: {
+        id: "mock",
+        contextWindow: 100_000,
+        maxInputTokens: 80_000,
+        maxOutputTokens: 10_000,
+        source: "provider",
+      },
+    },
+  };
+
+  async *generateStream(): AsyncGenerator<StreamChunk> {
+    yield { finishReason: "stop" };
+  }
+
+  async generate(): Promise<GenerationResponse> {
+    return { content: [], finishReason: "stop" };
+  }
+
+  async countTokens(): Promise<TokenUsage | undefined> {
+    return { inputTokens: 10_000, outputTokens: 0 };
+  }
+
+  async healthCheck() {
+    return { ok: true };
+  }
+}
+
 const echo = defineTool({
   name: "echo",
   description: "Echo back.",
@@ -479,5 +510,22 @@ describe("Agent loop", () => {
       role: "assistant",
       content: [{ type: "text", text: "ok" }],
     });
+  });
+
+  it("uses provider runtime model metadata for context accounting", async () => {
+    const agent = new Agent({
+      provider: new RuntimeModelInfoProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const status = await agent.contextStatus();
+
+    expect(status.contextWindow).toBe(100_000);
+    expect(status.maxInputTokens).toBe(80_000);
+    expect(status.maxOutputTokens).toBe(10_000);
+    expect(status.usableTokens).toBe(80_000);
+    expect(status.usedTokens).toBe(10_000);
+    expect(status.tokenCounter).toBe("provider");
   });
 });

@@ -89,6 +89,16 @@ describe("ClaudeProvider", () => {
     });
   });
 
+  it("exposes Claude runtime context metadata in api-key mode too", async () => {
+    const provider = new ClaudeProvider({ type: "claude", authMethod: "api_key", apiKey: "test-key" });
+
+    expect(provider.info.models?.["claude-sonnet-4-6"]).toMatchObject({
+      contextWindow: 1_000_000,
+      maxOutputTokens: 64_000,
+      source: "provider",
+    });
+  });
+
   it("maps Claude effort into output_config and sends adaptive thinking when enabled", async () => {
     const provider = new ClaudeProvider({
       type: "claude",

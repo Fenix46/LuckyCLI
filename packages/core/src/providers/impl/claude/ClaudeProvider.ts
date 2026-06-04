@@ -324,13 +324,13 @@ export class ClaudeProvider implements IProvider {
   }
 
   private createProviderInfo(credentials: ClaudeCredentials): ProviderInfo {
-    if (credentials.authMethod !== "oauth") return INFO;
     const models = Object.fromEntries(
       INFO.availableModels.map((model) => [
         model,
         {
           ...(INFO.models?.[model] ?? { id: model }),
           contextWindow: claudeContextWindowForModel(model),
+          maxOutputTokens: INFO.models?.[model]?.maxOutputTokens ?? 64_000,
           source: "provider" as const,
         },
       ]),

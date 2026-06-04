@@ -114,7 +114,7 @@ export class Agent {
         ? { reservedOutputTokens: cfg.compaction.reservedOutputTokens }
         : {}),
     };
-    this.modelInfo = modelInfo(cfg.provider.info.id, cfg.model);
+    this.modelInfo = cfg.provider.info.models?.[cfg.model] ?? modelInfo(cfg.provider.info.id, cfg.model);
     this.permissions = cfg.permissions;
     this.approveTool = cfg.approveTool;
     this.askUser = cfg.askUser;
