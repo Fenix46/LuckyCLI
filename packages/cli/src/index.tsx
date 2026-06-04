@@ -3,6 +3,7 @@ import "dotenv/config";
 import { parseArgs } from "node:util";
 import { render } from "ink";
 import React from "react";
+import { createMouseFilteredStdin } from "./mouse-input.js";
 import {
   buildAndSaveGraph,
   latestSession,
@@ -166,7 +167,23 @@ function main(): void {
     ...(!values.model && resume ? { model: resume.model } : {}),
   });
 
-  render(
+  // Enable SGR mouse tracking so the wheel scrolls the transcript, and route
+  // stdin through a filter that strips the mouse sequences before Ink sees them
+  // (otherwise they leak into the prompt as raw "<64;..M" text). Only when
+  // stdin is a real TTY; piped/non-interactive runs keep the plain stdin.
+  const interactive = Boolean(process.stdin.isTTY);
+  const mouse = interactive ? createMouseFilteredStdin(process.stdin) : null;
+  if (interactive) {
+    process.stdout.write("\x1b[?1000h\x1b[?1006h");
+    const disableMouse = () => process.stdout.write("\x1b[?1006l\x1b[?1000l");
+    process.on("exit", disableMouse);
+    process.on("SIGINT", () => {
+      disableMouse();
+      process.exit(0);
+    });
+  }
+
+  const instance = render(
     React.createElement(Root, {
       config,
       forceSetup: values.setup === true,
@@ -176,8 +193,16 @@ function main(): void {
     // Render in the terminal's alternate screen (like vim/less): Ink owns the
     // whole screen and redraws in place, so the streaming reply renders at full
     // height with no scrollback duplication. The transcript scrolls internally.
-    { alternateScreen: true },
+    {
+      alternateScreen: true,
+      ...(mouse ? { stdin: mouse.stdin } : {}),
+    },
   );
+
+  instance.waitUntilExit().finally(() => {
+    mouse?.dispose();
+    if (interactive) process.stdout.write("\x1b[?1006l\x1b[?1000l");
+  });
 }
 
 main();
