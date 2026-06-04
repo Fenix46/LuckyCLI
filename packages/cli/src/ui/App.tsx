@@ -1126,7 +1126,16 @@ export function App({
   // transcript viewport shrinks to make room. Each list is header + items +
   // hint (~3 rows of chrome); cap so a huge list still leaves a usable viewport.
   let overlayRows = 0;
-  if (mcpPanelOpen) {
+  if (approvalRequest) {
+    // Header + question + target + up to ~8 preview lines + 3 options + hint,
+    // rendered inside the input frame. Reserve generously so it never spills
+    // past the bottom of the screen.
+    overlayRows = 16;
+  } else if (userQuestionRequest) {
+    // Header + question + options + hint (+ the input line when free-text).
+    const options = userQuestionRequest.options?.length ?? 0;
+    overlayRows = Math.min(16, options + 6);
+  } else if (mcpPanelOpen) {
     const rows = mcpPanelTab === "installed" ? installedMcpRows.length : mcpPanelResults.length;
     overlayRows = Math.min(14, rows + 4);
   } else if (modelPicker.open) {
