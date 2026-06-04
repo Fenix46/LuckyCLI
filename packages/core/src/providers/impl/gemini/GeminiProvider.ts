@@ -26,9 +26,13 @@ import type {
   StreamChunk,
   TokenUsage,
 } from "../../types.js";
-import { refreshAccessToken } from "./GoogleAuthHelper.js";
+import {
+  refreshAccessToken,
+  type RefreshedGoogleTokens,
+} from "./GoogleAuthHelper.js";
 import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
 import { CodeAssistClient, type CodeAssistClientOptions } from "./CodeAssistClient.js";
+import { CodeAssistRequestError } from "./CodeAssistErrors.js";
 
 const INFO: ProviderInfo = providerInfo("gemini");
 const SYNTHETIC_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
@@ -39,7 +43,7 @@ type CodeAssistCredentials = GeminiCredentials | AntigravityCredentials;
 export interface GeminiProviderOptions {
   info?: ProviderInfo;
   codeAssist?: CodeAssistClientOptions;
-  refreshAccessToken?: (refreshToken: string) => Promise<string>;
+  refreshAccessToken?: (refreshToken: string) => Promise<RefreshedGoogleTokens>;
 }
 
 export class GeminiProvider implements IProvider {
@@ -47,7 +51,7 @@ export class GeminiProvider implements IProvider {
   private client!: GoogleGenAI;
   private readonly codeAssistClient: CodeAssistClient | undefined;
   private readonly credentials: CodeAssistCredentials;
-  private readonly refreshToken: (refreshToken: string) => Promise<string>;
+  private readonly refreshToken: (refreshToken: string) => Promise<RefreshedGoogleTokens>;
 
   constructor(credentials: CodeAssistCredentials, options: GeminiProviderOptions = {}) {
     this.credentials = credentials;
@@ -83,27 +87,90 @@ export class GeminiProvider implements IProvider {
     return this.credentials.accessToken;
   }
 
+  private shouldRefreshAccessToken(): boolean {
+    if (this.credentials.authMethod !== "oauth" || !this.credentials.refreshToken) return false;
+    if (!this.credentials.accessToken) return true;
+    if (!this.credentials.expiresAt) return false;
+    return this.credentials.expiresAt <= Date.now() + 60_000;
+  }
+
+  private persistOAuthCredentials(tokens: RefreshedGoogleTokens): void {
+    this.credentials.accessToken = tokens.accessToken;
+    if (tokens.expiresAt) this.credentials.expiresAt = tokens.expiresAt;
+    this.client = this.createClient();
+
+    const cfg = loadStoredConfig();
+    const providerId = this.credentials.type;
+    if (cfg.credentials?.[providerId]?.type !== providerId) return;
+    cfg.credentials[providerId] = {
+      ...(cfg.credentials[providerId] as CodeAssistCredentials),
+      accessToken: tokens.accessToken,
+      ...(tokens.expiresAt ? { expiresAt: tokens.expiresAt } : {}),
+    };
+    saveStoredConfig(cfg);
+  }
+
+  private async refreshOAuthAccessToken(force = false): Promise<void> {
+    if (this.credentials.authMethod !== "oauth" || !this.credentials.refreshToken) return;
+    if (!force && !this.shouldRefreshAccessToken()) return;
+    const tokens = await this.refreshToken(this.credentials.refreshToken);
+    this.persistOAuthCredentials(tokens);
+  }
+
   private async ensureValidAuth(): Promise<void> {
-    if (this.credentials.authMethod === "oauth" && this.credentials.refreshToken) {
-      try {
-        const newToken = await this.refreshToken(this.credentials.refreshToken);
-        if (newToken && newToken !== this.credentials.accessToken) {
-          this.credentials.accessToken = newToken;
-          this.client = this.createClient();
-          
-          const cfg = loadStoredConfig();
-          const providerId = this.credentials.type;
-          if (cfg.credentials?.[providerId]?.type === providerId) {
-            cfg.credentials[providerId] = {
-              ...(cfg.credentials[providerId] as CodeAssistCredentials),
-              accessToken: newToken,
-            };
-            saveStoredConfig(cfg);
-          }
-        }
-      } catch (e) {
-        // Fallback to existing token if refresh fails
+    if (this.credentials.authMethod !== "oauth" || !this.credentials.refreshToken) return;
+    try {
+      await this.refreshOAuthAccessToken(false);
+    } catch {
+      // Keep the existing token for the first attempt; a 401 path retries with
+      // a forced refresh so transient refresh failures don't block healthy tokens.
+    }
+  }
+
+  private isAuthFailure(error: unknown): boolean {
+    return error instanceof CodeAssistRequestError && error.status === 401;
+  }
+
+  private async withAuthRetry<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (
+        this.credentials.authMethod !== "oauth" ||
+        !this.credentials.refreshToken ||
+        !this.isAuthFailure(error)
+      ) {
+        throw error;
       }
+      await this.refreshOAuthAccessToken(true);
+      return run();
+    }
+  }
+
+  private async *streamWithAuthRetry<T>(
+    run: () => AsyncGenerator<T>,
+  ): AsyncGenerator<T> {
+    let yielded = false;
+    try {
+      for await (const chunk of run()) {
+        yielded = true;
+        yield chunk;
+      }
+      return;
+    } catch (error) {
+      if (
+        yielded ||
+        this.credentials.authMethod !== "oauth" ||
+        !this.credentials.refreshToken ||
+        !this.isAuthFailure(error)
+      ) {
+        throw error;
+      }
+    }
+
+    await this.refreshOAuthAccessToken(true);
+    for await (const chunk of run()) {
+      yield chunk;
     }
   }
 
@@ -113,11 +180,13 @@ export class GeminiProvider implements IProvider {
   ): Promise<GenerationResponse> {
     const model = config.model || INFO.defaultModel;
     const response = this.codeAssistClient
-      ? await this.codeAssistClient.generateContent({
-          model,
-          contents: toCodeAssistContents(messages),
-          ...codeAssistOptions(config),
-        })
+      ? await this.withAuthRetry(() =>
+          this.codeAssistClient!.generateContent({
+            model,
+            contents: toCodeAssistContents(messages),
+            ...codeAssistOptions(config),
+          }),
+        )
       : await (async () => {
           await this.ensureValidAuth();
           return this.client.models.generateContent({
@@ -146,11 +215,13 @@ export class GeminiProvider implements IProvider {
   ): AsyncGenerator<StreamChunk> {
     const model = config.model || INFO.defaultModel;
     const stream = this.codeAssistClient
-      ? this.codeAssistClient.generateContentStream({
-          model,
-          contents: toCodeAssistContents(messages),
-          ...codeAssistOptions(config),
-        })
+      ? this.streamWithAuthRetry(() =>
+          this.codeAssistClient!.generateContentStream({
+            model,
+            contents: toCodeAssistContents(messages),
+            ...codeAssistOptions(config),
+          }),
+        )
       : await (async () => {
           await this.ensureValidAuth();
           return this.client.models.generateContentStream({
@@ -199,10 +270,12 @@ export class GeminiProvider implements IProvider {
   ): Promise<TokenUsage | undefined> {
     const model = config.model || INFO.defaultModel;
     const result = this.codeAssistClient
-      ? await this.codeAssistClient.countTokens(
-          model,
-          toGeminiContents(messages),
-          config.abortSignal,
+      ? await this.withAuthRetry(() =>
+          this.codeAssistClient!.countTokens(
+            model,
+            toGeminiContents(messages),
+            config.abortSignal,
+          ),
         )
       : await (async () => {
           await this.ensureValidAuth();
@@ -217,10 +290,12 @@ export class GeminiProvider implements IProvider {
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     try {
       if (this.codeAssistClient) {
-        await this.codeAssistClient.generateContent({
-          model: INFO.defaultModel,
-          contents: [{ role: "user", parts: [{ text: "ping" }] }],
-        });
+        await this.withAuthRetry(() =>
+          this.codeAssistClient!.generateContent({
+            model: INFO.defaultModel,
+            contents: [{ role: "user", parts: [{ text: "ping" }] }],
+          }),
+        );
       } else {
         await this.ensureValidAuth();
         await this.client.models.generateContent({
@@ -252,7 +327,7 @@ export class GeminiProvider implements IProvider {
       };
     }
 
-    const status = await this.codeAssistClient.getStatus();
+    const status = await this.withAuthRetry(() => this.codeAssistClient!.getStatus());
     const creditNotes = status.credits?.map(
       (credit) =>
         `credit ${credit.creditType ?? "unknown"}: ${credit.creditAmount ?? "unknown"}`,

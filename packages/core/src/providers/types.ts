@@ -219,6 +219,7 @@ export interface GeminiCredentials {
   location?: string;
   accessToken?: string;
   refreshToken?: string;
+  expiresAt?: number;
 }
 
 export interface AntigravityCredentials {

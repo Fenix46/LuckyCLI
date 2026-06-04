@@ -125,6 +125,9 @@ export function Setup({
         })
         .then((tokens) => {
           if (!tokens.accessToken) throw new Error("Google did not return an access token.");
+          if (!tokens.refreshToken) {
+            throw new Error("Google did not return a refresh token. Re-consent is required.");
+          }
           setAntigravityOAuthTokens(tokens);
           setStep("model");
         })
@@ -279,12 +282,14 @@ export function Setup({
     }
 
     if (provider === "antigravity") {
-      if (!antigravityOAuthTokens?.accessToken) return incompleteOAuth();
+      if (!antigravityOAuthTokens?.accessToken || !antigravityOAuthTokens.refreshToken) {
+        return incompleteOAuth();
+      }
       return {
         type: "antigravity",
         authMethod: "oauth",
         accessToken: antigravityOAuthTokens.accessToken,
-        ...(antigravityOAuthTokens.refreshToken ? { refreshToken: antigravityOAuthTokens.refreshToken } : {}),
+        refreshToken: antigravityOAuthTokens.refreshToken,
         ...(antigravityOAuthTokens.expiresAt ? { expiresAt: antigravityOAuthTokens.expiresAt } : {}),
       };
     }
@@ -300,6 +305,7 @@ export function Setup({
         authMethod: "oauth",
         accessToken: googleOAuthTokens.accessToken,
         ...(googleOAuthTokens.refreshToken ? { refreshToken: googleOAuthTokens.refreshToken } : {}),
+        ...(googleOAuthTokens.expiresAt ? { expiresAt: googleOAuthTokens.expiresAt } : {}),
       };
     }
 

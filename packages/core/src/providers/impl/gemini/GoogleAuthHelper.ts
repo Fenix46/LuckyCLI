@@ -42,6 +42,14 @@ export interface OAuthSession {
   stop: () => void;
 }
 
+export interface RefreshedGoogleTokens {
+  accessToken: string;
+  expiresAt?: number;
+  idToken?: string;
+  scope?: string;
+  tokenType?: string;
+}
+
 /**
  * Finds an available local port for the loopback callback server.
  */
@@ -215,7 +223,7 @@ function closeServer(server: http.Server): void {
 export async function refreshAccessToken(
   refreshToken: string,
   options: GoogleOAuthFlowOptions = {},
-): Promise<string> {
+): Promise<RefreshedGoogleTokens> {
   const clientConfig = getGoogleOAuthClientConfig(options);
   const client = new OAuth2Client({
     clientId: clientConfig.clientId,
@@ -224,10 +232,21 @@ export async function refreshAccessToken(
 
   client.setCredentials({ refresh_token: refreshToken });
   const { credentials } = await client.refreshAccessToken();
-  return credentials.access_token || "";
+  if (!credentials.access_token) {
+    throw new Error("Google OAuth refresh did not return an access token.");
+  }
+  return {
+    accessToken: credentials.access_token,
+    ...(credentials.expiry_date ? { expiresAt: credentials.expiry_date } : {}),
+    ...(credentials.id_token ? { idToken: credentials.id_token } : {}),
+    ...(credentials.scope ? { scope: credentials.scope } : {}),
+    ...(credentials.token_type ? { tokenType: credentials.token_type } : {}),
+  };
 }
 
-export async function refreshAntigravityAccessToken(refreshToken: string): Promise<string> {
+export async function refreshAntigravityAccessToken(
+  refreshToken: string,
+): Promise<RefreshedGoogleTokens> {
   return refreshAccessToken(refreshToken, {
     clientIdEnv: ANTIGRAVITY_OAUTH_CLIENT_ID_ENV,
     clientSecretEnv: ANTIGRAVITY_OAUTH_CLIENT_SECRET_ENV,

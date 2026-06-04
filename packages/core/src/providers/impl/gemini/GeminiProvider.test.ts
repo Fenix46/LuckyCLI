@@ -4,6 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 import { CodeAssistClient } from "./CodeAssistClient.js";
 import { refreshAccessToken } from "./GoogleAuthHelper.js";
 import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
+import { CodeAssistRequestError } from "./CodeAssistErrors.js";
 
 const mocks = vi.hoisted(() => ({
   codeAssistGenerateContent: vi.fn(),
@@ -34,7 +35,10 @@ vi.mock("@google/genai", () => {
 });
 
 vi.mock("./GoogleAuthHelper.js", () => ({
-  refreshAccessToken: vi.fn().mockResolvedValue("new-access-token"),
+  refreshAccessToken: vi.fn().mockResolvedValue({
+    accessToken: "new-access-token",
+    expiresAt: 1_700_000_000_000,
+  }),
 }));
 
 vi.mock("./CodeAssistClient.js", () => ({
@@ -128,12 +132,67 @@ describe("GeminiProvider", () => {
       authMethod: "oauth",
       accessToken: "expired-access-token",
       refreshToken: "mock-refresh-token",
+      expiresAt: 1,
     });
 
     const response = await provider.generate([], { model: "gemini-2.5-pro" });
     expect(refreshAccessToken).toHaveBeenCalledWith("mock-refresh-token");
     expect(mocks.codeAssistGenerateContent).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gemini-2.5-pro" }),
+    );
+    expect(saveStoredConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: expect.objectContaining({
+          gemini: expect.objectContaining({
+            accessToken: "new-access-token",
+            expiresAt: 1_700_000_000_000,
+          }),
+        }),
+      }),
+    );
+    expect(response.content[0]).toEqual({ type: "text", text: "mocked response" });
+  });
+
+  it("forces a refresh and retries once after a 401 auth failure", async () => {
+    vi.mocked(loadStoredConfig).mockReturnValue({
+      credentials: {
+        antigravity: {
+          type: "antigravity",
+          authMethod: "oauth",
+          refreshToken: "mock-refresh-token",
+          accessToken: "stale-access-token",
+        },
+      },
+    });
+    const provider = new GeminiProvider({
+      type: "antigravity",
+      authMethod: "oauth",
+      accessToken: "stale-access-token",
+      refreshToken: "mock-refresh-token",
+    });
+    mocks.codeAssistGenerateContent
+      .mockRejectedValueOnce(
+        new CodeAssistRequestError(401, { error: { message: "invalid credentials" } }, "generateContent", "gemini-2.5-pro"),
+      )
+      .mockResolvedValueOnce({
+        candidates: [
+          { content: { parts: [{ text: "mocked response" }] }, finishReason: "STOP" },
+        ],
+      });
+
+    const response = await provider.generate([], { model: "gemini-2.5-pro" });
+
+    expect(refreshAccessToken).toHaveBeenCalledWith("mock-refresh-token");
+    expect(mocks.codeAssistGenerateContent).toHaveBeenCalledTimes(2);
+    expect(saveStoredConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: expect.objectContaining({
+          antigravity: expect.objectContaining({
+            accessToken: "new-access-token",
+            expiresAt: 1_700_000_000_000,
+          }),
+        }),
+      }),
     );
     expect(response.content[0]).toEqual({ type: "text", text: "mocked response" });
   });
