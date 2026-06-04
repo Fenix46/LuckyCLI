@@ -1251,8 +1251,15 @@ export function App({
             {streamingPreview ? (
               // The live assistant message: a single block with one "lucky"
               // header, rendered identically to the finalized transcript item
-              // so it doesn't jump when the turn ends.
-              <StreamingPreview text={streamingPreview} theme={activeTheme} />
+              // so it doesn't jump when the turn ends. Bounded to the terminal
+              // height so the dynamic region never overflows the viewport and
+              // gets duplicated into the scrollback (a stock-Ink <Static>
+              // limitation; see notes on the planned Ink upgrade).
+              <StreamingPreview
+                text={streamingPreview}
+                theme={activeTheme}
+                maxLines={Math.max(4, terminalSize.height - 6)}
+              />
             ) : (
               <ThinkingStatus
                 theme={activeTheme}
