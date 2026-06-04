@@ -5,17 +5,33 @@ export function getModelPickerState(
   input: string,
   provider: ProviderId,
   activeModel: string,
+  /**
+   * Live model slugs for providers whose catalog is fetched at runtime
+   * (openai-oauth). When omitted, the static catalog is used.
+   */
+  liveModels?: string[],
 ): { open: boolean; query: string; items: string[] } {
   if (input !== "/model" && !input.startsWith("/model ")) {
     return { open: false, query: "", items: [] };
   }
 
-  const query = input.slice("/model".length).trim().toLowerCase();
-  const models = getAvailableModels(provider, activeModel);
+  // `/model --refresh` is a control flag, not a search query.
+  const raw = input.slice("/model".length).trim();
+  const query = raw === "--refresh" ? "" : raw.toLowerCase();
+  const models =
+    liveModels && liveModels.length
+      ? withActive(liveModels, activeModel)
+      : getAvailableModels(provider, activeModel);
   const items = query
     ? models.filter((model) => model.toLowerCase().includes(query))
     : models;
   return { open: true, query, items };
+}
+
+function withActive(models: string[], activeModel?: string): string[] {
+  const out = [...models];
+  if (activeModel && !out.includes(activeModel)) out.unshift(activeModel);
+  return out;
 }
 
 export function getThemePickerState(
@@ -53,8 +69,21 @@ export function getAvailableModels(provider: ProviderId, activeModel?: string): 
 export function validateModel(
   provider: ProviderId,
   model: string,
+  /** Live slugs for runtime-catalog providers (openai-oauth). */
+  liveModels?: string[],
 ): { ok: true } | { ok: false; message: string } {
   if (!model) return { ok: false, message: "model id cannot be empty" };
+
+  // openai-oauth validates against the live catalog, when we have it.
+  if (provider === "openai-oauth") {
+    if (!liveModels || liveModels.length === 0) return { ok: true }; // pre-fetch: trust it
+    if (liveModels.includes(model)) return { ok: true };
+    return {
+      ok: false,
+      message: `unknown ${provider} model: ${model}. Use /model to pick one of: ${liveModels.join(", ")}`,
+    };
+  }
+
   const knownModels = getAvailableModels(provider);
   if (knownModels.includes(model)) return { ok: true };
 

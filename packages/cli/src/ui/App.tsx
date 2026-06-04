@@ -16,19 +16,26 @@ import {
   type ProviderQuotaStatus,
   type Session,
   type TokenUsage,
+  CodexModelCache,
   buildAndSaveGraph,
   createSessionId,
+  defaultEffortFor,
   deriveTitle,
   detectSelfUpdate,
+  effortLevelsFor,
+  fetchCodexModels,
   getAutoUpdatePolicy,
+  getReasoningEffort,
   listSessions,
   loadStoredConfig,
   recordGraphBuilt,
+  saveReasoningEffort,
   saveSession,
   saveStoredConfig,
   withAutoUpdatePolicy,
   withMcpServer,
   withoutMcpServer,
+  type CodexModel,
 } from "@luckycli/core";
 import { applyUpdateNow, checkForUpdate, stageUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
@@ -321,8 +328,20 @@ export function App({
   const [mcpPanelError, setMcpPanelError] = useState<string | null>(null);
   const [selectedInstalledMcpIndex, setSelectedInstalledMcpIndex] = useState(0);
   const [selectedSearchMcpIndex, setSelectedSearchMcpIndex] = useState(0);
-  const modelPicker = getModelPickerState(input, meta.provider, meta.model);
+  // Live Codex model catalog (openai-oauth only), fetched on demand and cached
+  // for the session. The picker reads these slugs instead of a hardcoded list.
+  const codexCacheRef = useRef<CodexModelCache | null>(null);
+  const [codexModels, setCodexModels] = useState<CodexModel[]>([]);
+  const liveModels =
+    meta.provider === "openai-oauth" ? codexModels.map((m) => m.slug) : undefined;
+
+  const modelPicker = getModelPickerState(input, meta.provider, meta.model, liveModels);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+
+  // Second step of the openai-oauth picker: choose a reasoning effort.
+  const [effortPicker, setEffortPicker] = useState<{ model: string; levels: string[] } | null>(null);
+  const [selectedEffortIndex, setSelectedEffortIndex] = useState(0);
+
   const themePicker = getThemePickerState(input, activeTheme.id);
   const [selectedThemeIndex, setSelectedThemeIndex] = useState(0);
   const approvalOptions = ["allow", "always", "deny"] as const;
@@ -410,6 +429,7 @@ export function App({
         Boolean(userQuestionRequest) ||
         mcpPanelOpen ||
         modelPicker.open ||
+        Boolean(effortPicker) ||
         themePicker.open ||
         showSlashMenu;
       if (!modalActive) onCyclePermissionMode();
@@ -571,6 +591,32 @@ export function App({
       return;
     }
 
+    // 3a. Interactive effort picker navigation (second step, openai-oauth)
+    if (effortPicker) {
+      if (key.escape) {
+        setEffortPicker(null);
+        setSelectedEffortIndex(0);
+        return;
+      }
+      if (effortPicker.levels.length === 0) return;
+      if (key.downArrow) {
+        setSelectedEffortIndex((prev) => (prev + 1) % effortPicker.levels.length);
+        return;
+      }
+      if (key.upArrow) {
+        setSelectedEffortIndex(
+          (prev) => (prev - 1 + effortPicker.levels.length) % effortPicker.levels.length,
+        );
+        return;
+      }
+      if (key.return) {
+        const effort = effortPicker.levels[selectedEffortIndex];
+        if (effort) applyEffort(effortPicker.model, effort);
+        return;
+      }
+      return; // swallow other keys while the effort step is open
+    }
+
     // 3. Interactive model picker navigation
     if (modelPicker.open) {
       if (key.escape) {
@@ -674,13 +720,101 @@ export function App({
     if (key.ctrl && _in === "c" && !busy) exit();
   });
 
+  // Fetch the live Codex catalog (memoized for the session). Returns [] on
+  // failure after surfacing an error item; the active model still works.
+  const loadCodexModels = useCallback(
+    async (refresh = false): Promise<CodexModel[]> => {
+      const creds = loadStoredConfig().credentials?.["openai-oauth"];
+      if (!creds || creds.type !== "openai-oauth") return [];
+      const tokens = creds;
+      if (!codexCacheRef.current) {
+        codexCacheRef.current = new CodexModelCache(() =>
+          fetchCodexModels({
+            access: tokens.access,
+            refresh: tokens.refresh,
+            expires: tokens.expires,
+            ...(tokens.accountId ? { accountId: tokens.accountId } : {}),
+          }),
+        );
+      }
+      try {
+        const models = await codexCacheRef.current.get({ refresh });
+        setCodexModels(models);
+        return models;
+      } catch (error) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Could not fetch ChatGPT models: ${error instanceof Error ? error.message : error}`,
+          },
+        ]);
+        return [];
+      }
+    },
+    [],
+  );
+
+  // Fetch the live Codex catalog when the picker opens for openai-oauth, and
+  // re-fetch on `/model --refresh`. Memoized for the session by the cache.
+  useEffect(() => {
+    if (!modelPicker.open || meta.provider !== "openai-oauth") return;
+    const refresh = input.slice("/model".length).trim() === "--refresh";
+    void loadCodexModels(refresh);
+  }, [modelPicker.open, meta.provider, input, loadCodexModels]);
+
+  const applyEffort = useCallback(
+    (model: string, effort: string) => {
+      try {
+        saveReasoningEffort(effort);
+        onChangeModel(model);
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "assistant",
+            text: `Model changed to ${meta.provider} / ${model} (effort: ${effort})`,
+          },
+        ]);
+      } catch (error) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: error instanceof Error ? error.message : "failed to change model",
+          },
+        ]);
+      }
+      setEffortPicker(null);
+      setSelectedEffortIndex(0);
+      setInput("");
+    },
+    [meta.provider, onChangeModel],
+  );
+
   const selectModel = useCallback(
     (model: string) => {
-      const validation = validateModel(meta.provider, model);
+      const validation = validateModel(meta.provider, model, liveModels);
       if (!validation.ok) {
         setItems((prev) => [...prev, { kind: "error", text: validation.message }]);
         setInput("");
         return;
+      }
+
+      // openai-oauth: if the model exposes >1 reasoning level, open the effort
+      // step (Codex-style) seeded to the current/default effort.
+      if (meta.provider === "openai-oauth") {
+        const levels = effortLevelsFor(codexModels, model);
+        if (levels.length > 1) {
+          const seed =
+            getReasoningEffort(loadStoredConfig()) ||
+            defaultEffortFor(codexModels, model) ||
+            levels[0]!;
+          const seedIdx = Math.max(0, levels.indexOf(seed));
+          setEffortPicker({ model, levels });
+          setSelectedEffortIndex(seedIdx);
+          setInput("");
+          return;
+        }
       }
 
       try {
@@ -700,7 +834,7 @@ export function App({
       }
       setInput("");
     },
-    [meta.provider, onChangeModel],
+    [meta.provider, onChangeModel, liveModels, codexModels],
   );
 
   const selectTheme = useCallback(
@@ -1152,6 +1286,9 @@ export function App({
             rows: [
               { label: "provider", value: `${providerInfo.displayName} (${meta.provider})` },
               { label: "model", value: meta.model },
+              ...(meta.provider === "openai-oauth"
+                ? [{ label: "effort", value: getReasoningEffort(loadStoredConfig()) }]
+                : []),
               {
                 label: "context",
                 value: contextStatus?.contextWindow
@@ -1237,6 +1374,8 @@ export function App({
   } else if (mcpPanelOpen) {
     const rows = mcpPanelTab === "installed" ? installedMcpRows.length : mcpPanelResults.length;
     overlayRows = Math.min(14, rows + 4);
+  } else if (effortPicker) {
+    overlayRows = Math.min(14, effortPicker.levels.length + 3);
   } else if (modelPicker.open) {
     overlayRows = Math.min(14, Math.max(1, modelPicker.items.length) + 3);
   } else if (themePicker.open) {
@@ -1322,7 +1461,31 @@ export function App({
         ) : null}
       </ScrollViewport>
 
-      {modelPicker.open ? (
+      {effortPicker ? (
+        <Box
+          flexDirection="column"
+          paddingLeft={2}
+          marginBottom={0.5}
+          width="100%"
+        >
+          <Text bold color={activeTheme.accent}>
+            🧠 REASONING EFFORT FOR {effortPicker.model.toUpperCase()}
+          </Text>
+          <Box flexDirection="column" marginTop={0.2}>
+            {effortPicker.levels.map((level, idx) => (
+              <Box key={level} flexDirection="row">
+                <Text color={idx === selectedEffortIndex ? activeTheme.accent : "gray"}>
+                  {idx === selectedEffortIndex ? "❯ " : "  "}
+                </Text>
+                <Text color={idx === selectedEffortIndex ? activeTheme.primary : "white"}>
+                  {level}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+          <PickerHint theme={activeTheme} />
+        </Box>
+      ) : modelPicker.open ? (
         <Box
           flexDirection="column"
           paddingLeft={2}
