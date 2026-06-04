@@ -123,24 +123,24 @@ export function quotaLabel(label: string): string {
 
 export function formatStatusFooter(
   status: ContextStatus | null,
-  fallbackUsage: { input: number; output: number },
+  options: {
+    effort?: string;
+    thinking?: string;
+  } = {},
 ): string {
-  const totalInput = status?.totalInputTokens ?? fallbackUsage.input;
-  const totalOutput = status?.totalOutputTokens ?? fallbackUsage.output;
-  const current =
-    status?.currentInputTokens !== undefined
-      ? `turn: ${formatNumber(status.currentInputTokens)} in / ${formatNumber(status.currentOutputTokens ?? 0)} out`
-      : "turn: n/a";
-  return `ctx: ${formatContextFooter(status)} ┃ ${current} ┃ total: ${formatNumber(totalInput)} in / ${formatNumber(totalOutput)} out`;
+  const parts = [`ctx: ${formatContextFooter(status)}`];
+  if (options.effort) parts.push(`effort: ${options.effort}`);
+  if (options.thinking) parts.push(`thinking: ${options.thinking}`);
+  return parts.join(" ┃ ");
 }
 
 export function formatContextFooter(status: ContextStatus | null): string {
-  if (!status) return "unknown";
+  if (!status) return "syncing…";
   if (status.usedTokens !== undefined && status.usableTokens) {
     const used = status.usedPercentage ?? Math.round((status.ratio ?? 0) * 100);
     const remaining = status.remainingPercentage ?? Math.max(0, 100 - used);
-    return `${remaining}% free (${used}% used) · ${formatNumber(status.usedTokens)}/${formatNumber(status.usableTokens)}`;
+    return `${formatNumber(status.usedTokens)}/${formatNumber(status.usableTokens)} · ${remaining}% free`;
   }
-  if (status.contextWindow) return `window ${formatNumber(status.contextWindow)} | counter ${status.tokenCounter}`;
-  return "unknown";
+  if (status.contextWindow) return `${formatNumber(status.contextWindow)} window`;
+  return "syncing…";
 }

@@ -210,8 +210,6 @@ export function App({
     ]);
   }, []);
 
-  // Real-time metrics
-  const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 });
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
   // Scrollback within the alternate-screen viewport. scrollUp = lines revealed
@@ -245,14 +243,7 @@ export function App({
       setItems((prev) => patchLastTool(prev, name, output, error)),
     [],
   );
-  const onUsage = useCallback(
-    (usage: TokenUsage) =>
-      setTokenUsage((prev) => ({
-        input: prev.input + usage.inputTokens,
-        output: prev.output + usage.outputTokens,
-      })),
-    [],
-  );
+  const onUsage = useCallback((_usage: TokenUsage) => {}, []);
   const { busy, startedAt, streaming, abort, runTurn } = useTurnRunner({
     agent,
     appendItems,
@@ -375,6 +366,17 @@ export function App({
   useEffect(() => {
     setSelectedSearchMcpIndex(0);
   }, [mcpPanelOpen, mcpPanelTab, mcpPanelQuery, mcpPanelResults.length]);
+
+  const footerEffort =
+    meta.provider === "openai-oauth" || meta.provider === "claude"
+      ? getReasoningEffort(loadStoredConfig(), meta.provider)
+      : undefined;
+  const footerThinking =
+    meta.provider === "claude"
+      ? getThinkingEnabled(loadStoredConfig(), meta.provider)
+        ? "adaptive"
+        : "off"
+      : undefined;
 
   useEffect(() => {
     if (!mcpPanelOpen || mcpPanelTab !== "search") return;
@@ -1690,7 +1692,10 @@ export function App({
             </Text>
           ) : null}
           <Text color={activeTheme.muted} dimColor>
-            {formatStatusFooter(contextStatus, tokenUsage)}
+            {formatStatusFooter(contextStatus, {
+              ...(footerEffort ? { effort: footerEffort } : {}),
+              ...(footerThinking ? { thinking: footerThinking } : {}),
+            })}
           </Text>
         </Box>
       </Box>
