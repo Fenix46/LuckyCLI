@@ -7,7 +7,6 @@ import {
   catalogDetailToPreset,
   type Agent,
   type AgentEvent,
-  type AskUserRequest,
   type CatalogServerSummary,
   type ContextStatus,
   type Message,
@@ -17,7 +16,6 @@ import {
   type ProviderId,
   type ProviderQuotaStatus,
   type Session,
-  type ToolApproval,
   type TokenUsage,
   buildAndSaveGraph,
   createSessionId,
@@ -34,7 +32,7 @@ import { checkForUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { messagesToItems, patchLastTool } from "./lib/items.js";
-import { buildInstalledMcpRows, type InstalledMcpRow } from "./lib/mcp-rows.js";
+import { buildInstalledMcpRows } from "./lib/mcp-rows.js";
 import {
   getModelPickerState,
   getThemePickerState,
@@ -44,9 +42,6 @@ import {
 import {
   formatNumber,
   preview,
-  truncateSingleLine,
-  inputString,
-  wrapText,
 } from "./lib/format.js";
 import {
   contextRows,
@@ -62,26 +57,25 @@ import { ThinkingStatus } from "./components/ThinkingStatus.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
 import { TranscriptItem, ItemView } from "./components/Transcript.js";
+import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
+import { ApprovalRequestView } from "./components/Approval.js";
+import { UserQuestionRequestView } from "./components/UserQuestion.js";
+import type {
+  ApprovalRequest,
+  UserQuestionRequest,
+  PermissionMode,
+} from "./lib/requests.js";
 
 interface AppMeta {
   provider: ProviderId;
   model: string;
 }
 
-type McpPanelTab = "installed" | "search";
-
-export interface ApprovalRequest {
-  name: string;
-  input: unknown;
-  resolve: (decision: ToolApproval) => void;
-}
-
-export interface UserQuestionRequest extends AskUserRequest {
-  resolve: (answer: string) => void;
-}
-
-/** Session-wide tool-approval mode, cycled from the prompt with Shift+Tab. */
-export type PermissionMode = "normal" | "acceptEdits";
+export type {
+  ApprovalRequest,
+  UserQuestionRequest,
+  PermissionMode,
+} from "./lib/requests.js";
 
 interface AppProps {
   agent: Agent;
@@ -1424,368 +1418,6 @@ export function App({
 }
 
 
-function McpPanel({
-  theme,
-  width,
-  tab,
-  installedRows,
-  selectedInstalledIndex,
-  query,
-  results,
-  selectedSearchIndex,
-  loading,
-  error,
-}: {
-  theme: Theme;
-  width: number;
-  tab: McpPanelTab;
-  installedRows: InstalledMcpRow[];
-  selectedInstalledIndex: number;
-  query: string;
-  results: CatalogServerSummary[];
-  selectedSearchIndex: number;
-  loading: boolean;
-  error: string | null;
-}): React.JSX.Element {
-  return (
-    <Box flexDirection="column" paddingLeft={2} marginBottom={0.5} width="100%">
-      <Text bold color={theme.accent}>🧩 MCP CONTROL PANEL</Text>
-      <Box flexDirection="row" marginTop={0.2}>
-        <Text bold color={tab === "installed" ? theme.primary : theme.muted}>
-          {tab === "installed" ? "❯ " : "  "}Installed
-        </Text>
-        <Text color={theme.muted}>   </Text>
-        <Text bold color={tab === "search" ? theme.primary : theme.muted}>
-          {tab === "search" ? "❯ " : "  "}Search
-        </Text>
-      </Box>
-
-      {tab === "installed" ? (
-        <Box flexDirection="column" marginTop={0.4}>
-          {installedRows.length === 0 ? (
-            <Text color={theme.muted}>No MCP servers configured.</Text>
-          ) : (
-            installedRows.map((row, idx) => (
-              <Box key={row.name} flexDirection="row">
-                <Text color={idx === selectedInstalledIndex ? theme.accent : "gray"}>
-                  {idx === selectedInstalledIndex ? "❯ " : "  "}
-                </Text>
-                <Text bold color={idx === selectedInstalledIndex ? theme.primary : "white"}>
-                  {row.name.padEnd(22)}
-                </Text>
-                <Text color={idx === selectedInstalledIndex ? "white" : theme.muted}>
-                  ┃ {truncateSingleLine(row.summary, Math.max(20, width - 32))}
-                </Text>
-              </Box>
-            ))
-          )}
-          <Box marginTop={0.5}>
-            <Text color={theme.muted}>Enter toggle enable · d remove · r reload · Tab switch tab · Esc close</Text>
-          </Box>
-        </Box>
-      ) : (
-        <Box flexDirection="column" marginTop={0.4}>
-          <Text color={theme.muted}>query: <Text color="white">{query || "(type to search official registry)"}</Text></Text>
-          {loading ? (
-            <Text color={theme.accent}>Searching MCP registry...</Text>
-          ) : error ? (
-            <Text color={theme.error}>{error}</Text>
-          ) : results.length === 0 ? (
-            <Text color={theme.muted}>No search results.</Text>
-          ) : (
-            results.map((item, idx) => (
-              <Box key={item.name} flexDirection="row">
-                <Text color={idx === selectedSearchIndex ? theme.accent : "gray"}>
-                  {idx === selectedSearchIndex ? "❯ " : "  "}
-                </Text>
-                <Text bold color={idx === selectedSearchIndex ? theme.primary : "white"}>
-                  {truncateSingleLine(item.name, 28)}
-                </Text>
-                <Text color={idx === selectedSearchIndex ? "white" : theme.muted}>
-                  ┃ {truncateSingleLine(item.title ?? item.description ?? item.version ?? "no description", Math.max(20, width - 38))}
-                </Text>
-              </Box>
-            ))
-          )}
-          <Box marginTop={0.5}>
-            <Text color={theme.muted}>Type to search · Enter install selected · Tab switch tab · Esc close</Text>
-          </Box>
-        </Box>
-      )}
-    </Box>
-  );
-}
-
-/**
- * Lucky's mascot: the lucky black cat with pointy ears and a four-leaf clover,
- * hugging a terminal. Drawn so every row lines up in a monospace font.
- */
-
-
-
-function ApprovalRequestView({
-  request,
-  selectedIndex,
-  options,
-  theme,
-  width,
-}: {
-  request: ApprovalRequest;
-  selectedIndex: number;
-  options: readonly ("allow" | "always" | "deny")[];
-  theme: Theme;
-  width: number;
-}): React.JSX.Element {
-  const detail = approvalDisplay(request, width);
-  const panelWidth = Math.max(48, Math.min(width, 104));
-  return (
-    <Box
-      flexDirection="column"
-      marginY={0.5}
-      width={panelWidth}
-      borderStyle="single"
-      borderColor={theme.warning}
-      borderTop={false}
-      borderRight={false}
-      borderBottom={false}
-      paddingLeft={2}
-    >
-      <Box flexDirection="row">
-        <Text bold color={theme.warning}>● Permission required</Text>
-        <Text color={theme.muted}>  ·  </Text>
-        <Text bold color={theme.accent}>{request.name}</Text>
-      </Box>
-
-      <Box marginTop={0.3}>
-        <Text bold color="white">{detail.question}</Text>
-      </Box>
-
-      {detail.target ? (
-        <Box marginTop={0.2} flexDirection="row">
-          <Text color={theme.muted}>target  </Text>
-          <Text color={theme.primary}>{detail.target}</Text>
-        </Box>
-      ) : null}
-
-      {detail.preview.length > 0 ? (
-        <Box flexDirection="column" marginTop={0.4}>
-          {detail.preview.map((line, index) => (
-            <Box key={index} flexDirection="row">
-              <Text color={theme.muted} dimColor>│ </Text>
-              <Text color={line.color === "added" ? theme.success : line.color === "removed" ? theme.error : theme.muted}>
-                {line.text}
-              </Text>
-            </Box>
-          ))}
-        </Box>
-      ) : null}
-
-      <Box flexDirection="column" marginTop={0.6}>
-        {options.map((option, index) => (
-          <ApprovalOptionView
-            key={option}
-            option={option}
-            selected={index === selectedIndex}
-            theme={theme}
-          />
-        ))}
-      </Box>
-
-      <Box marginTop={0.4}>
-        <Text color={theme.muted} dimColor>↑↓ / jk move · enter approve · esc reject</Text>
-      </Box>
-    </Box>
-  );
-}
-
-function ApprovalOptionView({
-  option,
-  selected,
-  theme,
-}: {
-  option: "allow" | "always" | "deny";
-  selected: boolean;
-  theme: Theme;
-}): React.JSX.Element {
-  const label =
-    option === "allow" ? "Allow once" : option === "always" ? "Allow always" : "Reject";
-  const description =
-    option === "allow"
-      ? "Run this tool call"
-      : option === "always"
-        ? "Remember this exact request for this session"
-        : "Block it and continue";
-  const color = option === "deny" ? theme.error : option === "always" ? theme.accent : theme.success;
-  return (
-    <Box flexDirection="row">
-      <Text bold={selected} color={selected ? color : theme.muted}>
-        {selected ? "❯ " : "  "}
-        {label.padEnd(14)}
-      </Text>
-      <Text color={selected ? "white" : theme.muted} dimColor={!selected}>{description}</Text>
-    </Box>
-  );
-}
-
-function UserQuestionRequestView({
-  request,
-  selectedIndex,
-  theme,
-  width,
-}: {
-  request: UserQuestionRequest;
-  selectedIndex: number;
-  theme: Theme;
-  width: number;
-}): React.JSX.Element {
-  const options = request.options ?? [];
-  const freeText = request.allowFreeText ?? true;
-  const panelWidth = Math.max(48, Math.min(width, 104));
-  return (
-    <Box
-      flexDirection="column"
-      marginY={0.5}
-      width={panelWidth}
-      borderStyle="single"
-      borderColor={theme.accent}
-      borderTop={false}
-      borderRight={false}
-      borderBottom={false}
-      paddingLeft={2}
-    >
-      <Box flexDirection="row">
-        <Text bold color={theme.accent}>● Question from agent</Text>
-        <Text color={theme.muted}>  ·  </Text>
-        <Text bold color={theme.accent}>ask_user</Text>
-      </Box>
-
-      <Box marginTop={0.3}>
-        <Text bold color="white">{request.question}</Text>
-      </Box>
-
-      {options.length > 0 ? (
-        <Box flexDirection="column" marginTop={0.6}>
-          {options.map((option, index) => (
-            <Box key={`${option}-${index}`} flexDirection="row">
-              <Text bold={index === selectedIndex} color={index === selectedIndex ? theme.accent : theme.muted} dimColor={index !== selectedIndex}>
-                {index === selectedIndex ? "❯ " : "  "}
-                {option}
-              </Text>
-            </Box>
-          ))}
-        </Box>
-      ) : null}
-
-      <Box marginTop={0.4}>
-        <Text color={theme.muted} dimColor>
-          {freeText
-            ? "type an answer · enter to send"
-            : "↑↓ / jk move · enter answer · esc skip"}
-          {freeText && options.length > 0 ? " · empty enter uses selected" : ""}
-        </Text>
-      </Box>
-    </Box>
-  );
-}
-
-interface ApprovalDisplay {
-  question: string;
-  target?: string;
-  preview: { text: string; color?: "added" | "removed" | "muted" }[];
-}
-
-function approvalDisplay(request: ApprovalRequest, width: number): ApprovalDisplay {
-  const previewWidth = Math.max(32, Math.min(width - 8, 96));
-  if (request.name === "exec") {
-    const command = inputString(request.input, "command");
-    return {
-      question: "Run this shell command?",
-      preview: command ? codePreview(command, previewWidth, 5) : [],
-    };
-  }
-
-  if (request.name === "edit_file") {
-    const path = inputString(request.input, "path");
-    const oldString = inputString(request.input, "oldString");
-    const newString = inputString(request.input, "newString");
-    return {
-      question: "Apply this edit?",
-      ...(path ? { target: path } : {}),
-      preview: editPreview(oldString, newString, previewWidth),
-    };
-  }
-
-  if (request.name === "write_file") {
-    const path = inputString(request.input, "path");
-    const content = inputString(request.input, "content");
-    return {
-      question: "Write this file?",
-      ...(path ? { target: path } : {}),
-      preview: content ? codePreview(content, previewWidth, 8) : [],
-    };
-  }
-
-  return {
-    question: `Run ${request.name}?`,
-    preview: objectPreview(request.input, previewWidth),
-  };
-}
-
-function editPreview(
-  oldString: string | undefined,
-  newString: string | undefined,
-  width: number,
-): { text: string; color?: "added" | "removed" | "muted" }[] {
-  const lines: { text: string; color?: "added" | "removed" | "muted" }[] = [];
-  if (oldString) {
-    lines.push({ text: "Remove:", color: "muted" });
-    lines.push(...codePreview(oldString, width - 2, 5, "- ", "removed"));
-  }
-  if (newString) {
-    if (lines.length > 0) lines.push({ text: "", color: "muted" });
-    lines.push({ text: "Add:", color: "muted" });
-    lines.push(...codePreview(newString, width - 2, 5, "+ ", "added"));
-  }
-  return lines.length > 0 ? lines : [{ text: "No preview available", color: "muted" }];
-}
-
-function codePreview(
-  value: string,
-  width: number,
-  maxLines: number,
-  prefix = "  ",
-  color: "added" | "removed" | "muted" = "muted",
-): { text: string; color?: "added" | "removed" | "muted" }[] {
-  const normalized = value.replace(/\t/g, "  ");
-  const rawLines = normalized.split("\n");
-  const visibleLines = rawLines.slice(0, maxLines);
-  const lines = visibleLines.flatMap((line) =>
-    wrapText(`${prefix}${line || " "}`, width).map((wrapped) => ({ text: wrapped, color })),
-  );
-  if (rawLines.length > maxLines) {
-    lines.push({ text: `${prefix}… ${rawLines.length - maxLines} more lines`, color: "muted" });
-  }
-  return lines;
-}
-
-function objectPreview(
-  input: unknown,
-  width: number,
-): { text: string; color?: "added" | "removed" | "muted" }[] {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return [];
-  }
-  return Object.entries(input as Record<string, unknown>)
-    .slice(0, 8)
-    .map(([key, value]) => {
-      const rendered =
-        typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
-      return {
-        text: `  ${key}: ${truncateSingleLine(rendered, width - key.length - 4)}`,
-        color: "muted" as const,
-      };
-    });
-}
 
 
 interface EventHandlers {
