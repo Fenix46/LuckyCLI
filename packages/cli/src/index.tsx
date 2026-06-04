@@ -3,6 +3,7 @@ import "dotenv/config";
 import { parseArgs } from "node:util";
 import { render } from "ink";
 import React from "react";
+import { createMouseFilteredStdin } from "./mouse-input.js";
 import {
   buildAndSaveGraph,
   latestSession,
@@ -12,6 +13,7 @@ import {
   type Session,
 } from "@luckycli/core";
 import { Root } from "./ui/Root.js";
+import { runMcpCommand } from "./mcp-cli.js";
 
 const HELP = `lucky — a multi-provider terminal agent
 
@@ -32,6 +34,10 @@ Options:
 Commands:
   graph build [path]    build the project knowledge graph into .lucky/graph
   graph rebuild [path]  rebuild it from scratch
+  mcp list              list configured MCP servers
+  mcp status            connect to each MCP server and report status
+  mcp login <name>      authorize a remote MCP server via OAuth
+  mcp logout <name>     forget a remote MCP server's stored tokens
 `;
 
 function printSessions(): void {
@@ -87,6 +93,18 @@ function main(): void {
       process.stderr.write(`graph build failed: ${err instanceof Error ? err.message : err}\n`);
       process.exit(1);
     });
+    return;
+  }
+
+  if (rawArgs[0] === "mcp") {
+    runMcpCommand(rawArgs.slice(1))
+      .then((code) => {
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        process.stderr.write(`mcp command failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
     return;
   }
 
@@ -149,14 +167,42 @@ function main(): void {
     ...(!values.model && resume ? { model: resume.model } : {}),
   });
 
-  render(
+  // Enable SGR mouse tracking so the wheel scrolls the transcript, and route
+  // stdin through a filter that strips the mouse sequences before Ink sees them
+  // (otherwise they leak into the prompt as raw "<64;..M" text). Only when
+  // stdin is a real TTY; piped/non-interactive runs keep the plain stdin.
+  const interactive = Boolean(process.stdin.isTTY);
+  const mouse = interactive ? createMouseFilteredStdin(process.stdin) : null;
+  if (interactive) {
+    process.stdout.write("\x1b[?1000h\x1b[?1006h");
+    const disableMouse = () => process.stdout.write("\x1b[?1006l\x1b[?1000l");
+    process.on("exit", disableMouse);
+    process.on("SIGINT", () => {
+      disableMouse();
+      process.exit(0);
+    });
+  }
+
+  const instance = render(
     React.createElement(Root, {
       config,
       forceSetup: values.setup === true,
       ...(resume ? { resume } : {}),
       ...(pickResume ? { pickResume: true } : {}),
     }),
+    // Render in the terminal's alternate screen (like vim/less): Ink owns the
+    // whole screen and redraws in place, so the streaming reply renders at full
+    // height with no scrollback duplication. The transcript scrolls internally.
+    {
+      alternateScreen: true,
+      ...(mouse ? { stdin: mouse.stdin } : {}),
+    },
   );
+
+  instance.waitUntilExit().finally(() => {
+    mouse?.dispose();
+    if (interactive) process.stdout.write("\x1b[?1006l\x1b[?1000l");
+  });
 }
 
 main();

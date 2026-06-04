@@ -20,6 +20,35 @@ describe("ToolRegistry", () => {
     expect(defs[0]?.parameters).toMatchObject({ type: "object" });
   });
 
+  it("preserves an explicit provider-facing JSON schema override", () => {
+    const passthrough = defineTool({
+      name: "passthrough",
+      description: "Passthrough JSON schema.",
+      schema: z.object({}).passthrough(),
+      parametersSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      async execute(input) {
+        return { content: JSON.stringify(input) };
+      },
+    });
+
+    const defs = new ToolRegistry().register(passthrough).definitions();
+    expect(defs[0]?.parameters).toEqual({
+      type: "object",
+      properties: {
+        query: { type: "string" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    });
+  });
+
   it("validates input and runs the tool", async () => {
     const reg = new ToolRegistry().register(echo);
     const ok = await reg.execute("echo", { message: "hi" }, { cwd: "/" });

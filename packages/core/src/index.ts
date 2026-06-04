@@ -101,6 +101,11 @@ export type { BuildOptions, BuildProgress, GraphBuildSummary } from "./graph/bui
 export { updateGraphForFiles } from "./graph/update.js";
 export type { UpdateSummary } from "./graph/update.js";
 export {
+  diffSnapshots,
+  snapshotFiles,
+  trackedGraphFiles,
+} from "./graph/fs-snapshot.js";
+export {
   callersOf,
   calleesOf,
   godNodes,
@@ -189,3 +194,73 @@ export {
   refreshAntigravityAccessToken,
   openBrowser,
 } from "./providers/impl/gemini/GoogleAuthHelper.js";
+
+// MCP domain types.
+export {
+  normalizeMcpServers,
+  withMcpServer,
+  withoutMcpServer,
+} from "./mcp/config.js";
+export {
+  adaptMcpTool,
+  makeMcpToolName,
+} from "./mcp/tool-adapter.js";
+export { McpLocalClient } from "./mcp/local-client.js";
+export { McpRemoteClient } from "./mcp/remote-client.js";
+export type { McpClient } from "./mcp/client.js";
+export { McpManager } from "./mcp/manager.js";
+export type { McpManagerOptions } from "./mcp/manager.js";
+export { McpOAuthProvider, nonInteractiveMcpOAuthProvider } from "./mcp/oauth-provider.js";
+export type { McpOAuthProviderOptions } from "./mcp/oauth-provider.js";
+export { startOAuthCallbackServer } from "./mcp/oauth-callback.js";
+export type { OAuthCallbackResult, OAuthCallbackServer } from "./mcp/oauth-callback.js";
+export { authorizeMcpServer } from "./mcp/oauth-flow.js";
+export type { AuthorizeMcpResult, AuthorizeMcpServerOptions } from "./mcp/oauth-flow.js";
+export {
+  clearMcpAuthEntry,
+  getMcpAuthEntry,
+  loadMcpAuthStore,
+  mcpAuthFilePath,
+  saveMcpAuthStore,
+  updateMcpAuthEntry,
+} from "./mcp/auth-store.js";
+export type { McpAuthEntry, McpAuthStore } from "./mcp/auth-store.js";
+export {
+  isMcpServerConfig,
+} from "./mcp/types.js";
+export type {
+  McpConnectionStatus,
+  McpLocalServerConfig,
+  McpPromptDescriptor,
+  McpRemoteServerConfig,
+  McpResourceDescriptor,
+  McpServerConfig,
+  McpToolDescriptor,
+} from "./mcp/types.js";
+
+// MCP catalog.
+export { OfficialMcpRegistryCatalog } from "./mcp-catalog/official.js";
+export {
+  CachedMcpCatalog,
+  catalogCacheFilePath,
+  isEntryFresh,
+  loadCatalogCache,
+  saveCatalogCache,
+} from "./mcp-catalog/cache.js";
+export type {
+  CachedCatalogEntry,
+  McpCatalogCacheData,
+  McpCatalogSource,
+} from "./mcp-catalog/cache.js";
+export {
+  catalogDetailToPreset,
+  presetToStoredMcpConfig,
+} from "./mcp-catalog/presets.js";
+export type {
+  CatalogPackage,
+  CatalogRemote,
+  CatalogSearchResult,
+  CatalogServerDetail,
+  CatalogServerSummary,
+  LuckyMcpPreset,
+} from "./mcp-catalog/types.js";

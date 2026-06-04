@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
-import SelectInput from "ink-select-input";
-import TextInput from "ink-text-input";
+import { SelectList } from "./components/SelectList.js";
+import { TextField } from "./components/TextField.js";
 import React, { useEffect, useRef, useState } from "react";
 import {
   PROVIDER_CATALOG,
@@ -354,7 +354,7 @@ export function Setup({
               subtitle="Pick the terminal palette before configuring the agent."
               theme={theme}
             >
-              <SelectInput
+              <SelectList
                 items={THEMES.map((candidate) => ({
                   key: candidate.id,
                   label: `${candidate.name} (${candidate.id})`,
@@ -372,7 +372,7 @@ export function Setup({
               subtitle="Select the account or local runtime LuckyCLI should use."
               theme={theme}
             >
-              <SelectInput
+              <SelectList
                 items={listProviders().map((provider) => ({
                   key: provider.id,
                   label: providerLabel(provider.id),
@@ -393,7 +393,7 @@ export function Setup({
               subtitle={`Choose how to authenticate with ${providerName}.`}
               theme={theme}
             >
-              <SelectInput
+              <SelectList
                 items={PROVIDER_CATALOG[selectedProviderId].authMethods.map((method) => ({
                   key: method.id,
                   label: method.displayName,
@@ -438,7 +438,7 @@ export function Setup({
               subtitle="Select the default model. You can switch later with /model."
               theme={theme}
             >
-              <SelectInput
+              <SelectList
                 items={catalogEntry.availableModels.map((model) => ({
                   key: model,
                   label: model,
@@ -642,7 +642,7 @@ function SetupInput({
     <Box flexDirection="column">
       <Box flexDirection="row">
         <Text bold color={theme.accent}>{label}: </Text>
-        <TextInput value={value} onChange={onChange} onSubmit={onSubmit} {...(mask ? { mask } : {})} />
+        <TextField value={value} onChange={onChange} onSubmit={onSubmit} {...(mask ? { mask } : {})} />
       </Box>
       <Box marginTop={1}>
         <Text color={theme.muted}>

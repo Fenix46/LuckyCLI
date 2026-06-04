@@ -1,0 +1,65 @@
+import { Box, Text } from "ink";
+import React from "react";
+import type { Theme } from "../themes.js";
+import type { UserQuestionRequest } from "../lib/requests.js";
+
+export function UserQuestionRequestView({
+  request,
+  selectedIndex,
+  theme,
+  width,
+}: {
+  request: UserQuestionRequest;
+  selectedIndex: number;
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
+  const options = request.options ?? [];
+  const freeText = request.allowFreeText ?? true;
+  const panelWidth = Math.max(48, Math.min(width, 104));
+  return (
+    <Box
+      flexDirection="column"
+      marginY={0.5}
+      width={panelWidth}
+      borderStyle="single"
+      borderColor={theme.accent}
+      borderTop={false}
+      borderRight={false}
+      borderBottom={false}
+      paddingLeft={2}
+    >
+      <Box flexDirection="row">
+        <Text bold color={theme.accent}>● Question from agent</Text>
+        <Text color={theme.muted}>  ·  </Text>
+        <Text bold color={theme.accent}>ask_user</Text>
+      </Box>
+
+      <Box marginTop={0.3}>
+        <Text bold color="white">{request.question}</Text>
+      </Box>
+
+      {options.length > 0 ? (
+        <Box flexDirection="column" marginTop={0.6}>
+          {options.map((option, index) => (
+            <Box key={`${option}-${index}`} flexDirection="row">
+              <Text bold={index === selectedIndex} color={index === selectedIndex ? theme.accent : theme.muted} dimColor={index !== selectedIndex}>
+                {index === selectedIndex ? "❯ " : "  "}
+                {option}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
+
+      <Box marginTop={0.4}>
+        <Text color={theme.muted} dimColor>
+          {freeText
+            ? "type an answer · enter to send"
+            : "↑↓ / jk move · enter answer · esc skip"}
+          {freeText && options.length > 0 ? " · empty enter uses selected" : ""}
+        </Text>
+      </Box>
+    </Box>
+  );
+}
