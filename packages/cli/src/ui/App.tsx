@@ -44,6 +44,7 @@ import {
   formatStatusFooter,
 } from "./lib/status.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
+import { useMouseWheel } from "./hooks/useMouseWheel.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
 import { ThinkingStatus } from "./components/ThinkingStatus.js";
@@ -203,6 +204,17 @@ export function App({
   // above the bottom (0 = pinned to newest); maxScroll is reported by the viewport.
   const [scrollUp, setScrollUp] = useState(0);
   const [maxScroll, setMaxScroll] = useState(0);
+  const maxScrollRef = useRef(0);
+  maxScrollRef.current = maxScroll;
+
+  const onWheel = useCallback((direction: "up" | "down", ticks: number) => {
+    const step = 3 * ticks; // a few lines per wheel notch
+    setScrollUp((prev) => {
+      const next = direction === "up" ? prev + step : prev - step;
+      return Math.min(maxScrollRef.current, Math.max(0, next));
+    });
+  }, []);
+  useMouseWheel(onWheel);
 
   const appendItems = useCallback(
     (next: Item[]) => {

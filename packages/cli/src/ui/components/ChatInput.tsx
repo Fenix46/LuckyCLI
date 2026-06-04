@@ -64,6 +64,9 @@ export function ChatInput({
     }
 
     if (!input) return;
+    // Guard against stray control/escape bytes leaking in (e.g. fragments of
+    // SGR mouse-wheel sequences, which share stdin with the wheel listener).
+    if (hasControlChar(input)) return;
     const nextValue = insertAt(value, cursorOffset, input);
     onChange(nextValue);
     setCursorOffset(cursorOffset + input.length);
@@ -81,4 +84,12 @@ export function ChatInput({
 
 function insertAt(value: string, offset: number, text: string): string {
   return value.slice(0, offset) + text + value.slice(offset);
+}
+
+/** True if the string contains any C0 control character (code < 0x20). */
+function hasControlChar(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) < 0x20) return true;
+  }
+  return false;
 }
