@@ -146,7 +146,10 @@ export class Agent {
   }
 
   async compactNow(): Promise<CompactionResult> {
-    return this.compactHistory();
+    // Manual /compact is an explicit user request: compress now whenever there
+    // is anything to compress, even on a short conversation that hasn't yet
+    // grown past keepRecentTurns. The automatic path stays threshold-gated.
+    return this.compactHistory(undefined, { force: true });
   }
 
   /** Run one user turn to completion, yielding events as work progresses. */
@@ -372,14 +375,33 @@ export class Agent {
 
   private shouldCompact(status: ContextStatus): boolean {
     if (!this.compaction.enabled) return false;
-    if (!status.contextWindow || !status.usedTokens || !status.usableTokens) return false;
-    if (status.tokenCounter !== "provider") return false;
+    // Decide purely from the same context numbers the UI already shows for
+    // every provider (used vs. usable tokens). We deliberately do NOT gate on
+    // tokenCounter === "provider": any available count is enough to act on, and
+    // requiring "provider" made the trigger provider-specific — e.g. it never
+    // fired on the very first turn or when a provider reports usage through a
+    // path the UI accepts but this gate rejected.
+    if (!status.usedTokens || !status.usableTokens) return false;
+    // Still skip on genuinely short conversations: there's nothing worth
+    // summarizing until there's history older than the recent turns we keep.
     if (this.history.length <= this.compaction.keepRecentTurns * 2) return false;
     return status.usedTokens >= status.usableTokens * this.compaction.thresholdRatio;
   }
 
-  private async compactHistory(beforeTokens?: number): Promise<CompactionResult> {
-    const splitIndex = findRecentTurnStart(this.history, this.compaction.keepRecentTurns);
+  private async compactHistory(
+    beforeTokens?: number,
+    opts: { force?: boolean } = {},
+  ): Promise<CompactionResult> {
+    // Normally we keep the last keepRecentTurns user turns verbatim and compact
+    // everything before them. On a short conversation that split point is 0
+    // (not enough turns yet). The automatic path bails there — it only fires
+    // when the context is genuinely large. A manual /compact instead forces a
+    // split that keeps just the final user turn verbatim, so it always makes
+    // progress as long as there is older history to summarize.
+    let splitIndex = findRecentTurnStart(this.history, this.compaction.keepRecentTurns);
+    if (splitIndex <= 0 && opts.force) {
+      splitIndex = findRecentTurnStart(this.history, 1);
+    }
     if (splitIndex <= 0) {
       return {
         beforeTokens,

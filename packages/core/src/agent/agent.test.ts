@@ -512,6 +512,50 @@ describe("Agent loop", () => {
     });
   });
 
+  it("manual compaction compresses a short conversation below keepRecentTurns", async () => {
+    // Default keepRecentTurns is 6. A two-turn chat would leave the
+    // turn-count split at 0, so the old compactHistory bailed with
+    // "Nothing to compact yet". Manual /compact forces a split that keeps the
+    // final user turn verbatim and summarizes everything before it.
+    const agent = new Agent({
+      provider: new CompactingProvider(),
+      model: "gpt-4o",
+      tools: new ToolRegistry(),
+    });
+
+    await collect(agent.send("first"));
+    await collect(agent.send("second"));
+    const before = agent.messages.length;
+
+    const result = await agent.compactNow();
+
+    expect(result.removedMessages).toBeGreaterThan(0);
+    expect(result.summary).toContain("summary of earlier turns");
+    expect(agent.messages.length).toBeLessThan(before);
+    expect(agent.messages[0]).toMatchObject({ role: "system" });
+    // The final user turn is kept verbatim, never summarized away.
+    expect(agent.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "ok" }],
+    });
+  });
+
+  it("manual compaction is a no-op when there is nothing older to compress", async () => {
+    const agent = new Agent({
+      provider: new CompactingProvider(),
+      model: "gpt-4o",
+      tools: new ToolRegistry(),
+    });
+
+    // A single turn: only the latest user turn exists, nothing older to keep
+    // behind, so even a forced compaction has nothing to do.
+    await collect(agent.send("only"));
+    const result = await agent.compactNow();
+
+    expect(result.removedMessages).toBe(0);
+    expect(result.summary).toBe("Nothing to compact yet.");
+  });
+
   it("uses provider runtime model metadata for context accounting", async () => {
     const agent = new Agent({
       provider: new RuntimeModelInfoProvider(),
