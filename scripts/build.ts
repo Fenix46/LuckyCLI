@@ -8,10 +8,14 @@
  */
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const entry = join(root, "packages/cli/src/index.tsx");
+// Baked into the binary so the compiled CLI never reads package.json off disk
+// (there is none inside the single-file bundle — $bunfs has no package.json).
+const version = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version;
 const outDir = join(root, "dist-bin");
 const stub = join(here, "stubs/react-devtools-core.js");
 // Bun-only wasm-asset module: embeds the tree-sitter grammars into the binary.
@@ -64,6 +68,7 @@ for (const name of selected) {
     entrypoints: [entry],
     plugins,
     define: {
+      __LUCKY_VERSION__: JSON.stringify(version),
       __LUCKY_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(googleOAuthClientId),
       __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(googleOAuthClientSecret),
       __LUCKY_ANTIGRAVITY_OAUTH_CLIENT_ID__: JSON.stringify(antigravityOAuthClientId),
