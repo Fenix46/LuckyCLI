@@ -37,13 +37,18 @@ export default function sliceAnsi(
   let include = false
 
   for (const token of tokens) {
+    // `@alcalzone/ansi-tokenize` types `token` as a ControlCode | Char union
+    // whose Char branch carries `value`/`fullWidth`; the original fork code
+    // accesses them after a `type === 'ansi'` guard the union doesn't narrow.
+    // Read through a permissive view to preserve the upstream logic verbatim.
+    const tk = token as { type: string; value: string; fullWidth?: boolean };
     // Advance by display width, not code units. Combining marks (Devanagari
     // matras, virama, diacritics) are width 0 — counting them via .length
     // advanced position past `end` early and truncated the slice. Callers
     // pass start/end in display cells (via stringWidth), so position must
     // track the same units.
     const width =
-      token.type === 'ansi' ? 0 : token.fullWidth ? 2 : stringWidth(token.value)
+      token.type === 'ansi' ? 0 : tk.fullWidth ? 2 : stringWidth(tk.value)
 
     // Break AFTER trailing zero-width marks — a combining mark attaches to
     // the preceding base char, so "भा" (भ + ा, 1 display cell) sliced at
@@ -77,7 +82,7 @@ export default function sliceAnsi(
       }
 
       if (include) {
-        result += token.value
+        result += tk.value
       }
 
       position += width

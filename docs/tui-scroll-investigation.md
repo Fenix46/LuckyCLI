@@ -315,6 +315,41 @@ import — ignore.)
   a compatibility re-export `vendor/ink/index.ts` that mirrors ink's public API.
 
 ### Current state (update this line each session)
-**As of 2026-06-05:** steps 1–2 done (engine + yoga copied to
-`packages/cli/src/vendor/`). Nothing wired, nothing compiles yet. Next: step 3
-(copy pure utils) then step 4 (shims).
+**As of 2026-06-05:** steps 1–7 of the checklist done. The vendored Ink fork +
+TS Yoga port **typecheck and build cleanly** (`npm run typecheck` = 0 errors;
+full vitest suite green, 420 tests). What was needed beyond the copy:
+- Pure utils copied: `intl.ts`, `semver.ts`, `sliceAnsi.ts` → `vendor/utils/`.
+- Shims written: `vendor/utils/{debug,log,env,envUtils,fullscreen,earlyInput,
+  execFileNoThrow}.ts` and `vendor/bootstrap/state.ts` (only the surface the
+  engine uses; `markScrollActivity` kept functional, rest no-op).
+- Missing-from-leak files reconstructed as stubs: `vendor/ink/cursor.ts`,
+  `vendor/ink/devtools.ts`, `vendor/ink/events/{paste,resize}-event.ts`.
+- `vendor/ink/global.d.ts` reconstructed (JSX intrinsic `ink-*` elements,
+  augmenting BOTH `react`'s `React.JSX` and global `JSX` — React 19 moved it).
+- `vendor/ink/vendor-shims.d.ts`: ambient decls for `react/compiler-runtime`
+  (the `c` memo helper — exists at runtime, missing from React's types),
+  `bidi-js`, and the `Bun` global (`stringWidth`/`semver`/`wrapAnsi`).
+- Import paths rewired: depth from `components/`/`termio/` etc. is `../../utils`
+  (utils is a sibling of ink under vendor/); top-level ink files use `../utils`.
+- `@ts-expect-error`→`@ts-ignore` in `ink.tsx`/`render-to-screen.ts` (they
+  suppressed `@types/react-reconciler@0.32` arg-count mismatches; we pinned
+  `@types/react-reconciler@^0.33` to match runtime 0.33, making them unused).
+- TS strategy: `vendor/tsconfig.json` is a loose composite project (strict off,
+  noImplicitAny off) referenced from `packages/cli/tsconfig.json`, which
+  EXCLUDES `src/vendor` from its own strict build. So Lucky stays strict; the
+  fork is treated as a typed third-party lib. Interface types (ScrollBoxHandle,
+  useVirtualScroll) are preserved for wiring.
+
+**Nothing is wired to Lucky's UI yet.** `App.tsx` still uses the old
+`ScrollViewport`. Next: step 8 — smoke-render a trivial Box/Text through the
+vendored `render()` on a real TTY (find the export in `vendor/ink/ink.tsx` /
+`vendor/ink/components/App.tsx`), then steps 9–12 (VirtualTranscript → wire
+App.tsx/index.tsx → verify on a long session).
+
+### Key vendor entry points (for wiring)
+- Render: `vendor/ink/ink.tsx` (look for the exported `render`).
+- Components: `vendor/ink/components/{Box,Text,ScrollBox,AlternateScreen}.tsx`.
+- Hook: copy/adapt Claude Code's `src/hooks/useVirtualScroll.ts` +
+  `src/components/VirtualMessageList.tsx` (NOT yet vendored — bring them in at
+  step 9). They import from `../ink/components/ScrollBox.js` and `../ink/dom.js`,
+  which now resolve under `vendor/`.

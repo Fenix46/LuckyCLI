@@ -1,0 +1,25 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../../dist/vendor",
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM"],
+
+    // The vendored Ink fork is React Compiler output (t0/_c temporaries) copied
+    // verbatim from Claude Code. Treat it as a third-party library: keep public
+    // interface types (ScrollBoxHandle, useVirtualScroll, Box/Text props) but
+    // relax the strictness Lucky enforces on its own source. We do NOT clean up
+    // this code — fidelity to upstream matters more than strictness here.
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
+    "noFallthroughCasesInSwitch": false,
+    "verbatimModuleSyntax": false,
+    "skipLibCheck": true
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}
