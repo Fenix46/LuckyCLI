@@ -864,6 +864,12 @@ export default class Ink {
     this.altScreenMouseTracking = active && mouseTracking;
     if (active) {
       this.resetFramesForAltScreen();
+      // Erase the screen before the first alt-screen paint, like handleResize
+      // does. Without this, cells the new frame doesn't write (e.g. to the
+      // right of shorter lines) keep whatever was on the terminal before we
+      // entered alt — leaving stray characters from the prior shell output.
+      // (Lucky addition: the upstream fork relied on the host clearing first.)
+      this.needsEraseBeforePaint = true;
     } else {
       this.repaint();
     }
