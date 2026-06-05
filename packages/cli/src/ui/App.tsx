@@ -1658,8 +1658,14 @@ export function App({
         </Box>
       ) : null}
 
-      <Box width="100%" paddingX={0} justifyContent="space-between" marginTop={1}>
-        <Box flexDirection="row" gap={1}>
+      {/* Status bar: one clipped row bounded to the same content width as the
+          rules above (terminal width minus the root's paddingX). The left side
+          keeps its natural width (flexShrink=0); a flexGrow spacer pushes the
+          right side to the edge; the right side truncates instead of spilling
+          past the terminal. Matches Claude Code's footer (overflow:hidden row +
+          wrap="truncate"), so nothing ever overflows on resize. */}
+      <Box width={terminalSize.width - 2} marginTop={1} overflow="hidden">
+        <Box flexDirection="row" gap={1} flexShrink={0}>
           {permissionMode === "acceptEdits" ? (
             <Text color={activeTheme.success} bold>
               ⏵⏵ accept edits on{" "}
@@ -1673,13 +1679,14 @@ export function App({
             </Text>
           )}
         </Box>
-        <Box flexDirection="row" gap={1}>
+        <Box flexGrow={1} />
+        <Box flexDirection="row" gap={1} flexShrink={1}>
           {items.length > 1 ? (
-            <Text color={activeTheme.muted} dimColor>
+            <Text color={activeTheme.muted} dimColor wrap="truncate">
               scroll to view history{"  "}
             </Text>
           ) : null}
-          <Text color={activeTheme.muted} dimColor>
+          <Text color={activeTheme.muted} dimColor wrap="truncate">
             {formatStatusFooter(contextStatus, {
               ...(footerEffort ? { effort: footerEffort } : {}),
               ...(footerThinking ? { thinking: footerThinking } : {}),
