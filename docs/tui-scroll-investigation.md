@@ -314,6 +314,37 @@ import — ignore.)
   other screens still import from `ink`) — migrate screens incrementally or keep
   a compatibility re-export `vendor/ink/index.ts` that mirrors ink's public API.
 
+### UPDATE — steps 6–8 done (wired & running)
+**As of 2026-06-05 (session 2):** the fork is fully wired into Lucky and runs.
+- Smoke (#6): trivial Box/Text rendered through the fork's `render()` on a TTY. ✓
+- VirtualTranscript (#7): `ui/components/VirtualTranscript.tsx` — ScrollBox +
+  useVirtualScroll, footer slot for streaming/thinking/empty-state. Heights from
+  real Yoga measurement, never estimated. ✓
+- UI migration: all 22 `from "ink"` swapped to `vendor/ink-compat.ts` (single
+  reconciler). `useElapsedTimer` rewritten off Ink's `useAnimation` onto a plain
+  interval. ✓
+- Wiring (#8): App.tsx renders VirtualTranscript; scroll is imperative via
+  `scrollRef` (wheel = `key.wheelUp/Down`, PageUp/Down, scrollToBottom on new
+  content). index.tsx renders through the fork and wraps Root in
+  `<AlternateScreen mouseTracking>` (owns alt-screen + SGR mouse + wheel-as-key).
+  Deleted ScrollViewport.tsx, mouse-input.ts, useMouseWheel.ts. ✓
+- Verified by a 600-item render harness: bottom-pinned, markdown/code/tool rows
+  correct, alt-screen enter/exit clean, no crash. Typecheck clean, 420 tests.
+
+**REMAINING: step 9 — verify on a REAL long session on a REAL TTY.** This needs a
+human: authenticated provider + interactive terminal (sandbox can't). Run
+`npm run dev` (or `lucky --resume <id>`) and check:
+  1. Type while the chat is long → no input lag (the original bug).
+  2. Wheel + PageUp/PageDown scroll back smoothly; content doesn't overflow the
+     viewport or misrender (the failure mode of the reverted attempt).
+  3. A streamed reply follows at the bottom; history above doesn't "dance".
+  4. Open a picker (/model, /theme), approval prompt, MCP panel — overlays still
+     fit and the transcript yields height (flexGrow).
+  5. Resize the terminal mid-session — heights re-measure, no black screen.
+Known risk areas if something's off: AlternateScreen height vs App's flexGrow
+outer Box; the footer (streaming) sizing under sticky scroll; `ink` npm dep can
+be removed from package.json once confirmed nothing else imports it.
+
 ### Current state (update this line each session)
 **As of 2026-06-05:** steps 1–7 of the checklist done. The vendored Ink fork +
 TS Yoga port **typecheck and build cleanly** (`npm run typecheck` = 0 errors;
@@ -340,11 +371,8 @@ full vitest suite green, 420 tests). What was needed beyond the copy:
   fork is treated as a typed third-party lib. Interface types (ScrollBoxHandle,
   useVirtualScroll) are preserved for wiring.
 
-**Nothing is wired to Lucky's UI yet.** `App.tsx` still uses the old
-`ScrollViewport`. Next: step 8 — smoke-render a trivial Box/Text through the
-vendored `render()` on a real TTY (find the export in `vendor/ink/ink.tsx` /
-`vendor/ink/components/App.tsx`), then steps 9–12 (VirtualTranscript → wire
-App.tsx/index.tsx → verify on a long session).
+**[SUPERSEDED — see "UPDATE — steps 6–8 done" below.]** The fork is now wired
+and running; only step 9 (real-TTY verification by a human) remains.
 
 ### Key vendor entry points (for wiring)
 - Render: `vendor/ink/ink.tsx` (look for the exported `render`).
