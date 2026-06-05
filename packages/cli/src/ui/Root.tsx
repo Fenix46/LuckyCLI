@@ -15,6 +15,7 @@ import {
   type ResolvedConfig,
   type Session,
   type ToolApproval,
+  createSessionId,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
 import { buildAgentRuntime } from "../runtime.js";
@@ -67,7 +68,18 @@ export function Root({
 }: RootProps): React.JSX.Element {
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
   const [userQuestionRequest, setUserQuestionRequest] = useState<UserQuestionRequest | null>(null);
-  const [resumeSession, setResumeSession] = useState<Session | null>(resume ?? null);
+  const [resumeSession, setResumeSession] = useState<Session>(() => {
+    if (resume) return resume;
+    const now = Date.now();
+    return {
+      id: createSessionId(),
+      createdAt: now,
+      updatedAt: now,
+      provider: config.provider ?? "openai",
+      model: config.model ?? "",
+      messages: [],
+    };
+  });
   const [picking, setPicking] = useState<boolean>(pickResume === true && !resume);
   // First open in this folder: ask to trust it (and offer to build the graph).
   // Once a decision is recorded it never re-prompts. Computed once at startup.
@@ -224,7 +236,7 @@ export function Root({
 
   function onSetupComplete(result: SetupResult) {
     saveProviderSetup(result.provider, result.model, result.credentials);
-    const carriedMessages = pendingMessages ?? resumeSession?.messages ?? [];
+    const carriedMessages = pendingMessages ?? resumeSession.messages;
     void activateRuntime({
       provider: result.provider,
       model: result.model,
@@ -302,7 +314,7 @@ export function Root({
       return;
     }
     if (!config.needsSetup && config.provider && config.model && config.credentials) {
-      const carriedMessages = resumeSession?.messages ?? [];
+      const carriedMessages = resumeSession.messages;
       void activateRuntime({
         provider: config.provider,
         model: config.model,
@@ -355,7 +367,7 @@ export function Root({
 
   return (
     <App
-      key={resumeSession?.id ?? "fresh"}
+      key={resumeSession.id}
       agent={runtime.agent}
       meta={{ provider: runtime.provider, model: runtime.model }}
       approvalRequest={approvalRequest}
@@ -370,7 +382,7 @@ export function Root({
       onTriggerResume={() => setPicking(true)}
       permissionMode={permissionMode}
       onCyclePermissionMode={cyclePermissionMode}
-      {...(resumeSession ? { resumed: resumeSession } : {})}
+      resumed={resumeSession}
     />
   );
 }

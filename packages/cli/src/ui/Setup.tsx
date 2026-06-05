@@ -43,6 +43,8 @@ export function Setup({
   const [step, setStep] = useState<Step>(mode === "initial" ? "theme" : "provider");
   const [theme, setTheme] = useState<Theme>(() => themeById(loadStoredConfig().theme));
   const [selectedProviderId, setSelectedProviderId] = useState<ProviderId | null>(null);
+  const [savedCredentials, setSavedCredentials] = useState<ProviderCredentials | null>(null);
+  const [useSavedCredentials, setUseSavedCredentials] = useState(false);
   const [selectedAuthMethod, setSelectedAuthMethod] = useState<AuthMethod | null>(null);
   const [credSubStep, setCredSubStep] = useState<CredentialSubStep>("input");
   const [secret, setSecret] = useState("");
@@ -179,6 +181,16 @@ export function Setup({
     setSelectedProviderId(provider.id);
     setSelectedAuthMethod(null);
     resetAuthState();
+
+    const stored = loadStoredConfig();
+    const existingCreds = stored.credentials?.[provider.id];
+    if (existingCreds) {
+      setSavedCredentials(existingCreds);
+    } else {
+      setSavedCredentials(null);
+    }
+    setUseSavedCredentials(false);
+
     setStep("auth");
   }
 
@@ -215,14 +227,26 @@ export function Setup({
     setStep("credential");
   }
 
-  function onSelectAuthMethod(item: { value: AuthMethod }) {
-    setSelectedAuthMethod(item.value);
-    setSecret(item.value.kind === "baseUrl" ? "http://localhost:11434" : "");
+  type AuthChoice =
+    | { kind: "saved"; credentials: ProviderCredentials }
+    | { kind: "new"; method: AuthMethod };
+
+  function onSelectAuthChoice(item: { value: AuthChoice }) {
+    if (item.value.kind === "saved") {
+      setUseSavedCredentials(true);
+      setStep("model");
+      return;
+    }
+
+    setUseSavedCredentials(false);
+    const method = item.value.method;
+    setSelectedAuthMethod(method);
+    setSecret(method.kind === "baseUrl" ? "http://localhost:11434" : "");
     resetAuthState();
     setStep("credential");
 
-    if (item.value.kind === "oauth") setCredSubStep("oauth_code");
-    else if (item.value.kind === "vertex") setCredSubStep("project");
+    if (method.kind === "oauth") setCredSubStep("oauth_code");
+    else if (method.kind === "vertex") setCredSubStep("project");
     else setCredSubStep("input");
   }
 
@@ -254,7 +278,12 @@ export function Setup({
   }
 
   function onSelectModel(item: { value: string }) {
-    if (!selectedProviderId || !selectedAuthMethod) return;
+    if (!selectedProviderId) return;
+    if (useSavedCredentials && savedCredentials) {
+      onComplete({ provider: selectedProviderId, model: item.value, credentials: savedCredentials });
+      return;
+    }
+    if (!selectedAuthMethod) return;
     const credentials = buildCredentials(selectedProviderId, selectedAuthMethod);
     if (!credentials) return;
     onComplete({ provider: selectedProviderId, model: item.value, credentials });
@@ -379,11 +408,15 @@ export function Setup({
               theme={theme}
             >
               <SelectList
-                items={listProviders().map((provider) => ({
-                  key: provider.id,
-                  label: providerLabel(provider.id),
-                  value: provider.id,
-                }))}
+                items={listProviders().map((provider) => {
+                  const stored = loadStoredConfig();
+                  const isSaved = !!stored.credentials?.[provider.id];
+                  return {
+                    key: provider.id,
+                    label: `${providerLabel(provider.id)}${isSaved ? " (Logged in)" : ""}`,
+                    value: provider.id,
+                  };
+                })}
                 onSelect={onSelectProvider}
               />
               <SetupNavigationHint
@@ -400,12 +433,21 @@ export function Setup({
               theme={theme}
             >
               <SelectList
-                items={PROVIDER_CATALOG[selectedProviderId].authMethods.map((method) => ({
-                  key: method.id,
-                  label: method.displayName,
-                  value: method,
-                }))}
-                onSelect={onSelectAuthMethod}
+                items={[
+                  ...(savedCredentials
+                    ? [
+                        {
+                          label: `Use saved credentials (${savedCredentialsLabel(savedCredentials)})`,
+                          value: { kind: "saved" as const, credentials: savedCredentials },
+                        },
+                      ]
+                    : []),
+                  ...PROVIDER_CATALOG[selectedProviderId].authMethods.map((method) => ({
+                    label: method.displayName,
+                    value: { kind: "new" as const, method },
+                  })),
+                ]}
+                onSelect={onSelectAuthChoice}
               />
               <SetupNavigationHint theme={theme} />
             </SetupSection>
@@ -681,6 +723,34 @@ function providerLabel(provider: ProviderId): string {
   const entry = PROVIDER_CATALOG[provider];
   if (entry.company === "Google") return "Google Gemini";
   return entry.displayName;
+}
+
+function savedCredentialsLabel(creds: ProviderCredentials): string {
+  switch (creds.type) {
+    case "claude":
+      if (creds.authMethod === "oauth") {
+        return creds.email ? `OAuth: ${creds.email}` : "OAuth Session";
+      }
+      return creds.apiKey ? `API Key: ${creds.apiKey.slice(0, 4)}...${creds.apiKey.slice(-4)}` : "API Key";
+    case "openai":
+      return creds.apiKey ? `API Key: ${creds.apiKey.slice(0, 4)}...${creds.apiKey.slice(-4)}` : "API Key";
+    case "openai-oauth":
+      return "ChatGPT Account";
+    case "gemini":
+      if (creds.authMethod === "vertex") {
+        return `Vertex AI: ${creds.projectId ?? ""}`;
+      }
+      if (creds.authMethod === "oauth") {
+        return "Google OAuth Session";
+      }
+      return creds.apiKey ? `API Key: ${creds.apiKey.slice(0, 4)}...${creds.apiKey.slice(-4)}` : "API Key";
+    case "antigravity":
+      return "Google Antigravity Session";
+    case "ollama":
+      return `Local URL: ${creds.baseUrl}`;
+    default:
+      return "Saved Credentials";
+  }
 }
 
 function credentialSubtitle(provider: ProviderId | null, authMethod: AuthMethod): string {

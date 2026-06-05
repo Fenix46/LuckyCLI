@@ -149,7 +149,11 @@ export function App({
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>(() =>
-    resumed ? [{ kind: "intro" }, ...messagesToItems(resumed.messages)] : [{ kind: "intro" }],
+    agent.messages.length > 0
+      ? [{ kind: "intro" }, ...messagesToItems([...agent.messages])]
+      : resumed && resumed.messages.length > 0
+      ? [{ kind: "intro" }, ...messagesToItems(resumed.messages)]
+      : [{ kind: "intro" }]
   );
   // Session persistence: id + creation time, established lazily on first save.
   const sessionIdRef = useRef<string | null>(resumed?.id ?? null);
