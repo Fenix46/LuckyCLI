@@ -67,6 +67,12 @@ import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
 import { VirtualTranscript } from "./components/VirtualTranscript.js";
 import type { ScrollBoxHandle } from "../vendor/ink/components/ScrollBox.js";
+import { isXtermJs } from "../vendor/ink/terminal.js";
+import {
+  computeWheelStep,
+  createWheelAccelState,
+  type WheelAccelState,
+} from "../vendor/wheel-accel.js";
 import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
@@ -222,38 +228,18 @@ export function App({
   // long chat. We drive it through this handle and read nothing back per frame.
   const scrollRef = useRef<ScrollBoxHandle | null>(null);
 
-  // Wheel acceleration: a bare 1-row-per-tick scroll feels sluggish. Track the
-  // gap between consecutive same-direction ticks and ramp the step up when the
-  // wheel spins fast (close ticks), decaying back to 1 when it slows or flips.
-  // A light version of Claude Code's wheel-accel curve — enough to feel smooth
-  // without its full encoder-bounce/device-switch machinery.
-  const wheelAccelRef = useRef<{ dir: 0 | 1 | -1; time: number; mult: number }>({
-    dir: 0,
-    time: 0,
-    mult: 1,
-  });
-  // Base rows per detent. A single wheel notch on a typical terminal (Apple
-  // Terminal, iTerm2) emits one event; one row per notch feels glacial, so the
-  // floor is several rows — like scrolling a document.
-  const WHEEL_BASE = 3;
-  const wheelStep = useCallback((dir: 1 | -1): number => {
-    const now = Date.now();
-    const s = wheelAccelRef.current;
-    const gap = now - s.time;
-    if (dir !== s.dir || gap > 250) {
-      // Direction change or a slow, deliberate tick: reset to the base step.
-      s.mult = WHEEL_BASE;
-    } else if (gap < 120) {
-      // Fast spin: ramp up hard (capped) so a flick covers a lot of ground.
-      s.mult = Math.min(28, s.mult + WHEEL_BASE);
-    } else {
-      // Medium cadence: ease back toward precise scrolling.
-      s.mult = Math.max(WHEEL_BASE, s.mult - WHEEL_BASE);
-    }
-    s.dir = dir;
-    s.time = now;
-    return Math.max(1, Math.round(s.mult));
-  }, []);
+  // Wheel acceleration: Claude Code's real curve (ported verbatim). It tells
+  // mouse from trackpad, swallows cheap-encoder bounce, and decays so fast
+  // spins cover ground while slow clicks stay precise — what makes scrolling
+  // feel like a document. LUCKY_SCROLL_SPEED raises the baseline rows/notch for
+  // terminals that send 1 event per detent (Apple Terminal); default 3.
+  const wheelAccelRef = useRef<WheelAccelState>(
+    createWheelAccelState(isXtermJs(), (() => {
+      const raw = process.env.LUCKY_SCROLL_SPEED;
+      const n = raw ? parseFloat(raw) : NaN;
+      return Number.isNaN(n) || n <= 0 ? 3 : Math.min(n, 20);
+    })()),
+  );
 
   const appendItems = useCallback(
     (next: Item[]) => {
@@ -487,7 +473,8 @@ export function App({
     // of leaking "<64;..M" into the prompt. One line per tick; up reveals older.
     if (key.wheelUp || key.wheelDown) {
       const dir = key.wheelUp ? -1 : 1;
-      scrollRef.current?.scrollBy(dir * wheelStep(dir));
+      const rows = computeWheelStep(wheelAccelRef.current, dir, Date.now());
+      if (rows > 0) scrollRef.current?.scrollBy(dir * rows);
       return;
     }
 

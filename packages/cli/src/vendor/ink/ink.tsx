@@ -189,6 +189,14 @@ export default class Ink {
     };
     this.terminalColumns = options.stdout.columns || 80;
     this.terminalRows = options.stdout.rows || 24;
+    if (process.env.LUCKY_DEBUG_SIZE === "1") {
+      try {
+        require("node:fs").appendFileSync(
+          "/tmp/lucky-size.log",
+          `[init] cols=${this.terminalColumns} rows=${this.terminalRows} stdout.columns=${options.stdout.columns} isTTY=${options.stdout.isTTY}\n`,
+        );
+      } catch {}
+    }
     this.altScreenParkPatch = makeAltScreenParkPatch(this.terminalRows);
     this.stylePool = new StylePool();
     this.charPool = new CharPool();
@@ -313,6 +321,14 @@ export default class Ink {
     // settling). Same-dimension events are no-ops; skip to avoid redundant
     // frame resets and renders.
     if (cols === this.terminalColumns && rows === this.terminalRows) return;
+    if (process.env.LUCKY_DEBUG_SIZE === "1") {
+      try {
+        require("node:fs").appendFileSync(
+          "/tmp/lucky-size.log",
+          `[resize] cols=${cols} rows=${rows}\n`,
+        );
+      } catch {}
+    }
     this.terminalColumns = cols;
     this.terminalRows = rows;
     this.altScreenParkPatch = makeAltScreenParkPatch(this.terminalRows);
