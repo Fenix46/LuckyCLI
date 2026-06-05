@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { z } from "zod";
 import { defineTool } from "../types.js";
+import { CORE_VERSION } from "../../version.js";
 
 const MAX_BYTES = 80_000;
 const TIMEOUT_MS = 15_000;
@@ -53,7 +54,7 @@ async function fetchPublicUrl(
     redirect: "manual",
     signal,
     headers: {
-      "User-Agent": "luckycli/0.1.3",
+      "User-Agent": `luckycli/${CORE_VERSION}`,
     },
   });
 

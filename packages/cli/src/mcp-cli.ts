@@ -11,6 +11,7 @@ import {
   type McpConnectionStatus,
   type McpServerConfig,
 } from "@luckycli/core";
+import { APP_VERSION } from "./ui/components/constants.js";
 
 export interface McpCommandIO {
   /** Configured servers. Defaults to the resolved Lucky config. */
@@ -103,7 +104,7 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
       out("No MCP servers configured.");
       return 0;
     }
-    const manager = new McpManager({ clientName: "lucky", clientVersion: "0.2.3" });
+    const manager = new McpManager({ clientName: "lucky", clientVersion: APP_VERSION });
     try {
       const status = await manager.connectAll(mcp);
       const toolCounts = Object.fromEntries(

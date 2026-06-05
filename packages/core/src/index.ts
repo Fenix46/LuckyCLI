@@ -5,6 +5,9 @@
  * ready to use: load config, build credentials, get a provider, run the Agent.
  */
 
+// Package version (single source of truth: core's package.json).
+export { CORE_VERSION } from "./version.js";
+
 // Provider layer (also triggers built-in provider registration on import).
 export * from "./providers/index.js";
 

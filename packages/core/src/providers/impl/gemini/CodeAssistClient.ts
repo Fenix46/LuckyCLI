@@ -13,6 +13,7 @@ import {
   CodeAssistRequestError,
   CodeAssistValidationError,
 } from "./CodeAssistErrors.js";
+import { CORE_VERSION } from "../../../version.js";
 
 const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 const CODE_ASSIST_API_VERSION = "v1internal";
@@ -384,7 +385,7 @@ export class CodeAssistClient {
   private async retrieveQuota(projectId: string): Promise<RetrieveUserQuotaResponse> {
     return this.post<RetrieveUserQuotaResponse>("retrieveUserQuota", {
       project: projectId,
-      userAgent: "luckycli/0.2.3",
+      userAgent: `luckycli/${CORE_VERSION}`,
     });
   }
 
@@ -441,7 +442,7 @@ export class CodeAssistClient {
   private async headers(): Promise<Record<string, string>> {
     return {
       "Content-Type": "application/json",
-      "User-Agent": this.options.userAgent ?? "luckycli/0.2.3",
+      "User-Agent": this.options.userAgent ?? `luckycli/${CORE_VERSION}`,
       Authorization: `Bearer ${await this.accessToken()}`,
       ...(this.options.headers ?? {}),
     };

@@ -12,6 +12,7 @@ import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startOAuthCallbackServer } from "./oauth-callback.js";
 import { McpOAuthProvider } from "./oauth-provider.js";
+import { CORE_VERSION } from "../version.js";
 
 export interface AuthorizeMcpServerOptions {
   /** Logical server name (auth store key). */
@@ -50,7 +51,7 @@ export async function authorizeMcpServer(
 
   const newTransport = () =>
     new StreamableHTTPClientTransport(new URL(options.url), { authProvider: provider });
-  const newClient = () => new Client({ name: options.clientName ?? "lucky", version: "0.2.3" });
+  const newClient = () => new Client({ name: options.clientName ?? "lucky", version: CORE_VERSION });
 
   try {
     const transport = newTransport();

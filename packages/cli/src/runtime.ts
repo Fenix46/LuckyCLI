@@ -17,6 +17,7 @@ import {
   type Tool,
   type ToolPermissionPolicy,
 } from "@luckycli/core";
+import { APP_VERSION } from "./ui/components/constants.js";
 
 /**
  * Loopback redirect used when a stored token needs refreshing in the background.
@@ -160,7 +161,7 @@ export async function buildAgentRuntime(
   const mcpManager = new McpManager({
     cwd,
     clientName: "lucky",
-    clientVersion: "0.2.3",
+    clientVersion: APP_VERSION,
     // Use stored OAuth tokens (and let the SDK refresh them) for remote servers,
     // but never pop a browser mid-session: a server needing fresh login fails
     // with a clear "run lucky mcp login" message instead.
