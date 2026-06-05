@@ -29,7 +29,7 @@ export function StatusView({
   const contextUsage = contextUsagePercent(context);
 
   return (
-    <Box flexDirection="column" marginY={0.4} paddingLeft={1}>
+    <Box flexDirection="column" marginTop={1} paddingLeft={1}>
       <Box
         flexDirection="column"
         borderStyle="single"
@@ -66,7 +66,7 @@ export function StatusView({
         />
 
         {provider.quotas?.length ? (
-          <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="column">
             {provider.quotas.map((quota, index) => (
               <UsageBar
                 key={`${quota.label}-${index}`}
@@ -117,7 +117,7 @@ export function UsageBar({
   const empty = Math.max(0, barWidth - filled);
 
   return (
-    <Box flexDirection="column" marginTop={0.3}>
+    <Box flexDirection="column" marginTop={1}>
       <Text bold color="white">{label}</Text>
       <Box flexDirection="row">
         <Text color={theme.accent}>{"█".repeat(filled)}</Text>

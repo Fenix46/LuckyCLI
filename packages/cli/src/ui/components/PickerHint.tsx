@@ -10,7 +10,7 @@ export function PickerHint({
   selectLabel?: string;
 }): React.JSX.Element {
   return (
-    <Box marginTop={0.5}>
+    <Box marginTop={1}>
       <Text color={theme.muted}>Up/Down to move · Enter to {selectLabel} · Esc to close</Text>
     </Box>
   );

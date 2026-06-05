@@ -31,9 +31,9 @@ export function McpPanel({
   error: string | null;
 }): React.JSX.Element {
   return (
-    <Box flexDirection="column" paddingLeft={2} marginBottom={0.5} width="100%">
+    <Box flexDirection="column" paddingLeft={2} marginBottom={1} width="100%">
       <Text bold color={theme.accent}>🧩 MCP CONTROL PANEL</Text>
-      <Box flexDirection="row" marginTop={0.2}>
+      <Box flexDirection="row" marginTop={1}>
         <Text bold color={tab === "installed" ? theme.primary : theme.muted}>
           {tab === "installed" ? "❯ " : "  "}Installed
         </Text>
@@ -44,7 +44,7 @@ export function McpPanel({
       </Box>
 
       {tab === "installed" ? (
-        <Box flexDirection="column" marginTop={0.4}>
+        <Box flexDirection="column" marginTop={1}>
           {installedRows.length === 0 ? (
             <Text color={theme.muted}>No MCP servers configured.</Text>
           ) : (
@@ -62,12 +62,12 @@ export function McpPanel({
               </Box>
             ))
           )}
-          <Box marginTop={0.5}>
+          <Box marginTop={1}>
             <Text color={theme.muted}>Enter toggle enable · d remove · r reload · Tab switch tab · Esc close</Text>
           </Box>
         </Box>
       ) : (
-        <Box flexDirection="column" marginTop={0.4}>
+        <Box flexDirection="column" marginTop={1}>
           <Text color={theme.muted}>query: <Text color="white">{query || "(type to search official registry)"}</Text></Text>
           {loading ? (
             <Text color={theme.accent}>Searching MCP registry...</Text>
@@ -90,7 +90,7 @@ export function McpPanel({
               </Box>
             ))
           )}
-          <Box marginTop={0.5}>
+          <Box marginTop={1}>
             <Text color={theme.muted}>Type to search · Enter install selected · Tab switch tab · Esc close</Text>
           </Box>
         </Box>

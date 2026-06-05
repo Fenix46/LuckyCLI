@@ -20,8 +20,8 @@ function StreamingPreviewInner({
   theme: Theme;
 }): React.JSX.Element {
   return (
-    <Box flexDirection="column" marginY={0.2}>
-      <Box flexDirection="row" marginBottom={0.1}>
+    <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="row">
         <Text bold color={theme.success}>● lucky</Text>
         <Text color={theme.muted}> › </Text>
       </Box>

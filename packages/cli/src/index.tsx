@@ -2,7 +2,6 @@
 import "dotenv/config";
 import { parseArgs } from "node:util";
 import render from "./vendor/ink/root.js";
-import { AlternateScreen } from "./vendor/ink/components/AlternateScreen.js";
 import React from "react";
 import {
   buildAndSaveGraph,
@@ -191,31 +190,21 @@ function main(): void {
     ...(!values.model && resume ? { model: resume.model } : {}),
   });
 
-  // The vendored Ink fork owns the alternate screen and mouse tracking via the
-  // <AlternateScreen> component: it enters the alt buffer (like vim/less, so the
-  // streaming reply redraws in place with no scrollback duplication), enables
-  // SGR mouse tracking, and surfaces wheel ticks as key events the app routes to
-  // the transcript ScrollBox. No manual escape sequences or stdin filtering.
-  const interactive = Boolean(process.stdin.isTTY);
-
+  // Render into the terminal's NORMAL screen (no alternate buffer). The Ink
+  // fork's LogUpdate handles this: content taller than the viewport scrolls
+  // into the native terminal scrollback and is treated as immutable, so the
+  // conversation stays on screen after exit (like Claude Code's default, and
+  // unlike an alt-screen which is discarded on quit). Only the live tail
+  // (prompt + footer + streaming reply) redraws in place. The transcript grows
+  // freely — no ScrollBox, no height constraint, no mouse tracking needed since
+  // the terminal owns scrolling.
   void render(
-    interactive ? (
-      <AlternateScreen mouseTracking>
-        <Root
-          config={config}
-          forceSetup={values.setup === true}
-          {...(resume ? { resume } : {})}
-          {...(pickResume ? { pickResume: true } : {})}
-        />
-      </AlternateScreen>
-    ) : (
-      <Root
-        config={config}
-        forceSetup={values.setup === true}
-        {...(resume ? { resume } : {})}
-        {...(pickResume ? { pickResume: true } : {})}
-      />
-    ),
+    <Root
+      config={config}
+      forceSetup={values.setup === true}
+      {...(resume ? { resume } : {})}
+      {...(pickResume ? { pickResume: true } : {})}
+    />,
   );
 }
 

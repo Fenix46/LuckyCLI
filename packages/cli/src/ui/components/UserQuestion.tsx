@@ -20,7 +20,7 @@ export function UserQuestionRequestView({
   return (
     <Box
       flexDirection="column"
-      marginY={0.5}
+      marginTop={1}
       width={panelWidth}
       borderStyle="single"
       borderColor={theme.accent}
@@ -35,12 +35,12 @@ export function UserQuestionRequestView({
         <Text bold color={theme.accent}>ask_user</Text>
       </Box>
 
-      <Box marginTop={0.3}>
+      <Box marginTop={1}>
         <Text bold color="white">{request.question}</Text>
       </Box>
 
       {options.length > 0 ? (
-        <Box flexDirection="column" marginTop={0.6}>
+        <Box flexDirection="column" marginTop={1}>
           {options.map((option, index) => (
             <Box key={`${option}-${index}`} flexDirection="row">
               <Text bold={index === selectedIndex} color={index === selectedIndex ? theme.accent : theme.muted} dimColor={index !== selectedIndex}>
@@ -52,7 +52,7 @@ export function UserQuestionRequestView({
         </Box>
       ) : null}
 
-      <Box marginTop={0.4}>
+      <Box marginTop={1}>
         <Text color={theme.muted} dimColor>
           {freeText
             ? "type an answer · enter to send"

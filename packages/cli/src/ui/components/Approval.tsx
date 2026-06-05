@@ -22,7 +22,7 @@ export function ApprovalRequestView({
   return (
     <Box
       flexDirection="column"
-      marginY={0.5}
+      marginTop={1}
       width={panelWidth}
       borderStyle="single"
       borderColor={theme.warning}
@@ -37,19 +37,19 @@ export function ApprovalRequestView({
         <Text bold color={theme.accent}>{request.name}</Text>
       </Box>
 
-      <Box marginTop={0.3}>
+      <Box marginTop={1}>
         <Text bold color="white">{detail.question}</Text>
       </Box>
 
       {detail.target ? (
-        <Box marginTop={0.2} flexDirection="row">
+        <Box marginTop={1} flexDirection="row">
           <Text color={theme.muted}>target  </Text>
           <Text color={theme.primary}>{detail.target}</Text>
         </Box>
       ) : null}
 
       {detail.preview.length > 0 ? (
-        <Box flexDirection="column" marginTop={0.4}>
+        <Box flexDirection="column" marginTop={1}>
           {detail.preview.map((line, index) => (
             <Box key={index} flexDirection="row">
               <Text color={theme.muted} dimColor>│ </Text>
@@ -61,7 +61,7 @@ export function ApprovalRequestView({
         </Box>
       ) : null}
 
-      <Box flexDirection="column" marginTop={0.6}>
+      <Box flexDirection="column" marginTop={1}>
         {options.map((option, index) => (
           <ApprovalOptionView
             key={option}
@@ -72,7 +72,7 @@ export function ApprovalRequestView({
         ))}
       </Box>
 
-      <Box marginTop={0.4}>
+      <Box marginTop={1}>
         <Text color={theme.muted} dimColor>↑↓ / jk move · enter approve · esc reject</Text>
       </Box>
     </Box>

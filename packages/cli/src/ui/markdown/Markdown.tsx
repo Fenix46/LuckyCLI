@@ -25,8 +25,8 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
       {blocks.map((block, blockIdx) => {
         if (block.type === "code" && block.codeLines) {
           return (
-            <Box key={blockIdx} flexDirection="column" marginY={0.5} paddingLeft={2}>
-              <Box marginBottom={0.2}>
+            <Box key={blockIdx} flexDirection="column" paddingLeft={2}>
+              <Box marginBottom={1}>
                 <Text bold dimColor color={theme.accent}>
                   ⌨ {block.language?.toUpperCase() || "CODE"}
                 </Text>
@@ -45,7 +45,7 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
         if (block.type === "header") {
           const headerPrefix = "#".repeat(block.level || 1) + " ";
           return (
-            <Box key={blockIdx} marginY={0.5}>
+            <Box key={blockIdx}>
               <Text bold underline color={theme.primary}>
                 {headerPrefix}
                 {block.text}
@@ -56,7 +56,7 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
 
         if (block.type === "list") {
           return (
-            <Box key={blockIdx} paddingLeft={2} marginY={0.1}>
+            <Box key={blockIdx} paddingLeft={2}>
               <Text>
                 {parseInlineMarkdown(block.text, theme)}
               </Text>
@@ -65,11 +65,11 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
         }
 
         if (!block.text.trim()) {
-          return <Box key={blockIdx} height={0.5} />;
+          return <Box key={blockIdx} height={1} />;
         }
 
         return (
-          <Box key={blockIdx} marginY={0.2}>
+          <Box key={blockIdx}>
             <Text>
               {parseInlineMarkdown(block.text, theme)}
             </Text>

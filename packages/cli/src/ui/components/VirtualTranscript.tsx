@@ -28,6 +28,16 @@ import { TranscriptItem } from "./Transcript.js";
  *   </ScrollBox>
  * `measureRef` records each mounted item's Yoga height; the hook feeds those
  * back into the next frame's spacer math. Heights are never estimated by us.
+ *
+ * The live streaming reply / thinking indicator / empty-state hint are NOT a
+ * separate footer node — they ride INSIDE `items` as transient items (kinds
+ * "streaming" / "thinking" / "hint", built per-render in App and never
+ * persisted). This is Claude Code's approach: the ScrollBox content stays a
+ * flat [topSpacer, ...items, bottomSpacer], which is exactly what
+ * useVirtualScroll's spacer/sticky/cull math assumes. A variable-height node
+ * outside that shape (the old `footer`) grew on every streamed token and broke
+ * scrollHeight under the hook → jitter/overflow. stickyScroll follows the
+ * growing streaming item naturally because it's a measured list item.
  */
 export function VirtualTranscript({
   items,
@@ -37,7 +47,6 @@ export function VirtualTranscript({
   theme,
   provider,
   model,
-  footer,
 }: {
   items: Item[];
   scrollRef: React.RefObject<ScrollBoxHandle | null>;
@@ -48,13 +57,6 @@ export function VirtualTranscript({
   theme: Theme;
   provider: ProviderId;
   model: string;
-  /**
-   * Live content pinned below the items (streaming reply / thinking indicator /
-   * empty-state hint). It lives outside the virtualized window — it is NOT in
-   * `items`, so a streamed token re-renders only this node, never the history.
-   * `stickyScroll` keeps it on screen at the bottom.
-   */
-  footer?: React.ReactNode;
 }): React.JSX.Element {
   // Stable per-item key. Items are append-only and patched in place (tool
   // output), so index is a stable identity here; include kind so a replaced
@@ -106,11 +108,6 @@ export function VirtualTranscript({
         {visible}
         {bottomSpacer > 0 ? (
           <VendorBox height={bottomSpacer} flexShrink={0} />
-        ) : null}
-        {footer ? (
-          <VendorBox flexDirection="column" flexShrink={0}>
-            {footer}
-          </VendorBox>
         ) : null}
       </ScrollBox>
     </VendorBox>

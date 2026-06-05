@@ -37,7 +37,7 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
         <Box marginTop={1}>
           <Text color="gray">No saved sessions were found on this machine.</Text>
         </Box>
-        <Box marginTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5}>
+        <Box marginTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={1}>
           <Text color="gray" dimColor italic>Press Esc to start a fresh new session instead.</Text>
         </Box>
       </Box>
@@ -63,7 +63,7 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
       <Text color="gray">
         Choose a saved session to restore your conversation context and continue collaborating.
       </Text>
-      <Box marginY={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5} flexDirection="column">
+      <Box marginY={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={1} flexDirection="column">
         <SelectList
           items={items}
           onSelect={(item) => {
@@ -73,7 +73,7 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
           }}
         />
       </Box>
-      <Box borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={0.5}>
+      <Box borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={1}>
         <Text color="gray" dimColor italic>
           💡 Use ↑/↓ to choose · Enter to resume · Esc to start fresh
         </Text>

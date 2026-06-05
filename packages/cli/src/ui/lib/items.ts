@@ -8,7 +8,14 @@ export type Item =
   | { kind: "tool"; name: string; input: unknown; output?: string; error?: boolean }
   | { kind: "command"; title: string; rows: CommandRow[] }
   | { kind: "status"; provider: ProviderStatus; context: ContextStatus }
-  | { kind: "error"; text: string };
+  | { kind: "error"; text: string }
+  // Transient items — built per-render, never persisted. They ride INSIDE the
+  // virtualized list (like Claude Code's streaming reply) so the ScrollBox
+  // content stays a flat [spacer, items, spacer] and stickyScroll follows them
+  // as they grow. They must never be appended to the committed `items` state.
+  | { kind: "streaming"; text: string }
+  | { kind: "thinking"; elapsedSeconds: number; frame: number }
+  | { kind: "hint"; text: string };
 
 export interface CommandRow {
   label: string;

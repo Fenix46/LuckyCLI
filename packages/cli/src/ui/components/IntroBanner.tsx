@@ -15,10 +15,15 @@ export function IntroBanner({
   theme,
   provider,
   model,
+  width,
 }: {
   theme: Theme;
   provider: ProviderId;
   model: string;
+  /** Available content width — caps the bordered card so it can never grow
+   *  past the terminal edge (the box otherwise sizes to its intrinsic
+   *  side-by-side content width and overflows right at any terminal size). */
+  width?: number;
 }): React.JSX.Element {
   const name = firstName(os.userInfo().username);
   const providerName = PROVIDER_CATALOG[provider].displayName;
@@ -31,6 +36,8 @@ export function IntroBanner({
       borderColor={theme.accent}
       paddingX={2}
       paddingY={1}
+      flexShrink={1}
+      {...(width ? { width: Math.min(width, 100) } : {})}
     >
       <Box marginBottom={1}>
         <Text bold color={theme.primary}>

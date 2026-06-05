@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "../vendor/ink-compat.js";
-import React, { useCallback, useState, useEffect, useRef } from "react";
+import React, { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import {
   CachedMcpCatalog,
   OfficialMcpRegistryCatalog,
@@ -61,18 +61,9 @@ import {
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
-import { ThinkingStatus } from "./components/ThinkingStatus.js";
-import { StreamingPreview } from "./components/StreamingPreview.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
-import { VirtualTranscript } from "./components/VirtualTranscript.js";
-import type { ScrollBoxHandle } from "../vendor/ink/components/ScrollBox.js";
-import { isXtermJs } from "../vendor/ink/terminal.js";
-import {
-  computeWheelStep,
-  createWheelAccelState,
-  type WheelAccelState,
-} from "../vendor/wheel-accel.js";
+import { TranscriptList } from "./components/Transcript.js";
 import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
@@ -113,13 +104,6 @@ interface AppProps {
   /** A session loaded via --continue/--resume, replayed into the transcript. */
   resumed?: Session;
 }
-
-/**
- * Rows reserved at the bottom for the input frame and status line (two rule
- * lines, the prompt, the footer, and margins). The transcript viewport gets the
- * remaining terminal height.
- */
-const CHROME_ROWS = 8;
 
 const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
@@ -223,28 +207,8 @@ export function App({
 
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
-  // The vendored ScrollBox owns scroll position imperatively (scrollTop lives on
-  // its DOM node, not in React state) — that's what keeps scrolling smooth on a
-  // long chat. We drive it through this handle and read nothing back per frame.
-  const scrollRef = useRef<ScrollBoxHandle | null>(null);
-
-  // Wheel acceleration: Claude Code's real curve (ported verbatim). It tells
-  // mouse from trackpad, swallows cheap-encoder bounce, and decays so fast
-  // spins cover ground while slow clicks stay precise — what makes scrolling
-  // feel like a document. LUCKY_SCROLL_SPEED raises the baseline rows/notch for
-  // terminals that send 1 event per detent (Apple Terminal); default 3.
-  const wheelAccelRef = useRef<WheelAccelState>(
-    createWheelAccelState(isXtermJs(), (() => {
-      const raw = process.env.LUCKY_SCROLL_SPEED;
-      const n = raw ? parseFloat(raw) : NaN;
-      return Number.isNaN(n) || n <= 0 ? 3 : Math.min(n, 20);
-    })()),
-  );
-
   const appendItems = useCallback(
     (next: Item[]) => {
-      // New content arrived: snap back to the bottom so it's visible.
-      scrollRef.current?.scrollToBottom();
       setItems((prev) => [...prev, ...next]);
     },
     [],
@@ -459,24 +423,10 @@ export function App({
       return;
     }
 
-    // 0b. PageUp/PageDown scroll the transcript viewport. Safe to handle even
-    // while typing — text input never produces these keys. A page is most of
-    // the viewport height.
-    if (key.pageUp || key.pageDown) {
-      const page = Math.max(1, terminalSize.height - CHROME_ROWS - 1);
-      scrollRef.current?.scrollBy(key.pageUp ? -page : page);
-      return;
-    }
-
-    // 0c. Mouse wheel. The vendored fork surfaces wheel ticks as key events
-    // (key.wheelUp/wheelDown), routed here so we scroll the transcript instead
-    // of leaking "<64;..M" into the prompt. One line per tick; up reveals older.
-    if (key.wheelUp || key.wheelDown) {
-      const dir = key.wheelUp ? -1 : 1;
-      const rows = computeWheelStep(wheelAccelRef.current, dir, Date.now());
-      if (rows > 0) scrollRef.current?.scrollBy(dir * rows);
-      return;
-    }
+    // Scrolling is handled natively by the terminal: the transcript renders
+    // into the normal screen (not an alt-screen ScrollBox), so PageUp/PageDown,
+    // the wheel and the scrollbar all drive the terminal's own scrollback. We
+    // intentionally do NOT intercept those keys here.
 
     // 1. Tool safety approval has highest precedence
     if (approvalRequest) {
@@ -1475,6 +1425,42 @@ export function App({
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);
 
+  // Claude Code's approach: the live streaming reply / thinking indicator /
+  // empty-state hint ride INSIDE the virtualized list as transient items, not
+  // as a separate footer node below the ScrollBox. They are rebuilt every
+  // render and never appended to the committed `items` state. Keeping the
+  // ScrollBox content a flat [spacer, ...items, spacer] is what
+  // useVirtualScroll's spacer/sticky/cull math assumes — a variable-height
+  // footer outside that shape grew on every token and broke scroll.
+  const displayItems = useMemo<Item[]>(() => {
+    if (items.length === 1 && items[0]?.kind === "intro" && !busy) {
+      return [
+        ...items,
+        {
+          kind: "hint",
+          text: "lucky › Input instruction payload or type / for command directory...",
+        },
+      ];
+    }
+    if (busy && !approvalRequest && !userQuestionRequest) {
+      return [
+        ...items,
+        streamingPreview
+          ? { kind: "streaming", text: streamingPreview }
+          : { kind: "thinking", elapsedSeconds, frame: activityFrame },
+      ];
+    }
+    return items;
+  }, [
+    items,
+    busy,
+    approvalRequest,
+    userQuestionRequest,
+    streamingPreview,
+    elapsedSeconds,
+    activityFrame,
+  ]);
+
   // The transcript ScrollBox uses flexGrow={1}, so it yields height to whatever
   // overlay (picker/approval/menu) opens below it automatically — no manual row
   // budgeting needed (unlike the old fixed-height ScrollViewport).
@@ -1505,63 +1491,37 @@ export function App({
   );
 
   return (
-    <Box flexDirection="column" flexGrow={1} width="100%" overflow="hidden" paddingX={1} paddingY={0}>
-      {/* Virtualized transcript on the vendored Ink fork's ScrollBox: only the
-          items in view (+ overscan) are mounted, heights come from real Yoga
-          measurement, and scroll is imperative (smooth on long chats). The live
-          streaming reply / thinking indicator / empty-state hint ride in the
-          `footer` — outside the virtualized window — so a streamed token never
-          re-renders the history. Wheel + PageUp/PageDown drive scrollRef. */}
-      <VirtualTranscript
-        items={items}
-        scrollRef={scrollRef}
-        columns={terminalSize.width}
+    <Box flexDirection="column" width="100%" paddingX={1} paddingY={0}>
+      {/* Plain growing transcript (no ScrollBox). The app renders into the
+          terminal's NORMAL screen, so finalized rows scroll into native
+          scrollback and the terminal owns scrolling. The live streaming reply /
+          thinking indicator / empty-state hint ride INSIDE `displayItems` as
+          transient items, so the still-streaming tail redraws in place while
+          everything above it stays in scrollback. */}
+      <TranscriptList
+        items={displayItems}
         width={messageWidth}
         theme={activeTheme}
         provider={meta.provider}
         model={meta.model}
-        footer={
-          items.length === 1 && items[0]?.kind === "intro" && !busy ? (
-            <Box marginTop={1}>
-              <Text color={activeTheme.muted}>
-                lucky › Input instruction payload or type / for command directory...
-              </Text>
-            </Box>
-          ) : busy && !approvalRequest && !userQuestionRequest ? (
-            <Box marginY={0.5} flexDirection="column">
-              {streamingPreview ? (
-                // The live assistant message: one block with one "lucky" header,
-                // rendered identically to the finalized transcript item so it
-                // doesn't jump when the turn ends.
-                <StreamingPreview text={streamingPreview} theme={activeTheme} />
-              ) : (
-                <ThinkingStatus
-                  theme={activeTheme}
-                  elapsedSeconds={elapsedSeconds}
-                  frame={activityFrame}
-                />
-              )}
-            </Box>
-          ) : null
-        }
       />
 
       {/* Bottom chrome: pickers/overlays, the prompt input frame, the slash
-          menu and the status footer. flexShrink={0} + maxHeight keep it from
-          being squeezed when the transcript is tall — the transcript (flexGrow)
-          yields height instead, so the prompt never collapses. */}
-      <Box flexDirection="column" flexShrink={0} width="100%" maxHeight="60%">
+          menu and the status footer. It stacks directly under the transcript;
+          as the transcript grows, the whole column grows and older rows scroll
+          into the terminal's scrollback. */}
+      <Box flexDirection="column" flexShrink={0} width="100%">
       {effortPicker ? (
         <Box
           flexDirection="column"
           paddingLeft={2}
-          marginBottom={0.5}
+          marginBottom={1}
           width="100%"
         >
           <Text bold color={activeTheme.accent}>
             🧠 REASONING EFFORT FOR {effortPicker.model.toUpperCase()}
           </Text>
-          <Box flexDirection="column" marginTop={0.2}>
+          <Box flexDirection="column" marginTop={1}>
             {effortPicker.levels.map((level, idx) => (
               <Box key={level} flexDirection="row">
                 <Text color={idx === selectedEffortIndex ? activeTheme.accent : "gray"}>
@@ -1579,13 +1539,13 @@ export function App({
         <Box
           flexDirection="column"
           paddingLeft={2}
-          marginBottom={0.5}
+          marginBottom={1}
           width="100%"
         >
           <Text bold color={activeTheme.accent}>
             🤖 SELECT MODEL FOR {PROVIDER_CATALOG[meta.provider].displayName.toUpperCase()}
           </Text>
-          <Box flexDirection="column" marginTop={0.2}>
+          <Box flexDirection="column" marginTop={1}>
             {modelPicker.items.length > 0 ? (
               modelPicker.items.map((model, idx) => (
                 <Box key={model} flexDirection="row">
@@ -1609,11 +1569,11 @@ export function App({
         <Box
           flexDirection="column"
           paddingLeft={2}
-          marginBottom={0.5}
+          marginBottom={1}
           width="100%"
         >
           <Text bold color={activeTheme.accent}>🎨 CHOOSE INTERFACE THEME</Text>
-          <Box flexDirection="column" marginTop={0.2}>
+          <Box flexDirection="column" marginTop={1}>
             {themePicker.items.length > 0 ? (
               themePicker.items.map((theme, idx) => (
                 <Box key={theme.id} flexDirection="row">
@@ -1650,9 +1610,9 @@ export function App({
         />
       ) : null}
 
-      <Box flexDirection="column" width="100%" marginTop={0.5}>
+      <Box flexDirection="column" width="100%" marginTop={1}>
         <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
-        <Box flexDirection="column" paddingX={0} width="100%" marginY={0.1}>
+        <Box flexDirection="column" paddingX={0} width="100%">
           {approvalRequest ? (
             // Permission prompt lives inside the input frame, which grows to
             // fit it — the same place the user would otherwise be typing.
@@ -1672,7 +1632,7 @@ export function App({
                 width={messageWidth}
               />
               {(userQuestionRequest.allowFreeText ?? true) ? (
-                <Box marginTop={0.5}>{chatInput}</Box>
+                <Box marginTop={1}>{chatInput}</Box>
               ) : null}
             </Box>
           ) : (
@@ -1684,7 +1644,7 @@ export function App({
 
       {/* Slash-command menu sits just below the prompt (Claude Code style). */}
       {showSlashMenu && filteredCommands.length > 0 ? (
-        <Box flexDirection="column" paddingLeft={2} marginTop={0.2} width="100%">
+        <Box flexDirection="column" paddingLeft={2} marginTop={1} width="100%">
           {filteredCommands.map((cmd, idx) => (
             <Box key={cmd.name} flexDirection="row">
               <Text bold color={idx === selectedCommandIndex ? activeTheme.primary : "white"}>
@@ -1698,7 +1658,7 @@ export function App({
         </Box>
       ) : null}
 
-      <Box width="100%" paddingX={0} justifyContent="space-between" marginTop={0.2}>
+      <Box width="100%" paddingX={0} justifyContent="space-between" marginTop={1}>
         <Box flexDirection="row" gap={1}>
           {permissionMode === "acceptEdits" ? (
             <Text color={activeTheme.success} bold>

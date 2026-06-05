@@ -534,7 +534,7 @@ function SetupProgress({
           </Text>
         ))}
       </Box>
-      <Box marginTop={0.5}>
+      <Box marginTop={1}>
         <Text color={theme.accent}>{"█".repeat((current + 1) * 6)}</Text>
         <Text color={theme.muted}>{"░".repeat((steps.length - current - 1) * 6)}</Text>
       </Box>
