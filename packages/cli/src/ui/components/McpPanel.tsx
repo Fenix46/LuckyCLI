@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
 import type { CatalogServerSummary } from "@luckycli/core";
 import type { Theme } from "../themes.js";

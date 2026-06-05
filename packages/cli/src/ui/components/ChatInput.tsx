@@ -1,4 +1,4 @@
-import { useInput } from "ink";
+import { useInput } from "../../vendor/ink-compat.js";
 import React, { useEffect, useState } from "react";
 import { PromptBlock } from "./PromptBlock.js";
 

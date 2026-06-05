@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Text } from "../../vendor/ink-compat.js";
 import os from "node:os";
 import React from "react";
 import { PROVIDER_CATALOG, type ProviderId } from "@luckycli/core";

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Text } from "ink";
+import { Text } from "../vendor/ink-compat.js";
 import {
   loadStoredConfig,
   type McpServerConfig,

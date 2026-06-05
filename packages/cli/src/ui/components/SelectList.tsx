@@ -1,4 +1,4 @@
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput } from "../../vendor/ink-compat.js";
 import React, { useState } from "react";
 
 export interface SelectItem<V> {

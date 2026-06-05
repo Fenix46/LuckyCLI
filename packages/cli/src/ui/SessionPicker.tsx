@@ -1,4 +1,4 @@
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput } from "../vendor/ink-compat.js";
 import React, { useMemo } from "react";
 import { SelectList } from "./components/SelectList.js";
 import { listSessions, loadSession, type Session } from "@luckycli/core";

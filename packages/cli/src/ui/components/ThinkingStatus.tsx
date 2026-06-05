@@ -1,4 +1,4 @@
-import { Text } from "ink";
+import { Text } from "../../vendor/ink-compat.js";
 import React from "react";
 import type { Theme } from "../themes.js";
 

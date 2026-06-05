@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Text } from "../vendor/ink-compat.js";
 import React, { useState } from "react";
 import { SelectList } from "./components/SelectList.js";
 import {

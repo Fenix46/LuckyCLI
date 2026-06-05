@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
 import type { Theme } from "../themes.js";
 import type { UserQuestionRequest } from "../lib/requests.js";

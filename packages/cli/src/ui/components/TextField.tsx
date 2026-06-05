@@ -1,4 +1,4 @@
-import { Text, useInput } from "ink";
+import { Text, useInput } from "../../vendor/ink-compat.js";
 import React, { useState } from "react";
 
 /**

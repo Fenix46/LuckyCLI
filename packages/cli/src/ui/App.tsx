@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput, useWindowSize } from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "../vendor/ink-compat.js";
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import {
   CachedMcpCatalog,
