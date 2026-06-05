@@ -222,6 +222,35 @@ export function App({
   // long chat. We drive it through this handle and read nothing back per frame.
   const scrollRef = useRef<ScrollBoxHandle | null>(null);
 
+  // Wheel acceleration: a bare 1-row-per-tick scroll feels sluggish. Track the
+  // gap between consecutive same-direction ticks and ramp the step up when the
+  // wheel spins fast (close ticks), decaying back to 1 when it slows or flips.
+  // A light version of Claude Code's wheel-accel curve — enough to feel smooth
+  // without its full encoder-bounce/device-switch machinery.
+  const wheelAccelRef = useRef<{ dir: 0 | 1 | -1; time: number; mult: number }>({
+    dir: 0,
+    time: 0,
+    mult: 1,
+  });
+  const wheelStep = useCallback((dir: 1 | -1): number => {
+    const now = Date.now();
+    const s = wheelAccelRef.current;
+    const gap = now - s.time;
+    if (dir !== s.dir || gap > 200) {
+      // Direction change or a slow, deliberate tick: reset to one line.
+      s.mult = 1;
+    } else if (gap < 80) {
+      // Fast spin: ramp up (capped) so a flick covers ground quickly.
+      s.mult = Math.min(8, s.mult + 0.6);
+    } else {
+      // Medium cadence: ease back toward precise scrolling.
+      s.mult = Math.max(1, s.mult - 0.5);
+    }
+    s.dir = dir;
+    s.time = now;
+    return Math.max(1, Math.round(s.mult));
+  }, []);
+
   const appendItems = useCallback(
     (next: Item[]) => {
       // New content arrived: snap back to the bottom so it's visible.
@@ -453,7 +482,8 @@ export function App({
     // (key.wheelUp/wheelDown), routed here so we scroll the transcript instead
     // of leaking "<64;..M" into the prompt. One line per tick; up reveals older.
     if (key.wheelUp || key.wheelDown) {
-      scrollRef.current?.scrollBy(key.wheelUp ? -1 : 1);
+      const dir = key.wheelUp ? -1 : 1;
+      scrollRef.current?.scrollBy(dir * wheelStep(dir));
       return;
     }
 
@@ -1484,7 +1514,7 @@ export function App({
   );
 
   return (
-    <Box flexDirection="column" flexGrow={1} width="100%" paddingX={1} paddingY={0}>
+    <Box flexDirection="column" flexGrow={1} width="100%" overflow="hidden" paddingX={1} paddingY={0}>
       {/* Virtualized transcript on the vendored Ink fork's ScrollBox: only the
           items in view (+ overscan) are mounted, heights come from real Yoga
           measurement, and scroll is imperative (smooth on long chats). The live
@@ -1690,7 +1720,7 @@ export function App({
         <Box flexDirection="row" gap={1}>
           {items.length > 1 ? (
             <Text color={activeTheme.muted} dimColor>
-              PgUp/wheel to scroll{"  "}
+              scroll to view history{"  "}
             </Text>
           ) : null}
           <Text color={activeTheme.muted} dimColor>

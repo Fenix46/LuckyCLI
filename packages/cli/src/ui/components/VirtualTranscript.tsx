@@ -94,19 +94,26 @@ export function VirtualTranscript({
     );
   }
 
+  // The outer Box MUST clip (overflow:hidden) and grow: it gives the ScrollBox a
+  // bounded height. Without this ceiling the ScrollBox's flexGrow makes its
+  // viewport equal the (huge) spacer height, scrollTop pins at 0, and Ink's
+  // screen buffer balloons to thousands of rows — the source of the stray
+  // characters / torn redraw on long sessions.
   return (
-    <ScrollBox stickyScroll ref={scrollRef} flexGrow={1} flexDirection="column">
-      <VendorBox ref={spacerRef} height={topSpacer} flexShrink={0} />
-      {visible}
-      {bottomSpacer > 0 ? (
-        <VendorBox height={bottomSpacer} flexShrink={0} />
-      ) : null}
-      {footer ? (
-        <VendorBox flexDirection="column" flexShrink={0}>
-          {footer}
-        </VendorBox>
-      ) : null}
-    </ScrollBox>
+    <VendorBox flexGrow={1} flexDirection="column" overflow="hidden" width="100%">
+      <ScrollBox stickyScroll ref={scrollRef} flexGrow={1} flexDirection="column">
+        <VendorBox ref={spacerRef} height={topSpacer} flexShrink={0} />
+        {visible}
+        {bottomSpacer > 0 ? (
+          <VendorBox height={bottomSpacer} flexShrink={0} />
+        ) : null}
+        {footer ? (
+          <VendorBox flexDirection="column" flexShrink={0}>
+            {footer}
+          </VendorBox>
+        ) : null}
+      </ScrollBox>
+    </VendorBox>
   );
 }
 
