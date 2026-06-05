@@ -55,6 +55,12 @@ import {
 } from "./lib/model-picker.js";
 import { formatNumber } from "./lib/format.js";
 import {
+  expandPastedRefs,
+  pruneOrphanedPastes,
+  type PastedContent,
+  type PastedContents,
+} from "./lib/paste.js";
+import {
   contextRows,
   formatStatusFooter,
 } from "./lib/status.js";
@@ -168,6 +174,12 @@ export function App({
     }
   }, [agent, meta.provider, meta.model]);
   const [input, setInput] = useState("");
+  // Large pastes are held out of the visible input behind a `[Pasted text #N]`
+  // placeholder and spliced back in at submit time (see lib/paste.ts). Kept in
+  // refs so the id counter and stash survive re-renders without re-triggering
+  // input effects; only ever read synchronously at paste/submit time.
+  const pastedContentsRef = useRef<PastedContents>({});
+  const nextPasteIdRef = useRef<number>(1);
   // Timestamp of the last Ctrl+C while busy, so a quick second press can force
   // quit even if the running turn is wedged and won't honor the abort.
   const lastBusyCtrlCRef = useRef<number>(0);
@@ -1416,9 +1428,15 @@ export function App({
         return;
       }
 
+      // Splice any stashed large pastes back into the text sent to the model,
+      // but keep the compact `[Pasted text #N]` placeholder in the transcript
+      // so it stays readable. Clear the stash for the next prompt.
+      const expanded = expandPastedRefs(text, pastedContentsRef.current);
+      pastedContentsRef.current = {};
+      nextPasteIdRef.current = 1;
       setItems((prev) => [...prev, { kind: "user", text }]);
       setInput("");
-      await runTurn(text);
+      await runTurn(expanded);
     },
     [busy, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest],
   );
@@ -1465,11 +1483,24 @@ export function App({
   // overlay (picker/approval/menu) opens below it automatically — no manual row
   // budgeting needed (unlike the old fixed-height ScrollViewport).
 
+  const handleInputChange = useCallback((next: string) => {
+    // If the user edited away a `[Pasted text #N]` placeholder, drop the
+    // matching stashed content so it isn't spliced into a later submit.
+    pastedContentsRef.current = pruneOrphanedPastes(next, pastedContentsRef.current);
+    setInput(next);
+  }, []);
+  const handlePaste = useCallback((content: PastedContent) => {
+    pastedContentsRef.current = { ...pastedContentsRef.current, [content.id]: content };
+  }, []);
+  const allocatePasteId = useCallback(() => nextPasteIdRef.current++, []);
+
   const chatInput = (
     <ChatInput
       value={input}
-      onChange={setInput}
+      onChange={handleInputChange}
       onSubmit={submit}
+      onPaste={handlePaste}
+      nextPasteId={allocatePasteId}
       width={messageWidth}
       active={!mcpPanelOpen}
       submitEnabled={

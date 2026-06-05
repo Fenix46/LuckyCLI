@@ -22,6 +22,8 @@ export type Key = {
   delete: boolean
   meta: boolean
   super: boolean
+  /** True when this input arrived as a single bracketed-paste payload. */
+  isPasted: boolean
 }
 
 function parseKey(keypress: ParsedKey): [Key, string] {
@@ -53,6 +55,10 @@ function parseKey(keypress: ParsedKey): [Key, string] {
     // protocol CSI u sequences. Distinct from meta (Alt/Option) so
     // bindings like cmd+c can be expressed separately from opt+c.
     super: keypress.super,
+    // Surfaced from the bracketed-paste parser so input handlers can treat a
+    // pasted block differently from typed characters (e.g. collapse a large
+    // paste behind a placeholder) without re-implementing the heuristic.
+    isPasted: keypress.isPasted,
   }
 
   let input = keypress.ctrl ? keypress.name : keypress.sequence

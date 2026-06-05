@@ -1,11 +1,19 @@
 import { useInput } from "../../vendor/ink-compat.js";
 import React, { useEffect, useState } from "react";
 import { PromptBlock } from "./PromptBlock.js";
+import {
+  countLines,
+  formatPastedRef,
+  shouldStashPaste,
+  type PastedContent,
+} from "../lib/paste.js";
 
 export function ChatInput({
   value,
   onChange,
   onSubmit,
+  onPaste,
+  nextPasteId,
   width,
   active,
   submitEnabled,
@@ -13,6 +21,10 @@ export function ChatInput({
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
+  /** Stash a large paste; the placeholder id is allocated via nextPasteId. */
+  onPaste?: (content: PastedContent) => void;
+  /** Allocates the next placeholder id (kept in App state with the stash). */
+  nextPasteId?: () => number;
   width: number;
   active: boolean;
   submitEnabled: boolean;
@@ -64,6 +76,31 @@ export function ChatInput({
     }
 
     if (!input) return;
+
+    // A bracketed paste arrives as one chunk flagged isPasted by the terminal
+    // parser. Large pastes flood the prompt (and force a full repaint), so
+    // stash them behind a compact `[Pasted text #N +M lines]` placeholder and
+    // splice the real content back in at submit time. This runs before the
+    // control-char guard below because a multi-line paste legitimately
+    // contains "\n".
+    if (key.isPasted && onPaste && nextPasteId) {
+      const cleaned = input.replace(/\r\n?/g, "\n");
+      if (shouldStashPaste(cleaned)) {
+        const id = nextPasteId();
+        onPaste({ id, content: cleaned });
+        const placeholder = formatPastedRef(id, countLines(cleaned));
+        const nextValue = insertAt(value, cursorOffset, placeholder);
+        onChange(nextValue);
+        setCursorOffset(cursorOffset + placeholder.length);
+        return;
+      }
+      // Small paste: insert as-is, but keep the newline normalization.
+      const nextValue = insertAt(value, cursorOffset, cleaned);
+      onChange(nextValue);
+      setCursorOffset(cursorOffset + cleaned.length);
+      return;
+    }
+
     // Guard against stray control/escape bytes leaking in (e.g. fragments of
     // SGR mouse-wheel sequences, which share stdin with the wheel listener).
     if (hasControlChar(input)) return;
