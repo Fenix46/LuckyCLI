@@ -1,5 +1,5 @@
 import autoBind from 'auto-bind';
-import { closeSync, constants as fsConstants, openSync, readSync, writeSync } from 'fs';
+import { appendFileSync, closeSync, constants as fsConstants, openSync, readSync, writeSync } from 'fs';
 import noop from 'lodash-es/noop.js';
 import throttle from 'lodash-es/throttle.js';
 import React, { type ReactNode } from 'react';
@@ -191,7 +191,7 @@ export default class Ink {
     this.terminalRows = options.stdout.rows || 24;
     if (process.env.LUCKY_DEBUG_SIZE === "1") {
       try {
-        require("node:fs").appendFileSync(
+        appendFileSync(
           "/tmp/lucky-size.log",
           `[init] cols=${this.terminalColumns} rows=${this.terminalRows} stdout.columns=${options.stdout.columns} isTTY=${options.stdout.isTTY}\n`,
         );
@@ -252,6 +252,14 @@ export default class Ink {
         return;
       }
       if (this.rootNode.yogaNode) {
+        if (process.env.LUCKY_DEBUG_SIZE === "1") {
+          try {
+            appendFileSync(
+              "/tmp/lucky-size.log",
+              `[layout] width=${this.terminalColumns} (live stdout.columns=${this.options.stdout.columns})\n`,
+            );
+          } catch {}
+        }
         const t0 = performance.now();
         this.rootNode.yogaNode.setWidth(this.terminalColumns);
         this.rootNode.yogaNode.calculateLayout(this.terminalColumns);
@@ -323,10 +331,7 @@ export default class Ink {
     if (cols === this.terminalColumns && rows === this.terminalRows) return;
     if (process.env.LUCKY_DEBUG_SIZE === "1") {
       try {
-        require("node:fs").appendFileSync(
-          "/tmp/lucky-size.log",
-          `[resize] cols=${cols} rows=${rows}\n`,
-        );
+        appendFileSync("/tmp/lucky-size.log", `[resize] cols=${cols} rows=${rows}\n`);
       } catch {}
     }
     this.terminalColumns = cols;
