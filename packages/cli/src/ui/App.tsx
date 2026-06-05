@@ -232,19 +232,23 @@ export function App({
     time: 0,
     mult: 1,
   });
+  // Base rows per detent. A single wheel notch on a typical terminal (Apple
+  // Terminal, iTerm2) emits one event; one row per notch feels glacial, so the
+  // floor is several rows — like scrolling a document.
+  const WHEEL_BASE = 3;
   const wheelStep = useCallback((dir: 1 | -1): number => {
     const now = Date.now();
     const s = wheelAccelRef.current;
     const gap = now - s.time;
-    if (dir !== s.dir || gap > 200) {
-      // Direction change or a slow, deliberate tick: reset to one line.
-      s.mult = 1;
-    } else if (gap < 80) {
-      // Fast spin: ramp up (capped) so a flick covers ground quickly.
-      s.mult = Math.min(8, s.mult + 0.6);
+    if (dir !== s.dir || gap > 250) {
+      // Direction change or a slow, deliberate tick: reset to the base step.
+      s.mult = WHEEL_BASE;
+    } else if (gap < 120) {
+      // Fast spin: ramp up hard (capped) so a flick covers a lot of ground.
+      s.mult = Math.min(28, s.mult + WHEEL_BASE);
     } else {
       // Medium cadence: ease back toward precise scrolling.
-      s.mult = Math.max(1, s.mult - 0.5);
+      s.mult = Math.max(WHEEL_BASE, s.mult - WHEEL_BASE);
     }
     s.dir = dir;
     s.time = now;
@@ -1555,6 +1559,11 @@ export function App({
         }
       />
 
+      {/* Bottom chrome: pickers/overlays, the prompt input frame, the slash
+          menu and the status footer. flexShrink={0} + maxHeight keep it from
+          being squeezed when the transcript is tall — the transcript (flexGrow)
+          yields height instead, so the prompt never collapses. */}
+      <Box flexDirection="column" flexShrink={0} width="100%" maxHeight="60%">
       {effortPicker ? (
         <Box
           flexDirection="column"
@@ -1730,6 +1739,7 @@ export function App({
             })}
           </Text>
         </Box>
+      </Box>
       </Box>
     </Box>
   );
