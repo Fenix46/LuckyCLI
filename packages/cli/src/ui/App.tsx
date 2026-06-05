@@ -59,15 +59,14 @@ import {
   formatStatusFooter,
 } from "./lib/status.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
-import { useMouseWheel } from "./hooks/useMouseWheel.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
 import { ThinkingStatus } from "./components/ThinkingStatus.js";
 import { StreamingPreview } from "./components/StreamingPreview.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
-import { TranscriptItem } from "./components/Transcript.js";
-import { ScrollViewport } from "./components/ScrollViewport.js";
+import { VirtualTranscript } from "./components/VirtualTranscript.js";
+import type { ScrollBoxHandle } from "../vendor/ink/components/ScrollBox.js";
 import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
@@ -218,28 +217,15 @@ export function App({
 
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
 
-  // Scrollback within the alternate-screen viewport. scrollUp = lines revealed
-  // above the bottom (0 = pinned to newest); maxScroll is reported by the viewport.
-  const [scrollUp, setScrollUp] = useState(0);
-  const [maxScroll, setMaxScroll] = useState(0);
-  const maxScrollRef = useRef(0);
-  maxScrollRef.current = maxScroll;
-
-  const onWheel = useCallback((direction: "up" | "down", ticks: number) => {
-    // One line per wheel tick. macOS momentum scrolling fires many ticks for a
-    // flick and few for a gentle roll, so 1 line/tick feels natural (fast flick
-    // = fast scroll) without overshooting like a larger fixed step would.
-    setScrollUp((prev) => {
-      const next = direction === "up" ? prev + ticks : prev - ticks;
-      return Math.min(maxScrollRef.current, Math.max(0, next));
-    });
-  }, []);
-  useMouseWheel(onWheel);
+  // The vendored ScrollBox owns scroll position imperatively (scrollTop lives on
+  // its DOM node, not in React state) — that's what keeps scrolling smooth on a
+  // long chat. We drive it through this handle and read nothing back per frame.
+  const scrollRef = useRef<ScrollBoxHandle | null>(null);
 
   const appendItems = useCallback(
     (next: Item[]) => {
       // New content arrived: snap back to the bottom so it's visible.
-      setScrollUp(0);
+      scrollRef.current?.scrollToBottom();
       setItems((prev) => [...prev, ...next]);
     },
     [],
@@ -459,10 +445,15 @@ export function App({
     // the viewport height.
     if (key.pageUp || key.pageDown) {
       const page = Math.max(1, terminalSize.height - CHROME_ROWS - 1);
-      setScrollUp((prev) => {
-        const next = key.pageUp ? prev + page : prev - page;
-        return Math.min(maxScroll, Math.max(0, next));
-      });
+      scrollRef.current?.scrollBy(key.pageUp ? -page : page);
+      return;
+    }
+
+    // 0c. Mouse wheel. The vendored fork surfaces wheel ticks as key events
+    // (key.wheelUp/wheelDown), routed here so we scroll the transcript instead
+    // of leaking "<64;..M" into the prompt. One line per tick; up reveals older.
+    if (key.wheelUp || key.wheelDown) {
+      scrollRef.current?.scrollBy(key.wheelUp ? -1 : 1);
       return;
     }
 
@@ -1463,35 +1454,9 @@ export function App({
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);
 
-  // An open picker/menu renders between the transcript and the input frame and
-  // is NOT part of CHROME_ROWS. In the fixed-height alternate screen that extra
-  // height would overflow the layout (the input/footer get pushed off and the
-  // menu misrenders). Reserve rows for whichever overlay is open so the
-  // transcript viewport shrinks to make room. Each list is header + items +
-  // hint (~3 rows of chrome); cap so a huge list still leaves a usable viewport.
-  let overlayRows = 0;
-  if (approvalRequest) {
-    // Header + question + target + up to ~8 preview lines + 3 options + hint,
-    // rendered inside the input frame. Reserve generously so it never spills
-    // past the bottom of the screen.
-    overlayRows = 16;
-  } else if (userQuestionRequest) {
-    // Header + question + options + hint (+ the input line when free-text).
-    const options = userQuestionRequest.options?.length ?? 0;
-    overlayRows = Math.min(16, options + 6);
-  } else if (mcpPanelOpen) {
-    const rows = mcpPanelTab === "installed" ? installedMcpRows.length : mcpPanelResults.length;
-    overlayRows = Math.min(14, rows + 4);
-  } else if (effortPicker) {
-    overlayRows = Math.min(14, effortPicker.levels.length + 3);
-  } else if (modelPicker.open) {
-    overlayRows = Math.min(14, Math.max(1, modelPicker.items.length) + 3);
-  } else if (themePicker.open) {
-    overlayRows = Math.min(14, Math.max(1, themePicker.items.length) + 3);
-  } else if (showSlashMenu && filteredCommands.length > 0) {
-    overlayRows = Math.min(14, filteredCommands.length + 3);
-  }
-  const transcriptHeight = Math.max(3, terminalSize.height - CHROME_ROWS - overlayRows);
+  // The transcript ScrollBox uses flexGrow={1}, so it yields height to whatever
+  // overlay (picker/approval/menu) opens below it automatically — no manual row
+  // budgeting needed (unlike the old fixed-height ScrollViewport).
 
   const chatInput = (
     <ChatInput
@@ -1519,55 +1484,46 @@ export function App({
   );
 
   return (
-    <Box flexDirection="column" width={terminalSize.width} height={terminalSize.height} paddingX={1} paddingY={0}>
-      {/* Transcript viewport: a fixed-height region that pins the newest content
-          to the bottom and clips older content off the top (chat-style). In the
-          alternate screen Ink owns the screen and redraws in place, so the
-          streaming reply renders at full height with no scrollback duplication.
-          PageUp/PageDown scroll back through the history. */}
-      <ScrollViewport
-        height={transcriptHeight}
-        scrollUp={scrollUp}
-        contentKey={`${items.length}:${streaming.length}:${busy ? 1 : 0}:${overlayRows}:${terminalSize.width}x${terminalSize.height}`}
-        onMaxScrollChange={setMaxScroll}
-      >
-        {items.map((item, index) => (
-          <TranscriptItem
-            key={`item-${index}`}
-            item={item}
-            previous={index > 0 ? items[index - 1] : undefined}
-            theme={activeTheme}
-            width={messageWidth}
-            provider={meta.provider}
-            model={meta.model}
-          />
-        ))}
-
-        {items.length === 1 && items[0]?.kind === "intro" && !busy ? (
-          <Box marginTop={1}>
-            <Text color={activeTheme.muted}>
-              lucky › Input instruction payload or type / for command directory...
-            </Text>
-          </Box>
-        ) : null}
-
-        {busy && !approvalRequest && !userQuestionRequest ? (
-          <Box marginY={0.5} flexDirection="column">
-            {streamingPreview ? (
-              // The live assistant message: one block with one "lucky" header,
-              // rendered identically to the finalized transcript item so it
-              // doesn't jump when the turn ends.
-              <StreamingPreview text={streamingPreview} theme={activeTheme} />
-            ) : (
-              <ThinkingStatus
-                theme={activeTheme}
-                elapsedSeconds={elapsedSeconds}
-                frame={activityFrame}
-              />
-            )}
-          </Box>
-        ) : null}
-      </ScrollViewport>
+    <Box flexDirection="column" flexGrow={1} width="100%" paddingX={1} paddingY={0}>
+      {/* Virtualized transcript on the vendored Ink fork's ScrollBox: only the
+          items in view (+ overscan) are mounted, heights come from real Yoga
+          measurement, and scroll is imperative (smooth on long chats). The live
+          streaming reply / thinking indicator / empty-state hint ride in the
+          `footer` — outside the virtualized window — so a streamed token never
+          re-renders the history. Wheel + PageUp/PageDown drive scrollRef. */}
+      <VirtualTranscript
+        items={items}
+        scrollRef={scrollRef}
+        columns={terminalSize.width}
+        width={messageWidth}
+        theme={activeTheme}
+        provider={meta.provider}
+        model={meta.model}
+        footer={
+          items.length === 1 && items[0]?.kind === "intro" && !busy ? (
+            <Box marginTop={1}>
+              <Text color={activeTheme.muted}>
+                lucky › Input instruction payload or type / for command directory...
+              </Text>
+            </Box>
+          ) : busy && !approvalRequest && !userQuestionRequest ? (
+            <Box marginY={0.5} flexDirection="column">
+              {streamingPreview ? (
+                // The live assistant message: one block with one "lucky" header,
+                // rendered identically to the finalized transcript item so it
+                // doesn't jump when the turn ends.
+                <StreamingPreview text={streamingPreview} theme={activeTheme} />
+              ) : (
+                <ThinkingStatus
+                  theme={activeTheme}
+                  elapsedSeconds={elapsedSeconds}
+                  frame={activityFrame}
+                />
+              )}
+            </Box>
+          ) : null
+        }
+      />
 
       {effortPicker ? (
         <Box
@@ -1732,10 +1688,9 @@ export function App({
           )}
         </Box>
         <Box flexDirection="row" gap={1}>
-          {maxScroll > 0 ? (
-            <Text color={activeTheme.accent} dimColor>
-              {scrollUp > 0 ? `↑ ${scrollUp}/${maxScroll} scrolled · PgUp/PgDn` : "PgUp to scroll back"}
-              {"  "}
+          {items.length > 1 ? (
+            <Text color={activeTheme.muted} dimColor>
+              PgUp/wheel to scroll{"  "}
             </Text>
           ) : null}
           <Text color={activeTheme.muted} dimColor>

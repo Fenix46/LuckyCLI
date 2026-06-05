@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import "dotenv/config";
 import { parseArgs } from "node:util";
-import { render } from "ink";
+import render from "./vendor/ink/root.js";
+import { AlternateScreen } from "./vendor/ink/components/AlternateScreen.js";
 import React from "react";
-import { createMouseFilteredStdin } from "./mouse-input.js";
 import {
   buildAndSaveGraph,
   latestSession,
@@ -191,42 +191,32 @@ function main(): void {
     ...(!values.model && resume ? { model: resume.model } : {}),
   });
 
-  // Enable SGR mouse tracking so the wheel scrolls the transcript, and route
-  // stdin through a filter that strips the mouse sequences before Ink sees them
-  // (otherwise they leak into the prompt as raw "<64;..M" text). Only when
-  // stdin is a real TTY; piped/non-interactive runs keep the plain stdin.
+  // The vendored Ink fork owns the alternate screen and mouse tracking via the
+  // <AlternateScreen> component: it enters the alt buffer (like vim/less, so the
+  // streaming reply redraws in place with no scrollback duplication), enables
+  // SGR mouse tracking, and surfaces wheel ticks as key events the app routes to
+  // the transcript ScrollBox. No manual escape sequences or stdin filtering.
   const interactive = Boolean(process.stdin.isTTY);
-  const mouse = interactive ? createMouseFilteredStdin(process.stdin) : null;
-  if (interactive) {
-    process.stdout.write("\x1b[?1000h\x1b[?1006h");
-    const disableMouse = () => process.stdout.write("\x1b[?1006l\x1b[?1000l");
-    process.on("exit", disableMouse);
-    process.on("SIGINT", () => {
-      disableMouse();
-      process.exit(0);
-    });
-  }
 
-  const instance = render(
-    React.createElement(Root, {
-      config,
-      forceSetup: values.setup === true,
-      ...(resume ? { resume } : {}),
-      ...(pickResume ? { pickResume: true } : {}),
-    }),
-    // Render in the terminal's alternate screen (like vim/less): Ink owns the
-    // whole screen and redraws in place, so the streaming reply renders at full
-    // height with no scrollback duplication. The transcript scrolls internally.
-    {
-      alternateScreen: true,
-      ...(mouse ? { stdin: mouse.stdin } : {}),
-    },
+  void render(
+    interactive ? (
+      <AlternateScreen mouseTracking>
+        <Root
+          config={config}
+          forceSetup={values.setup === true}
+          {...(resume ? { resume } : {})}
+          {...(pickResume ? { pickResume: true } : {})}
+        />
+      </AlternateScreen>
+    ) : (
+      <Root
+        config={config}
+        forceSetup={values.setup === true}
+        {...(resume ? { resume } : {})}
+        {...(pickResume ? { pickResume: true } : {})}
+      />
+    ),
   );
-
-  instance.waitUntilExit().finally(() => {
-    mouse?.dispose();
-    if (interactive) process.stdout.write("\x1b[?1006l\x1b[?1000l");
-  });
 }
 
 main();

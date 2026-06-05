@@ -37,6 +37,7 @@ export function VirtualTranscript({
   theme,
   provider,
   model,
+  footer,
 }: {
   items: Item[];
   scrollRef: React.RefObject<ScrollBoxHandle | null>;
@@ -47,6 +48,13 @@ export function VirtualTranscript({
   theme: Theme;
   provider: ProviderId;
   model: string;
+  /**
+   * Live content pinned below the items (streaming reply / thinking indicator /
+   * empty-state hint). It lives outside the virtualized window — it is NOT in
+   * `items`, so a streamed token re-renders only this node, never the history.
+   * `stickyScroll` keeps it on screen at the bottom.
+   */
+  footer?: React.ReactNode;
 }): React.JSX.Element {
   // Stable per-item key. Items are append-only and patched in place (tool
   // output), so index is a stable identity here; include kind so a replaced
@@ -92,6 +100,11 @@ export function VirtualTranscript({
       {visible}
       {bottomSpacer > 0 ? (
         <VendorBox height={bottomSpacer} flexShrink={0} />
+      ) : null}
+      {footer ? (
+        <VendorBox flexDirection="column" flexShrink={0}>
+          {footer}
+        </VendorBox>
       ) : null}
     </ScrollBox>
   );
