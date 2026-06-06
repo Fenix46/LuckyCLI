@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   createTask,
+  getActiveTaskListId,
   getTask,
   listTasks,
   TASK_STATUSES,
@@ -58,8 +59,8 @@ export const taskCreateTool = defineTool({
       .optional()
       .describe("Arbitrary metadata to attach to the task."),
   }),
-  async execute({ subject, description, activeForm, metadata }, ctx) {
-    const task = createTask(ctx.cwd, {
+  async execute({ subject, description, activeForm, metadata }) {
+    const task = createTask(getActiveTaskListId(), {
       subject,
       description,
       activeForm,
@@ -76,8 +77,8 @@ export const taskListTool = defineTool({
     "List all tasks in the work task list for the current project, with their status.",
   readonly: true,
   schema: z.object({}),
-  async execute(_input, ctx) {
-    const tasks = listTasks(ctx.cwd);
+  async execute() {
+    const tasks = listTasks(getActiveTaskListId());
     if (tasks.length === 0) {
       return { content: "The task list is empty." };
     }
@@ -102,8 +103,8 @@ export const taskGetTool = defineTool({
   schema: z.object({
     id: z.string().describe("The task id (e.g. \"3\")."),
   }),
-  async execute({ id }, ctx) {
-    const task = getTask(ctx.cwd, id);
+  async execute({ id }) {
+    const task = getTask(getActiveTaskListId(), id);
     if (!task) {
       return { content: `No task #${id} found.`, isError: true };
     }
@@ -133,8 +134,8 @@ export const taskUpdateTool = defineTool({
       .optional()
       .describe("Replace the task metadata."),
   }),
-  async execute({ id, ...updates }, ctx) {
-    const task = updateTask(ctx.cwd, id, updates);
+  async execute({ id, ...updates }) {
+    const task = updateTask(getActiveTaskListId(), id, updates);
     if (!task) {
       return { content: `No task #${id} found.`, isError: true };
     }

@@ -29,6 +29,7 @@ import {
   getProvider,
   getAutoUpdatePolicy,
   getReasoningEffort,
+  getActiveTaskListId,
   getThinkingEnabled,
   listSessions,
   listTasks,
@@ -160,11 +161,16 @@ export function App({
   // kept fresh by subscribing to the store's change emitter, which fires on
   // every task_create/task_update/reset (whether driven by the model's tools
   // or the /task command).
-  const [tasks, setTasks] = useState<Task[]>(() => listTasks(process.cwd()));
+  // The task list is keyed by session id (set active at startup), so a fresh
+  // chat shows an empty panel and a resumed session shows its own tasks.
+  const taskListId = resumed?.id ?? getActiveTaskListId();
+  const [tasks, setTasks] = useState<Task[]>(() => listTasks(taskListId));
   useEffect(() => {
-    const refresh = () => setTasks(listTasks(process.cwd()));
+    const refresh = (changedId: string) => {
+      if (changedId === taskListId) setTasks(listTasks(taskListId));
+    };
     return onTasksUpdated(refresh);
-  }, []);
+  }, [taskListId]);
 
   // Session persistence: id + creation time, established lazily on first save.
   const sessionIdRef = useRef<string | null>(resumed?.id ?? null);
@@ -1021,9 +1027,8 @@ export function App({
         return;
       }
       if (text === "/task" || text === "/task clear") {
-        const cwd = process.cwd();
         if (text === "/task clear") {
-          resetTaskList(cwd);
+          resetTaskList(taskListId);
           setItems((prev) => [
             ...prev,
             {
@@ -1035,7 +1040,7 @@ export function App({
           setInput("");
           return;
         }
-        const tasks = listTasks(cwd);
+        const tasks = listTasks(taskListId);
         setItems((prev) => [
           ...prev,
           {

@@ -6,19 +6,24 @@ import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { classifyCommandSemantics, execTool } from "./exec.js";
 import { classifyPowerShellCommandSemantics, powerShellTool } from "./powershell.js";
-import { resetTaskList } from "../../tasks/store.js";
+import { resetTaskList, setActiveTaskListId } from "../../tasks/store.js";
 import { projectMemoryTool } from "./project-memory.js";
 import { taskCreateTool, taskListTool } from "./tasks.js";
 
 describe("robust built-in tools", () => {
   let root: string;
+  let taskListId: string;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "lucky-robust-"));
+    // Task tools resolve the active task list id, not ctx.cwd — give each test
+    // a unique list so they don't collide with the shared on-disk default.
+    taskListId = `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setActiveTaskListId(taskListId);
   });
 
   afterEach(async () => {
-    resetTaskList(root);
+    resetTaskList(taskListId);
     await rm(root, { recursive: true, force: true });
   });
 

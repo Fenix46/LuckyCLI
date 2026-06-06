@@ -16,6 +16,9 @@ import {
   type Session,
   type ToolApproval,
   createSessionId,
+  setActiveTaskListId,
+  cleanupOrphanTaskLists,
+  listSessions,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
 import { buildAgentRuntime } from "../runtime.js";
@@ -81,6 +84,27 @@ export function Root({
     };
   });
   const [picking, setPicking] = useState<boolean>(pickResume === true && !resume);
+
+  // Bind the active task list to the current session id, so the bottom task
+  // panel and the task_* tools read/write the list for THIS chat. A fresh chat
+  // gets a new session id (empty list); resuming brings that session's tasks
+  // back. Re-runs if the session changes (e.g. after the resume picker).
+  useEffect(() => {
+    setActiveTaskListId(resumeSession.id);
+  }, [resumeSession.id]);
+
+  // One-time cleanup of task lists left behind by sessions that no longer
+  // exist, so a fresh chat starts clean without orphaned lists accumulating on
+  // disk. Keep the active id and every still-resumable session id.
+  useEffect(() => {
+    const valid = new Set<string>([
+      resumeSession.id,
+      ...listSessions().map((s) => s.id),
+    ]);
+    cleanupOrphanTaskLists(valid);
+    // Intentionally run once at startup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // First open in this folder: ask to trust it (and offer to build the graph).
   // Once a decision is recorded it never re-prompts. Computed once at startup.
   const [trustNeeded, setTrustNeeded] = useState<boolean>(() =>

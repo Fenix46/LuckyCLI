@@ -1,14 +1,17 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  cleanupOrphanTaskLists,
   createTask,
   deleteTask,
   getTask,
   listTasks,
   resetTaskList,
   sanitizePathComponent,
+  tasksRootDir,
   updateTask,
 } from "./store.js";
 
@@ -80,5 +83,34 @@ describe("tasks store", () => {
 
   it("sanitizes path components", () => {
     expect(sanitizePathComponent("/Users/me/My Project!")).toBe("-Users-me-My-Project-");
+  });
+
+  it("keys lists independently so a fresh id starts empty", () => {
+    const a = `unit-a-${Date.now()}`;
+    const b = `unit-b-${Date.now()}`;
+    createTask(a, { subject: "in A", description: "x", status: "pending" });
+    expect(listTasks(a)).toHaveLength(1);
+    // A different (fresh) task list id is empty — the core of the per-session fix.
+    expect(listTasks(b)).toHaveLength(0);
+    resetTaskList(a);
+  });
+
+  it("cleanupOrphanTaskLists removes lists not in the valid set", () => {
+    const keep = `unit-keep-${Date.now()}`;
+    const orphan = `unit-orphan-${Date.now()}`;
+    createTask(keep, { subject: "keep", description: "x", status: "pending" });
+    createTask(orphan, { subject: "orphan", description: "x", status: "pending" });
+
+    // Pass every currently-known list as valid EXCEPT the orphan, so the test
+    // only deletes the orphan it created and never touches unrelated lists in
+    // the shared on-disk root (other tests, the real user's lists).
+    const valid = readdirSync(tasksRootDir()).filter(
+      (id) => id !== sanitizePathComponent(orphan),
+    );
+    cleanupOrphanTaskLists(valid);
+
+    expect(listTasks(keep)).toHaveLength(1);
+    expect(listTasks(orphan)).toHaveLength(0);
+    resetTaskList(keep);
   });
 });
