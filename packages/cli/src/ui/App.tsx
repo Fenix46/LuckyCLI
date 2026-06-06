@@ -33,6 +33,7 @@ import {
   listSessions,
   listTasks,
   loadStoredConfig,
+  onTasksUpdated,
   resetTaskList,
   recordGraphBuilt,
   saveReasoningEffort,
@@ -43,6 +44,7 @@ import {
   withMcpServer,
   withoutMcpServer,
   type CodexModel,
+  type Task,
 } from "@luckycli/core";
 import { applyUpdateNow, checkForUpdate, stageUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
@@ -71,6 +73,7 @@ import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
+import { TaskPanel } from "./components/TaskPanel.js";
 import { TranscriptList } from "./components/Transcript.js";
 import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
@@ -153,6 +156,16 @@ export function App({
       ? [{ kind: "intro" }, ...messagesToItems(resumed.messages)]
       : [{ kind: "intro" }]
   );
+  // Live work task list for the bottom checklist panel. Seeded from disk and
+  // kept fresh by subscribing to the store's change emitter, which fires on
+  // every task_create/task_update/reset (whether driven by the model's tools
+  // or the /task command).
+  const [tasks, setTasks] = useState<Task[]>(() => listTasks(process.cwd()));
+  useEffect(() => {
+    const refresh = () => setTasks(listTasks(process.cwd()));
+    return onTasksUpdated(refresh);
+  }, []);
+
   // Session persistence: id + creation time, established lazily on first save.
   const sessionIdRef = useRef<string | null>(resumed?.id ?? null);
   const sessionCreatedAtRef = useRef<number>(resumed?.createdAt ?? Date.now());
@@ -1581,6 +1594,7 @@ export function App({
           as the transcript grows, the whole column grows and older rows scroll
           into the terminal's scrollback. */}
       <Box flexDirection="column" flexShrink={0} width="100%">
+      <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} />
       {effortPicker ? (
         <Box
           flexDirection="column"

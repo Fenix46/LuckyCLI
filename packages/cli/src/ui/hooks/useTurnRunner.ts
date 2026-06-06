@@ -5,6 +5,16 @@ import { formatNumber } from "../lib/format.js";
 import { humanizeError } from "../lib/errors.js";
 import { handleEvent } from "../lib/turn-events.js";
 
+// Task tools don't get their own transcript rows: the live TaskPanel checklist
+// (driven by the store's onTasksUpdated emitter) is their only feedback, which
+// avoids a stream of duplicated "Created task …"/"Updated task …" lines.
+const HIDDEN_TOOLS = new Set([
+  "task_create",
+  "task_update",
+  "task_list",
+  "task_get",
+]);
+
 interface TurnRunnerDeps {
   agent: Agent;
   /** Append items to the transcript. */
@@ -113,9 +123,13 @@ export function useTurnRunner({
               // A tool call ends the current narration block — commit any text
               // the model wrote before the tool (and clear the live preview).
               flushAssistant();
+              if (HIDDEN_TOOLS.has(name)) return;
               appendItems([{ kind: "tool", name, input: rawInput }]);
             },
-            onToolEnd: (name, output, error) => patchTool(name, output, error),
+            onToolEnd: (name, output, error) => {
+              if (HIDDEN_TOOLS.has(name)) return;
+              patchTool(name, output, error);
+            },
             onError: (message) => {
               flushAssistant();
               appendItems([{ kind: "error", text: humanizeError(message) }]);

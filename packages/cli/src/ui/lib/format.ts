@@ -84,6 +84,10 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
         return ["Search", "Searched"];
       case "http_fetch":
         return ["Fetch", "Fetched"];
+      case "graph_query":
+        return ["Query graph", "Queried graph"];
+      case "graph_overview":
+        return ["Overview graph", "Graphed overview"];
       case "task_create":
         return ["Create task", "Created task"];
       case "task_update":
@@ -127,6 +131,22 @@ export function toolTarget(name: string, input: unknown): string {
 
   if (name === "http_fetch") {
     return inputString(input, "url") ?? "";
+  }
+
+  if (name === "graph_query") {
+    const query = inputString(input, "query");
+    const relation = inputString(input, "relation");
+    return [query ? quotePath(query) : "", relation ? `(${relation})` : ""]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (name === "graph_overview") {
+    const limit =
+      input && typeof input === "object" && !Array.isArray(input)
+        ? (input as Record<string, unknown>).limit
+        : undefined;
+    return typeof limit === "number" ? `top ${limit}` : "";
   }
 
   if (name === "apply_patch") {
