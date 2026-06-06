@@ -13,6 +13,7 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   task_list: "allow",
   task_get: "allow",
   task_update: "allow",
+  present_plan: "allow",
   graph_query: "allow",
   graph_overview: "allow",
   ask_user: "allow",

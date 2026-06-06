@@ -9,6 +9,8 @@ import {
   resetProvider,
   updateGraphForFiles,
   type AskUserRequest,
+  type PlanProposal,
+  type PlanDecision,
   type Message,
   type McpServerConfig,
   type ProviderCredentials,
@@ -64,6 +66,7 @@ export interface BuildAgentOptions {
   permissions?: ToolPermissionPolicy;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
+  presentPlan?: (plan: PlanProposal) => Promise<PlanDecision>;
   extraTools?: Tool[];
   /**
    * Pre-built tool registry to use as-is. When given, `extraTools` is ignored —
@@ -133,6 +136,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     permissions: opts.permissions,
     approveTool: opts.approveTool,
     askUser: opts.askUser,
+    ...(opts.presentPlan ? { presentPlan: opts.presentPlan } : {}),
     onFilesChanged: createGraphMaintainer(cwd),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),

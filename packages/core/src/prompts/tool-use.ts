@@ -2,7 +2,7 @@
  * Tool-use guidance: how lucky should drive the built-in tools. Third section
  * of the system prompt. Tool names here must match the built-in registry
  * (read_file, edit_file, write_file, apply_patch, list_dir, glob, grep, exec,
- * PowerShell, http_fetch, task_create/list/get/update, project_memory, graph_query,
+ * PowerShell, http_fetch, present_plan, task_create/list/get/update, project_memory, graph_query,
  * graph_overview, ask_user). Override with LUCKY_PROMPT_TOOL_USE.
  */
 export const TOOL_USE_PROMPT = `# Using tools
@@ -77,10 +77,19 @@ Operational rules:
 - Do not run destructive commands without explicit approval.
 - On Windows, prefer PowerShell for command execution, file writes, quoting, paths, and redirection.
 
+# Planning
+
+- When the user asks you to plan something (e.g. "plan", "pianifica", "fai un piano", "planning") OR the task is non-trivial (3+ steps, multiple files, architectural choices), plan before you implement:
+  1. Explore read-only first (read_file, grep, glob, graph_query/graph_overview) to understand the code.
+  2. Resolve open questions or choices with ask_user — do not guess on decisions the user should make.
+  3. Call present_plan with a clear markdown plan and the list of tasks it breaks down into.
+- Do NOT edit files before the plan is approved. On accept, present_plan creates the tasks automatically; then execute them, marking each in_progress before you start and completed when done. If the user asks for changes, revise and call present_plan again. If they reject, stop.
+- Skip planning for genuinely trivial requests (a one-line fix, a single obvious edit) — just do them.
+
 # Other tools
 
 - http_fetch only when the task needs external public content that is not already in the project.
-- task_create/task_update/task_list/task_get to plan and track non-trivial work (an upgrade, a fix, a feature): create the tasks up front, mark exactly one in_progress, complete it before moving on. The list persists across sessions for this project.
+- task_create/task_update/task_list/task_get to track non-trivial work you did not just plan via present_plan: create the tasks up front, mark exactly one in_progress, complete it before moving on. The list persists for this session.
 - project_memory only for durable, project-specific facts that should persist across sessions. Never store guesses, transient tasks, or secrets.
 - ask_user only for a genuine decision the human must make, not for facts you can determine from the repository.
 

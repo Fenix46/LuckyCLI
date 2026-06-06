@@ -212,6 +212,24 @@ export function ItemView({
           <Text color={theme.muted}>{item.text}</Text>
         </Box>
       );
+    case "plan":
+      return (
+        <Box
+          flexDirection="column"
+          width={Math.max(48, Math.min(width, 104))}
+          borderStyle="single"
+          borderColor={theme.accent}
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          paddingLeft={2}
+        >
+          <Text bold color={theme.accent}>▣ Plan · {item.title}</Text>
+          <Box marginTop={1}>
+            <Markdown text={item.markdown} theme={theme} />
+          </Box>
+        </Box>
+      );
     case "command":
       return (
         <Box flexDirection="column" paddingLeft={2}>

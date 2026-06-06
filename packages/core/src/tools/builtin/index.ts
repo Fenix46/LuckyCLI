@@ -8,6 +8,7 @@ import { graphOverviewTool, graphQueryTool } from "./graph.js";
 import { grepTool } from "./grep.js";
 import { httpFetchTool } from "./http-fetch.js";
 import { listDirTool } from "./list-dir.js";
+import { presentPlanTool } from "./plan.js";
 import { powerShellTool } from "./powershell.js";
 import { projectMemoryTool } from "./project-memory.js";
 import { readFileTool } from "./read-file.js";
@@ -36,6 +37,7 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(taskListTool)
     .register(taskGetTool)
     .register(taskUpdateTool)
+    .register(presentPlanTool)
     .register(projectMemoryTool)
     .register(graphQueryTool)
     .register(graphOverviewTool)
@@ -57,6 +59,7 @@ export {
   taskListTool,
   taskGetTool,
   taskUpdateTool,
+  presentPlanTool,
   projectMemoryTool,
   graphQueryTool,
   graphOverviewTool,

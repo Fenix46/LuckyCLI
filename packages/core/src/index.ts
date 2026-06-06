@@ -42,11 +42,13 @@ export {
   taskListTool,
   taskGetTool,
   taskUpdateTool,
+  presentPlanTool,
   projectMemoryTool,
   graphQueryTool,
   graphOverviewTool,
   askUserTool,
 } from "./tools/builtin/index.js";
+export type { PlanProposal, PlanDecision, PlanTask } from "./agent/plan.js";
 
 export {
   TASK_STATUSES,

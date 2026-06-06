@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { PlanDecision, PlanProposal } from "../agent/plan.js";
 
 /** Context handed to every tool at execution time. */
 export interface AskUserRequest {
@@ -17,6 +18,11 @@ export interface ToolContext {
   signal?: AbortSignal;
   /** Optional bridge for tools that need to ask the human a question. */
   askUser?: (request: AskUserRequest) => Promise<string>;
+  /**
+   * Optional bridge for the present_plan tool: render a development plan to the
+   * user and return their accept/modify/reject decision.
+   */
+  presentPlan?: (plan: PlanProposal) => Promise<PlanDecision>;
   /**
    * Notify the host that files changed (repo-relative or absolute paths), after
    * a successful mutation. The host uses this to keep the knowledge graph fresh

@@ -82,6 +82,7 @@ import { UserQuestionRequestView } from "./components/UserQuestion.js";
 import type {
   ApprovalRequest,
   UserQuestionRequest,
+  PlanRequest,
   PermissionMode,
 } from "./lib/requests.js";
 
@@ -93,6 +94,7 @@ interface AppMeta {
 export type {
   ApprovalRequest,
   UserQuestionRequest,
+  PlanRequest,
   PermissionMode,
 } from "./lib/requests.js";
 
@@ -103,6 +105,7 @@ interface AppProps {
   setApprovalRequest: (req: ApprovalRequest | null) => void;
   userQuestionRequest: UserQuestionRequest | null;
   setUserQuestionRequest: (req: UserQuestionRequest | null) => void;
+  planRequest: PlanRequest | null;
   mcpManager?: McpManager;
   mcpConfig: Record<string, McpServerConfig>;
   onMcpConfigChange: (nextMcpConfig: Record<string, McpServerConfig>) => void;
@@ -139,6 +142,7 @@ export function App({
   setApprovalRequest,
   userQuestionRequest,
   setUserQuestionRequest,
+  planRequest,
   mcpManager,
   mcpConfig,
   onMcpConfigChange,
@@ -171,6 +175,20 @@ export function App({
     };
     return onTasksUpdated(refresh);
   }, [taskListId]);
+
+  // When the agent presents a plan, print it into the transcript once so it
+  // stays in the scrollback while the confirmation UI (below) collects the
+  // accept/modify/reject decision. Keyed on identity so it fires per request.
+  const printedPlanRef = useRef<PlanRequest | null>(null);
+  useEffect(() => {
+    if (planRequest && printedPlanRef.current !== planRequest) {
+      printedPlanRef.current = planRequest;
+      setItems((prev) => [
+        ...prev,
+        { kind: "plan", title: planRequest.title, markdown: planRequest.markdown },
+      ]);
+    }
+  }, [planRequest]);
 
   // Session persistence: id + creation time, established lazily on first save.
   const sessionIdRef = useRef<string | null>(resumed?.id ?? null);

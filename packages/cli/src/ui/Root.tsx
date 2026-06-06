@@ -9,6 +9,8 @@ import {
   saveStoredConfig,
   type Agent,
   type AskUserRequest,
+  type PlanProposal,
+  type PlanDecision,
   type Message,
   type ProviderCredentials,
   type ProviderId,
@@ -22,7 +24,7 @@ import {
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
 import { buildAgentRuntime } from "../runtime.js";
-import { App, type ApprovalRequest, type PermissionMode, type UserQuestionRequest } from "./App.js";
+import { App, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
 import { TrustPrompt } from "./TrustPrompt.js";
@@ -71,6 +73,7 @@ export function Root({
 }: RootProps): React.JSX.Element {
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
   const [userQuestionRequest, setUserQuestionRequest] = useState<UserQuestionRequest | null>(null);
+  const [planRequest, setPlanRequest] = useState<PlanRequest | null>(null);
   const [resumeSession, setResumeSession] = useState<Session>(() => {
     if (resume) return resume;
     const now = Date.now();
@@ -171,6 +174,36 @@ export function Root({
     });
   }
 
+  // Show the plan in the transcript (via planRequest, which App prints), then
+  // collect the decision through the existing question UI. Mapping: the picked
+  // option (or matching free text) becomes accept/modify/reject; any other free
+  // text on "modify" is the revision feedback.
+  async function presentPlan(plan: PlanProposal): Promise<PlanDecision> {
+    const ACCEPT = "Accept and run";
+    const MODIFY = "Modify";
+    const REJECT = "Reject";
+    setPlanRequest(plan);
+    try {
+      const answer = (
+        await askUser({
+          question: `Plan ready: ${plan.title}. Accept to create ${plan.tasks.length} task${plan.tasks.length === 1 ? "" : "s"} and run, Modify to request changes, or Reject.`,
+          options: [ACCEPT, MODIFY, REJECT],
+          allowFreeText: true,
+        })
+      ).trim();
+
+      if (answer === ACCEPT) return { action: "accept" };
+      if (answer === REJECT || /^(reject|no|cancel|annulla|rifiuta)$/i.test(answer)) {
+        return { action: "reject" };
+      }
+      if (answer === MODIFY) return { action: "modify" };
+      // Any other free text is treated as modification feedback.
+      return { action: "modify", feedback: answer };
+    } finally {
+      setPlanRequest(null);
+    }
+  }
+
   const [runtime, setRuntime] = useState<ActiveRuntime | null>(null);
 
   useEffect(() => {
@@ -205,6 +238,7 @@ export function Root({
       permissions: config.permissions,
       approveTool,
       askUser,
+      presentPlan,
       mcp: resolveActivationMcp(next.mcp, mcpConfig),
       ...(config.temperature !== undefined
         ? { temperature: config.temperature }
@@ -398,6 +432,7 @@ export function Root({
       setApprovalRequest={setApprovalRequest}
       userQuestionRequest={userQuestionRequest}
       setUserQuestionRequest={setUserQuestionRequest}
+      planRequest={planRequest}
       mcpManager={runtime.mcpManager}
       mcpConfig={mcpConfig}
       onMcpConfigChange={onMcpConfigChange}

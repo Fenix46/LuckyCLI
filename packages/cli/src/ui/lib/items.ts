@@ -7,6 +7,7 @@ export type Item =
   | { kind: "assistant"; text: string }
   | { kind: "tool"; name: string; input: unknown; output?: string; error?: boolean }
   | { kind: "command"; title: string; rows: CommandRow[] }
+  | { kind: "plan"; title: string; markdown: string }
   | { kind: "status"; provider: ProviderStatus; context: ContextStatus }
   | { kind: "error"; text: string }
   // Transient items — built per-render, never persisted. They ride INSIDE the
