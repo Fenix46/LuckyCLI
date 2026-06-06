@@ -38,12 +38,31 @@ export {
   globTool,
   grepTool,
   httpFetchTool,
-  todoWriteTool,
+  taskCreateTool,
+  taskListTool,
+  taskGetTool,
+  taskUpdateTool,
   projectMemoryTool,
   graphQueryTool,
   graphOverviewTool,
   askUserTool,
 } from "./tools/builtin/index.js";
+
+export {
+  TASK_STATUSES,
+  TaskSchema,
+  TaskStatusSchema,
+  createTask,
+  deleteTask,
+  getTask,
+  listTasks,
+  onTasksUpdated,
+  resetTaskList,
+  sanitizePathComponent,
+  tasksDirForCwd,
+  updateTask,
+} from "./tasks/store.js";
+export type { NewTask, Task, TaskStatus } from "./tasks/store.js";
 
 export {
   PROJECT_MEMORY_DIR,

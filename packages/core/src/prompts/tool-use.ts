@@ -2,7 +2,7 @@
  * Tool-use guidance: how lucky should drive the built-in tools. Third section
  * of the system prompt. Tool names here must match the built-in registry
  * (read_file, edit_file, write_file, apply_patch, list_dir, glob, grep, exec,
- * PowerShell, http_fetch, todo_write, project_memory, graph_query,
+ * PowerShell, http_fetch, task_create/list/get/update, project_memory, graph_query,
  * graph_overview, ask_user). Override with LUCKY_PROMPT_TOOL_USE.
  */
 export const TOOL_USE_PROMPT = `# Using tools
@@ -80,7 +80,7 @@ Operational rules:
 # Other tools
 
 - http_fetch only when the task needs external public content that is not already in the project.
-- todo_write for non-trivial multi-step work; keep exactly one item in progress.
+- task_create/task_update/task_list/task_get to plan and track non-trivial work (an upgrade, a fix, a feature): create the tasks up front, mark exactly one in_progress, complete it before moving on. The list persists across sessions for this project.
 - project_memory only for durable, project-specific facts that should persist across sessions. Never store guesses, transient tasks, or secrets.
 - ask_user only for a genuine decision the human must make, not for facts you can determine from the repository.
 

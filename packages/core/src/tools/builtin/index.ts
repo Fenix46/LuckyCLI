@@ -11,7 +11,12 @@ import { listDirTool } from "./list-dir.js";
 import { powerShellTool } from "./powershell.js";
 import { projectMemoryTool } from "./project-memory.js";
 import { readFileTool } from "./read-file.js";
-import { todoWriteTool } from "./todo-write.js";
+import {
+  taskCreateTool,
+  taskGetTool,
+  taskListTool,
+  taskUpdateTool,
+} from "./tasks.js";
 import { writeFileTool } from "./write-file.js";
 
 /** A registry pre-loaded with the built-in tools. */
@@ -27,7 +32,10 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(globTool)
     .register(grepTool)
     .register(httpFetchTool)
-    .register(todoWriteTool)
+    .register(taskCreateTool)
+    .register(taskListTool)
+    .register(taskGetTool)
+    .register(taskUpdateTool)
     .register(projectMemoryTool)
     .register(graphQueryTool)
     .register(graphOverviewTool)
@@ -45,7 +53,10 @@ export {
   globTool,
   grepTool,
   httpFetchTool,
-  todoWriteTool,
+  taskCreateTool,
+  taskListTool,
+  taskGetTool,
+  taskUpdateTool,
   projectMemoryTool,
   graphQueryTool,
   graphOverviewTool,

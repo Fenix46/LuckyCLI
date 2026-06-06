@@ -84,8 +84,14 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
         return ["Search", "Searched"];
       case "http_fetch":
         return ["Fetch", "Fetched"];
-      case "todo_write":
-        return ["Update todos", "Updated todos"];
+      case "task_create":
+        return ["Create task", "Created task"];
+      case "task_update":
+        return ["Update task", "Updated task"];
+      case "task_list":
+        return ["List tasks", "Listed tasks"];
+      case "task_get":
+        return ["Get task", "Got task"];
       case "project_memory":
         return ["Remember", "Remembered"];
       case "ask_user":
@@ -128,8 +134,14 @@ export function toolTarget(name: string, input: unknown): string {
     return patch ? patchTargets(patch).join(", ") : "";
   }
 
-  if (name === "todo_write") {
-    return todoSummary(input);
+  if (name === "task_create") {
+    return inputString(input, "subject") ?? "";
+  }
+
+  if (name === "task_update" || name === "task_get") {
+    const id = inputString(input, "id");
+    const status = inputString(input, "status");
+    return [id ? `#${id}` : "", status ? `→ ${status}` : ""].filter(Boolean).join(" ");
   }
 
   if (name === "project_memory") {
@@ -166,7 +178,10 @@ export function formatToolResultSummary(name: string, output: string, error?: bo
     case "write_file":
     case "edit_file":
     case "apply_patch":
-    case "todo_write":
+    case "task_create":
+    case "task_update":
+    case "task_get":
+    case "task_list":
     case "project_memory":
     case "ask_user":
     case "http_fetch":
@@ -198,20 +213,6 @@ export function patchTargets(patch: string): string[] {
     targets.add(quotePath(target));
   }
   return [...targets].slice(0, 3);
-}
-
-export function todoSummary(input: unknown): string {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
-  const todos = (input as Record<string, unknown>).todos;
-  if (!Array.isArray(todos)) return "";
-  const counts = new Map<string, number>();
-  for (const todo of todos) {
-    if (!todo || typeof todo !== "object" || Array.isArray(todo)) continue;
-    const status = (todo as Record<string, unknown>).status;
-    if (typeof status === "string") counts.set(status, (counts.get(status) ?? 0) + 1);
-  }
-  const parts = [...counts.entries()].map(([status, count]) => `${count} ${status}`);
-  return parts.length ? parts.join(", ") : `${todos.length} items`;
 }
 
 export function wrapText(text: string, width: number): string[] {

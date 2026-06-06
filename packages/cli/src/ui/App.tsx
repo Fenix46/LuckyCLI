@@ -31,7 +31,9 @@ import {
   getReasoningEffort,
   getThinkingEnabled,
   listSessions,
+  listTasks,
   loadStoredConfig,
+  resetTaskList,
   recordGraphBuilt,
   saveReasoningEffort,
   saveThinkingEnabled,
@@ -122,6 +124,7 @@ const ALL_SLASH_COMMANDS = [
   { name: "/provider", desc: "Switch provider and authenticate" },
   { name: "/theme", desc: "Choose terminal UI colors" },
   { name: "/graph", desc: "Build/refresh the project knowledge graph" },
+  { name: "/task", desc: "View the work task list (/task clear to empty it)" },
   { name: "/exit", desc: "Exit the lucky agent session" },
 ];
 
@@ -998,6 +1001,42 @@ export function App({
                 : sessions.map((s) => ({
                     label: s.id === sessionIdRef.current ? "current" : s.id,
                     value: `${s.messageCount} msgs · ${s.title ?? "(untitled)"}`,
+                  })),
+          },
+        ]);
+        setInput("");
+        return;
+      }
+      if (text === "/task" || text === "/task clear") {
+        const cwd = process.cwd();
+        if (text === "/task clear") {
+          resetTaskList(cwd);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "Tasks",
+              rows: [{ label: "cleared", value: "the task list is now empty" }],
+            },
+          ]);
+          setInput("");
+          return;
+        }
+        const tasks = listTasks(cwd);
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "command",
+            title: "Tasks",
+            rows:
+              tasks.length === 0
+                ? [{ label: "none", value: "no tasks yet — ask lucky to plan some work" }]
+                : tasks.map((t) => ({
+                    label: `#${t.id} ${t.status}`,
+                    value:
+                      t.status === "in_progress" && t.activeForm
+                        ? `${t.subject} (${t.activeForm})`
+                        : t.subject,
                   })),
           },
         ]);
