@@ -347,4 +347,82 @@ describe("GeminiProvider", () => {
       }),
     );
   });
+
+  it("signs tool calls from earlier turns, not just the latest active loop", async () => {
+    const provider = new GeminiProvider({
+      type: "gemini",
+      authMethod: "oauth",
+      accessToken: "test-access-token",
+    });
+
+    // A tool call buried in an earlier turn, followed by a fresh user message
+    // and a second tool call. The earlier call must still be signed.
+    await provider.generate(
+      [
+        { role: "user", content: [{ type: "text", text: "first task" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "tool_call", id: "call_1", name: "exec", arguments: { cmd: "ls" } },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            { type: "tool_result", toolCallId: "call_1", name: "exec", content: "ok" },
+          ],
+        },
+        { role: "user", content: [{ type: "text", text: "second task" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "tool_call", id: "call_2", name: "exec", arguments: { cmd: "pwd" } },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            { type: "tool_result", toolCallId: "call_2", name: "exec", content: "/" },
+          ],
+        },
+      ],
+      { model: "gemini-test" },
+    );
+
+    const { contents } = mocks.codeAssistGenerateContent.mock.calls.at(-1)![0];
+    const modelTurns = contents.filter((c: any) => c.role === "model");
+    expect(modelTurns).toHaveLength(2);
+    for (const turn of modelTurns) {
+      expect(turn.parts[0].thoughtSignature).toBe("skip_thought_signature_validator");
+    }
+  });
+
+  it("signs every parallel function call in a single model turn", async () => {
+    const provider = new GeminiProvider({
+      type: "gemini",
+      authMethod: "oauth",
+      accessToken: "test-access-token",
+    });
+
+    await provider.generate(
+      [
+        { role: "user", content: [{ type: "text", text: "do two things" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "tool_call", id: "call_1", name: "exec", arguments: { cmd: "ls" } },
+            { type: "tool_call", id: "call_2", name: "exec", arguments: { cmd: "pwd" } },
+          ],
+        },
+      ],
+      { model: "gemini-test" },
+    );
+
+    const { contents } = mocks.codeAssistGenerateContent.mock.calls.at(-1)![0];
+    const modelTurn = contents.find((c: any) => c.role === "model");
+    expect(modelTurn.parts).toHaveLength(2);
+    for (const part of modelTurn.parts) {
+      expect(part.thoughtSignature).toBe("skip_thought_signature_validator");
+    }
+  });
 });

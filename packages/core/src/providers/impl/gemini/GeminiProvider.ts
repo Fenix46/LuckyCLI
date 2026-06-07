@@ -515,43 +515,32 @@ function toGeminiContents(messages: Message[]): Content[] {
 }
 
 function toCodeAssistContents(messages: Message[]): Content[] {
-  return ensureActiveLoopThoughtSignatures(toGeminiContents(messages));
+  return ensureToolCallThoughtSignatures(toGeminiContents(messages));
 }
 
-function ensureActiveLoopThoughtSignatures(contents: Content[]): Content[] {
-  let activeLoopStartIndex = -1;
-  for (let i = contents.length - 1; i >= 0; i--) {
-    const content = contents[i];
-    if (!content) continue;
-    if (content.role === "user" && content.parts?.some((part) => part.text)) {
-      activeLoopStartIndex = i;
-      break;
-    }
-  }
+// Gemini 3 "thinking" models attach an opaque `thoughtSignature` to every
+// functionCall they emit, and the Code Assist API rejects (400) any functionCall
+// part replayed in the history without one. We don't persist the real signature,
+// so we backfill a synthetic placeholder that the validator accepts.
+//
+// This must cover EVERY functionCall part across the WHOLE history — not just the
+// most recent turn. After a few turns, an unsigned call ends up deep in the
+// transcript (the 400 reports e.g. "position 174"), well before the last user
+// message, and a window-scoped pass would miss it. A model turn can also carry
+// multiple parallel functionCalls, so every part needs the signature, not just
+// the first.
+function ensureToolCallThoughtSignatures(contents: Content[]): Content[] {
+  return contents.map((content) => {
+    if (content.role !== "model" || !content.parts) return content;
+    if (!content.parts.some((part) => part.functionCall)) return content;
 
-  if (activeLoopStartIndex === -1) return contents;
-
-  const out = contents.slice();
-  for (let i = activeLoopStartIndex; i < out.length; i++) {
-    const content = out[i];
-    if (!content) continue;
-    if (content.role !== "model" || !content.parts) continue;
-
-    const callIndex = content.parts.findIndex((part) => part.functionCall);
-    if (callIndex < 0) continue;
-
-    const part = content.parts[callIndex] as CodeAssistPart | undefined;
-    if (!part) continue;
-    if (part.thoughtSignature) continue;
-
-    const parts = content.parts.slice();
-    parts[callIndex] = {
-      ...part,
-      thoughtSignature: SYNTHETIC_THOUGHT_SIGNATURE,
-    } as CodeAssistPart;
-    out[i] = { ...content, parts };
-  }
-  return out;
+    const parts = content.parts.map((part) => {
+      const p = part as CodeAssistPart;
+      if (!p.functionCall || p.thoughtSignature) return part;
+      return { ...p, thoughtSignature: SYNTHETIC_THOUGHT_SIGNATURE } as CodeAssistPart;
+    });
+    return { ...content, parts };
+  });
 }
 
 function toGeminiPart(part: ContentPart): Part {
