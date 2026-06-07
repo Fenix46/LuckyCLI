@@ -204,6 +204,7 @@ export function ItemView({
             elapsedSeconds={item.elapsedSeconds}
             frame={item.frame}
             reasoning={item.reasoning}
+            {...(item.label ? { label: item.label } : {})}
           />
         </Box>
       );

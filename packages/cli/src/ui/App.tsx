@@ -276,6 +276,12 @@ export function App({
   }, []);
 
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
+  // True while a manual /compact is summarizing. Drives a "compacting…"
+  // indicator and blocks re-running /compact (which otherwise fired several
+  // times because the long await gave no feedback). compactStartedAt anchors
+  // the spinner's elapsed readout.
+  const [compacting, setCompacting] = useState(false);
+  const [compactStartedAt, setCompactStartedAt] = useState<number | null>(null);
 
   const appendItems = useCallback(
     (next: Item[]) => {
@@ -297,7 +303,10 @@ export function App({
     onUsage,
     persist: persistSession,
   });
-  const { elapsedSeconds, activityFrame } = useElapsedTimer(busy, startedAt);
+  const { elapsedSeconds, activityFrame } = useElapsedTimer(
+    busy || compacting,
+    busy ? startedAt : compactStartedAt,
+  );
 
   // Terminal dimensions, re-rendering on resize (Ink's official hook).
   const { columns, rows } = useWindowSize();
@@ -1225,7 +1234,7 @@ export function App({
         return;
       }
 
-      if (!text || busy) return;
+      if (!text || busy || compacting) return;
 
       if (text === "/exit" || text === "/quit") {
         exit();
@@ -1528,6 +1537,9 @@ export function App({
         return;
       }
       if (text === "/compact") {
+        setInput("");
+        setCompacting(true);
+        setCompactStartedAt(Date.now());
         try {
           const result = await agent.compactNow();
           const status = await agent.contextStatus();
@@ -1559,8 +1571,10 @@ export function App({
               text: error instanceof Error ? error.message : "failed to compact context",
             },
           ]);
+        } finally {
+          setCompacting(false);
+          setCompactStartedAt(null);
         }
-        setInput("");
         return;
       }
       if (text === "/setup" || text === "/provider") {
@@ -1744,7 +1758,7 @@ export function App({
       setInput("");
       await runTurn(expanded);
     },
-    [busy, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest],
+    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest],
   );
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);
@@ -1766,6 +1780,12 @@ export function App({
         },
       ];
     }
+    if (compacting) {
+      return [
+        ...items,
+        { kind: "thinking", elapsedSeconds, frame: activityFrame, label: "compacting" },
+      ];
+    }
     if (busy && !approvalRequest && !userQuestionRequest) {
       return [
         ...items,
@@ -1778,6 +1798,7 @@ export function App({
   }, [
     items,
     busy,
+    compacting,
     approvalRequest,
     userQuestionRequest,
     streamingPreview,

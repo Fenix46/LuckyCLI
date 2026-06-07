@@ -15,7 +15,14 @@ export type Item =
   // content stays a flat [spacer, items, spacer] and stickyScroll follows them
   // as they grow. They must never be appended to the committed `items` state.
   | { kind: "streaming"; text: string }
-  | { kind: "thinking"; elapsedSeconds: number; frame: number; reasoning?: boolean }
+  | {
+      kind: "thinking";
+      elapsedSeconds: number;
+      frame: number;
+      reasoning?: boolean;
+      /** Overrides the default "thinking"/"reasoning" label (e.g. "compacting"). */
+      label?: string;
+    }
   | { kind: "hint"; text: string };
 
 export interface CommandRow {

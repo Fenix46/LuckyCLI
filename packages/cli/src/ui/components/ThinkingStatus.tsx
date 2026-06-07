@@ -7,18 +7,21 @@ function ThinkingStatusInner({
   elapsedSeconds,
   frame,
   reasoning,
+  label: labelOverride,
 }: {
   theme: Theme;
   elapsedSeconds: number;
   frame: number;
   reasoning?: boolean;
+  label?: string;
 }): React.JSX.Element {
   const frames = ["●", "●", "◆", "◆", "▲", "▲"];
   const pulse = frames[frame % frames.length] ?? "●";
   const dots = ".".repeat((frame % 3) + 1).padEnd(3, " ");
-  // Codex (and other reasoning models) emit no text while thinking; label the
-  // phase explicitly so a long silent stretch reads as active, not hung.
-  const label = reasoning ? "reasoning" : "thinking";
+  // An explicit label (e.g. "compacting") wins; otherwise Codex reasoning shows
+  // "reasoning" and the default is "thinking". Either way the phase reads as
+  // active, not hung, during a long silent stretch.
+  const label = labelOverride ?? (reasoning ? "reasoning" : "thinking");
   return (
     <Text bold color={theme.success}>
       {pulse} lucky{" "}
