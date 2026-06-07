@@ -16,8 +16,9 @@ import { defineTool } from "../types.js";
 const NO_GRAPH =
   "No project graph found. Run `lucky graph build` to create one in .lucky/graph/.";
 
-/** "label (kind) — path:L42" for one node. */
+/** "label (kind) — path:L42" for one node; external libs are marked. */
 function formatNode(node: GraphNode): string {
+  if (node.external) return `${node.label} (external ${node.kind})`;
   const where = node.sourceLocation ? `${node.sourceFile}:${node.sourceLocation}` : node.sourceFile;
   return `${node.label} (${node.kind}) — ${where}`;
 }
@@ -98,9 +99,10 @@ export const graphOverviewTool = defineTool({
 
     const parts = [
       `Project graph: ${o.fileCount} files, ${o.nodeCount} nodes, ${o.edgeCount} edges.`,
-      `By kind: ${kinds}.`,
-      section("Most connected symbols", o.godNodes.map(formatRanked)),
-      section("Most imported modules", o.topModules.map(formatRanked)),
+      `${o.internalNodeCount} project nodes, ${o.externalNodeCount} external dependency nodes.`,
+      `Project code by kind: ${kinds}.`,
+      section("Most connected symbols (project code)", o.godNodes.map(formatRanked)),
+      section("Most used external libraries", o.topModules.map(formatRanked)),
     ];
     return { content: parts.join("\n\n") };
   },

@@ -66,6 +66,15 @@ export const GraphNodeSchema = z
     sourceFile: z.string().min(1),
     /** Location within the file, e.g. "L42". Absent for whole-file nodes. */
     sourceLocation: z.string().optional(),
+    /**
+     * True for nodes that don't live in the repo — third-party libraries
+     * reached through an import (e.g. `androidx.media3.ExoPlayer`, `react`,
+     * `os`). The build step sets this on `module` nodes whose `sourceFile`
+     * isn't a real project file, so queries can keep the project's own graph
+     * (the "town") separate from its external dependencies (the "neighbouring
+     * towns") while still showing how they connect.
+     */
+    external: z.boolean().optional(),
   })
   .strict();
 export type GraphNode = z.infer<typeof GraphNodeSchema>;

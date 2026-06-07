@@ -92,6 +92,20 @@ export async function buildGraph(cwd: string, options: BuildOptions = {}): Promi
     }
   }
 
+  // Mark external dependency nodes. Extractors emit a `module` node per import
+  // without knowing whether the target is a repo file or a third-party library —
+  // they only ever see one file at a time. Here we finally know the full set of
+  // real project files, so a `module` whose sourceFile isn't one of them is an
+  // external library (androidx.*, react, os, …). We keep it but flag it
+  // `external: true` so queries can separate the project's own graph from its
+  // dependencies instead of drowning in import noise.
+  const projectFiles = new Set(files.map((f) => f.relPath));
+  for (const node of nodes.values()) {
+    if (node.kind === "module" && !projectFiles.has(node.sourceFile)) {
+      node.external = true;
+    }
+  }
+
   // Drop dangling edges (endpoint not a real node) and dedup, like build_graph.
   const seenEdges = new Set<string>();
   const edges: GraphEdge[] = [];

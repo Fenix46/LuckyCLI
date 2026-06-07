@@ -49,6 +49,25 @@ describe("graph build pipeline", () => {
     expect(summary.skipped).toEqual([]);
   });
 
+  it("marks library imports as external, leaving project code unmarked", async () => {
+    const summary = await buildGraph(root);
+    const byLabel = (label: string) =>
+      summary.graph.nodes.find((n) => n.label === label);
+
+    // `import os` resolves to no repo file → external library node.
+    expect(byLabel("os")?.external).toBe(true);
+
+    // Project code is never external.
+    expect(byLabel("alpha")?.external).toBeUndefined();
+    expect(byLabel("helper")?.external).toBeUndefined();
+    expect(byLabel("run")?.external).toBeUndefined();
+
+    // Only `module` nodes are ever flagged; every external node is a module.
+    for (const node of summary.graph.nodes) {
+      if (node.external) expect(node.kind).toBe("module");
+    }
+  });
+
   it("reports progress for each detected file", async () => {
     const seen: string[] = [];
     const summary = await buildGraph(root, {

@@ -94,6 +94,10 @@ export interface GraphOverview {
   fileCount: number;
   nodeCount: number;
   edgeCount: number;
+  /** Nodes that are the project's own code (everything not flagged external). */
+  internalNodeCount: number;
+  /** External dependency nodes (libraries reached via imports). */
+  externalNodeCount: number;
   kindCounts: Record<string, number>;
   godNodes: RankedNode[];
   topModules: RankedNode[];
@@ -102,11 +106,22 @@ export interface GraphOverview {
 /** A compact, structured summary of the whole graph. */
 export function summarize(graph: Graph, limit = 10): GraphOverview {
   const kindCounts: Record<string, number> = {};
-  for (const node of graph.nodes) kindCounts[node.kind] = (kindCounts[node.kind] ?? 0) + 1;
+  let externalNodeCount = 0;
+  for (const node of graph.nodes) {
+    // Count kinds over the project's own code only, so the breakdown describes
+    // the codebase rather than the libraries it imports.
+    if (node.external) {
+      externalNodeCount += 1;
+      continue;
+    }
+    kindCounts[node.kind] = (kindCounts[node.kind] ?? 0) + 1;
+  }
   return {
     fileCount: graph.meta.fileCount,
     nodeCount: graph.nodes.length,
     edgeCount: graph.edges.length,
+    internalNodeCount: graph.nodes.length - externalNodeCount,
+    externalNodeCount,
     kindCounts,
     godNodes: godNodes(graph, limit),
     topModules: topModules(graph, limit),
