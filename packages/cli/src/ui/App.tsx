@@ -31,6 +31,11 @@ import {
   getReasoningEffort,
   getActiveTaskListId,
   getThinkingEnabled,
+  isProviderId,
+  listProfiles,
+  saveProfile,
+  deleteProfile,
+  seedDefaultProfiles,
   listSessions,
   listTasks,
   loadStoredConfig,
@@ -46,6 +51,7 @@ import {
   withoutMcpServer,
   type CodexModel,
   type Task,
+  type AgentProfile,
 } from "@luckycli/core";
 import { applyUpdateNow, checkForUpdate, stageUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
@@ -78,6 +84,12 @@ import { TaskPanel } from "./components/TaskPanel.js";
 import { AgentUsagePanel } from "./components/AgentUsagePanel.js";
 import { TranscriptList } from "./components/Transcript.js";
 import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
+import {
+  AgentsPanel,
+  AGENT_DRAFT_FIELDS,
+  type AgentDraft,
+  type AgentsPanelView,
+} from "./components/AgentsPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
 import type {
@@ -128,6 +140,7 @@ const ALL_SLASH_COMMANDS = [
   { name: "/model", desc: "Switch model for the active provider" },
   { name: "/thinking", desc: "Toggle Claude adaptive thinking (/thinking on|off)" },
   { name: "/mcp", desc: "Open the interactive MCP control panel" },
+  { name: "/agents", desc: "Manage sub-agent profiles (provider/model per role)" },
   { name: "/status", desc: "Show provider auth, account, quota and context status" },
   { name: "/update", desc: "Check for updates (/update apply, /update auto <mode>)" },
   { name: "/compact", desc: "Summarize older chat history now" },
@@ -355,6 +368,112 @@ export function App({
   const [mcpPanelError, setMcpPanelError] = useState<string | null>(null);
   const [selectedInstalledMcpIndex, setSelectedInstalledMcpIndex] = useState(0);
   const [selectedSearchMcpIndex, setSelectedSearchMcpIndex] = useState(0);
+
+  // /agents control panel: list of profiles + an inline editor for create/edit.
+  const [agentsPanelOpen, setAgentsPanelOpen] = useState(false);
+  const [agentsView, setAgentsView] = useState<AgentsPanelView>("list");
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
+  const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
+  const [agentDraft, setAgentDraft] = useState<AgentDraft | null>(null);
+  const [agentFieldIndex, setAgentFieldIndex] = useState(0);
+  const [agentsPanelError, setAgentsPanelError] = useState<string | null>(null);
+  // Providers the user is logged into, recomputed when the panel opens.
+  const loggedInProviders = useMemo(() => {
+    const creds = loadStoredConfig().credentials ?? {};
+    return new Set(
+      Object.keys(creds).filter(isProviderId) as ProviderId[],
+    );
+    // Recompute when the panel toggles so a fresh login is reflected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentsPanelOpen]);
+
+  function refreshAgentProfiles(): AgentProfile[] {
+    const profiles = listProfiles();
+    setAgentProfiles(profiles);
+    return profiles;
+  }
+
+  function openAgentsPanel(): void {
+    // Seed example profiles the first time so the list isn't blank.
+    seedDefaultProfiles();
+    refreshAgentProfiles();
+    setAgentsView("list");
+    setSelectedAgentIndex(0);
+    setAgentDraft(null);
+    setAgentFieldIndex(0);
+    setAgentsPanelError(null);
+    setAgentsPanelOpen(true);
+  }
+
+  /** Models available for a provider, from the live catalog. */
+  function modelsFor(provider: ProviderId): string[] {
+    return PROVIDER_CATALOG[provider]?.availableModels ?? [];
+  }
+
+  /** Cycle the draft's provider (and reset its model to that provider's default). */
+  function cycleDraftProvider(dir: 1 | -1): void {
+    setAgentDraft((prev) => {
+      if (!prev) return prev;
+      const ids = Object.keys(PROVIDER_CATALOG) as ProviderId[];
+      const i = ids.indexOf(prev.provider);
+      const nextProvider = ids[(i + dir + ids.length) % ids.length] ?? prev.provider;
+      const models = modelsFor(nextProvider);
+      return {
+        ...prev,
+        provider: nextProvider,
+        model: models[0] ?? prev.model,
+      };
+    });
+  }
+
+  /** Cycle the draft's model within its current provider. */
+  function cycleDraftModel(dir: 1 | -1): void {
+    setAgentDraft((prev) => {
+      if (!prev) return prev;
+      const models = modelsFor(prev.provider);
+      if (models.length === 0) return prev;
+      const i = Math.max(0, models.indexOf(prev.model));
+      return { ...prev, model: models[(i + dir + models.length) % models.length] ?? prev.model };
+    });
+  }
+
+  /** Validate and persist the current draft, then return to the list. */
+  function commitAgentDraft(): void {
+    const draft = agentDraft;
+    if (!draft) return;
+    const name = draft.name.trim();
+    if (!name) {
+      setAgentsPanelError("Name is required.");
+      return;
+    }
+    // Block a rename/create that would collide with a different existing profile.
+    const collision = agentProfiles.find(
+      (p) => p.name === name && p.name !== draft.original,
+    );
+    if (collision) {
+      setAgentsPanelError(`A sub-agent named "${name}" already exists.`);
+      return;
+    }
+    try {
+      // On rename, remove the old file so it doesn't linger as a duplicate.
+      if (draft.original && draft.original !== name) deleteProfile(draft.original);
+      saveProfile({
+        name,
+        description: draft.description.trim(),
+        provider: draft.provider,
+        model: draft.model,
+      });
+    } catch (err) {
+      setAgentsPanelError(err instanceof Error ? err.message : "failed to save sub-agent");
+      return;
+    }
+    const profiles = refreshAgentProfiles();
+    setAgentsView("list");
+    setAgentDraft(null);
+    setAgentsPanelError(null);
+    const idx = profiles.findIndex((p) => p.name === name);
+    setSelectedAgentIndex(idx >= 0 ? idx : 0);
+  }
   // Live Codex model catalog (openai-oauth only), fetched on demand and cached
   // for the session. The picker reads these slugs instead of a hardcoded list.
   const codexCacheRef = useRef<CodexModelCache | null>(null);
@@ -472,6 +591,7 @@ export function App({
         Boolean(approvalRequest) ||
         Boolean(userQuestionRequest) ||
         mcpPanelOpen ||
+        agentsPanelOpen ||
         modelPicker.open ||
         Boolean(effortPicker) ||
         themePicker.open ||
@@ -623,6 +743,107 @@ export function App({
       }
       if (!key.ctrl && !key.meta && !key.return && _in) {
         setMcpPanelQuery((prev) => prev + _in);
+        return;
+      }
+      return;
+    }
+
+    // 2.6 Sub-agents (/agents) control panel
+    if (agentsPanelOpen) {
+      if (agentsView === "list") {
+        if (key.escape) {
+          setAgentsPanelOpen(false);
+          setAgentsPanelError(null);
+          return;
+        }
+        if (agentProfiles.length > 0 && key.downArrow) {
+          setSelectedAgentIndex((prev) => (prev + 1) % agentProfiles.length);
+          return;
+        }
+        if (agentProfiles.length > 0 && key.upArrow) {
+          setSelectedAgentIndex((prev) => (prev - 1 + agentProfiles.length) % agentProfiles.length);
+          return;
+        }
+        if (_in === "n" || _in === "N") {
+          const provider = (Object.keys(PROVIDER_CATALOG) as ProviderId[])[0] ?? "claude";
+          setAgentDraft({
+            original: null,
+            name: "",
+            description: "",
+            provider,
+            model: modelsFor(provider)[0] ?? PROVIDER_CATALOG[provider].defaultModel,
+          });
+          setAgentFieldIndex(0);
+          setAgentsPanelError(null);
+          setAgentsView("edit");
+          return;
+        }
+        const selected = agentProfiles[selectedAgentIndex];
+        if ((_in === "e" || _in === "E") && selected) {
+          setAgentDraft({
+            original: selected.name,
+            name: selected.name,
+            description: selected.description,
+            provider: selected.provider,
+            model: selected.model,
+          });
+          setAgentFieldIndex(0);
+          setAgentsPanelError(null);
+          setAgentsView("edit");
+          return;
+        }
+        if ((_in === "d" || _in === "D") && selected) {
+          deleteProfile(selected.name);
+          const profiles = refreshAgentProfiles();
+          setSelectedAgentIndex((prev) => Math.max(0, Math.min(prev, profiles.length - 1)));
+          return;
+        }
+        return;
+      }
+
+      // edit view
+      if (key.escape) {
+        setAgentsView("list");
+        setAgentDraft(null);
+        setAgentsPanelError(null);
+        return;
+      }
+      if (key.downArrow || key.tab) {
+        setAgentFieldIndex((prev) => (prev + 1) % AGENT_DRAFT_FIELDS.length);
+        return;
+      }
+      if (key.upArrow) {
+        setAgentFieldIndex((prev) => (prev - 1 + AGENT_DRAFT_FIELDS.length) % AGENT_DRAFT_FIELDS.length);
+        return;
+      }
+      if (key.return) {
+        commitAgentDraft();
+        return;
+      }
+      const field = AGENT_DRAFT_FIELDS[agentFieldIndex];
+      if (field === "provider") {
+        if (key.leftArrow) return cycleDraftProvider(-1);
+        if (key.rightArrow) return cycleDraftProvider(1);
+        return;
+      }
+      if (field === "model") {
+        if (key.leftArrow) return cycleDraftModel(-1);
+        if (key.rightArrow) return cycleDraftModel(1);
+        return;
+      }
+      // name / description: free text editing
+      const textField: "name" | "description" =
+        field === "description" ? "description" : "name";
+      if (key.backspace || key.delete) {
+        setAgentDraft((prev) =>
+          prev ? { ...prev, [textField]: prev[textField].slice(0, -1) } : prev,
+        );
+        return;
+      }
+      if (!key.ctrl && !key.meta && _in) {
+        setAgentDraft((prev) =>
+          prev ? { ...prev, [textField]: prev[textField] + _in } : prev,
+        );
         return;
       }
       return;
@@ -1153,6 +1374,11 @@ export function App({
         setInput("");
         return;
       }
+      if (text === "/agents") {
+        openAgentsPanel();
+        setInput("");
+        return;
+      }
       if (text === "/mcp search" || text.startsWith("/mcp search ")) {
         const query = text.slice("/mcp search".length).trim();
         openMcpPanel("search", query);
@@ -1582,9 +1808,10 @@ export function App({
       onPaste={handlePaste}
       nextPasteId={allocatePasteId}
       width={messageWidth}
-      active={!mcpPanelOpen}
+      active={!mcpPanelOpen && !agentsPanelOpen}
       submitEnabled={
         !mcpPanelOpen &&
+        !agentsPanelOpen &&
         !modelPicker.open &&
         !themePicker.open &&
         // Block submit only while the slash menu still has a pending
@@ -1720,6 +1947,18 @@ export function App({
           selectedSearchIndex={selectedSearchMcpIndex}
           loading={mcpPanelLoading}
           error={mcpPanelError}
+        />
+      ) : agentsPanelOpen ? (
+        <AgentsPanel
+          theme={activeTheme}
+          width={messageWidth}
+          view={agentsView}
+          profiles={agentProfiles}
+          selectedIndex={selectedAgentIndex}
+          draft={agentDraft}
+          fieldIndex={agentFieldIndex}
+          loggedInProviders={loggedInProviders}
+          error={agentsPanelError}
         />
       ) : null}
 
