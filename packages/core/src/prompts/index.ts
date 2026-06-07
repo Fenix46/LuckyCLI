@@ -19,7 +19,12 @@
  */
 import { identitySection } from "./identity.js";
 import { agencySection } from "./agency.js";
+import { codeStyleSection } from "./code-style.js";
+import { objectivitySection } from "./objectivity.js";
+import { toolsSection } from "./tools.js";
+import { safetySection } from "./safety.js";
 import { toolUseSection } from "./tool-use.js";
+import { outputStyleSection } from "./output-style.js";
 import { environmentSection, type EnvironmentInfo } from "./environment.js";
 import { resolveSections, type PromptContext, type PromptSection } from "./section.js";
 import { SUMMARIZATION_PROMPT } from "./summarization.js";
@@ -36,7 +41,12 @@ export type { PromptContext, PromptSection } from "./section.js";
 export const SYSTEM_PROMPT_SECTIONS: PromptSection[] = [
   identitySection,
   agencySection,
+  codeStyleSection,
+  objectivitySection,
+  toolsSection,
+  safetySection,
   toolUseSection,
+  outputStyleSection,
   environmentSection,
 ];
 
@@ -78,16 +88,24 @@ export function buildSummarizationPrompt(
   return value !== undefined && value.trim() !== "" ? value : SUMMARIZATION_PROMPT;
 }
 
-export {
-  IDENTITY_PROMPT,
-} from "./identity.js";
+export { IDENTITY_PROMPT } from "./identity.js";
 export { AGENCY_PROMPT } from "./agency.js";
+export { CODE_STYLE_PROMPT } from "./code-style.js";
+export { OBJECTIVITY_PROMPT } from "./objectivity.js";
+export { SAFETY_PROMPT } from "./safety.js";
+export { OUTPUT_STYLE_PROMPT } from "./output-style.js";
+export { buildToolsPrompt } from "./tools.js";
 export { TOOL_USE_PROMPT } from "./tool-use.js";
 export { ENVIRONMENT_PROMPT_TEMPLATE } from "./environment.js";
 export { SUMMARIZATION_PROMPT } from "./summarization.js";
 export {
   identitySection,
   agencySection,
+  codeStyleSection,
+  objectivitySection,
+  toolsSection,
+  safetySection,
   toolUseSection,
+  outputStyleSection,
   environmentSection,
 };
