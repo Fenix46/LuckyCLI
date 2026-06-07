@@ -75,6 +75,7 @@ import { APP_VERSION } from "./components/constants.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
 import { TaskPanel } from "./components/TaskPanel.js";
+import { AgentUsagePanel } from "./components/AgentUsagePanel.js";
 import { TranscriptList } from "./components/Transcript.js";
 import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
@@ -84,6 +85,7 @@ import type {
   UserQuestionRequest,
   PlanRequest,
   PermissionMode,
+  AgentUsageMap,
 } from "./lib/requests.js";
 
 interface AppMeta {
@@ -96,6 +98,7 @@ export type {
   UserQuestionRequest,
   PlanRequest,
   PermissionMode,
+  AgentUsageMap,
 } from "./lib/requests.js";
 
 interface AppProps {
@@ -106,6 +109,7 @@ interface AppProps {
   userQuestionRequest: UserQuestionRequest | null;
   setUserQuestionRequest: (req: UserQuestionRequest | null) => void;
   planRequest: PlanRequest | null;
+  agentUsage: AgentUsageMap;
   mcpManager?: McpManager;
   mcpConfig: Record<string, McpServerConfig>;
   onMcpConfigChange: (nextMcpConfig: Record<string, McpServerConfig>) => void;
@@ -143,6 +147,7 @@ export function App({
   userQuestionRequest,
   setUserQuestionRequest,
   planRequest,
+  agentUsage,
   mcpManager,
   mcpConfig,
   onMcpConfigChange,
@@ -1618,6 +1623,7 @@ export function App({
           into the terminal's scrollback. */}
       <Box flexDirection="column" flexShrink={0} width="100%">
       <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} />
+      <AgentUsagePanel usage={agentUsage} theme={activeTheme} width={messageWidth} />
       {effortPicker ? (
         <Box
           flexDirection="column"

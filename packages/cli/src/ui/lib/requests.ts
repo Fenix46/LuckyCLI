@@ -1,4 +1,10 @@
-import type { AskUserRequest, PlanProposal, ToolApproval } from "@luckycli/core";
+import type {
+  AskUserRequest,
+  PlanProposal,
+  ProviderId,
+  TokenUsage,
+  ToolApproval,
+} from "@luckycli/core";
 
 export interface ApprovalRequest {
   name: string;
@@ -19,3 +25,13 @@ export type PlanRequest = PlanProposal;
 
 /** Session-wide tool-approval mode, cycled from the prompt with Shift+Tab. */
 export type PermissionMode = "normal" | "acceptEdits";
+
+/** Live token consumption of one running/finished sub-agent. */
+export interface AgentUsageEntry {
+  provider: ProviderId;
+  model: string;
+  usage: TokenUsage;
+}
+
+/** Sub-agent token consumption keyed by profile name, for the live panel. */
+export type AgentUsageMap = Map<string, AgentUsageEntry>;

@@ -17,14 +17,20 @@ import {
   type ResolvedConfig,
   type Session,
   type ToolApproval,
+  type SpawnAgentRequest,
+  type SpawnAgentResult,
+  type TokenUsage,
   createSessionId,
   setActiveTaskListId,
   cleanupOrphanTaskLists,
   listSessions,
+  getProfile,
+  resolveCredentials,
+  runSubAgent as runSubAgentCore,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
 import { buildAgentRuntime } from "../runtime.js";
-import { App, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
+import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
 import { TrustPrompt } from "./TrustPrompt.js";
@@ -74,6 +80,9 @@ export function Root({
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
   const [userQuestionRequest, setUserQuestionRequest] = useState<UserQuestionRequest | null>(null);
   const [planRequest, setPlanRequest] = useState<PlanRequest | null>(null);
+  // Live token consumption per sub-agent, keyed by profile name. Populated while
+  // spawn_agent runs and shown in the bottom AgentUsagePanel.
+  const [agentUsage, setAgentUsage] = useState<AgentUsageMap>(() => new Map());
   const [resumeSession, setResumeSession] = useState<Session>(() => {
     if (resume) return resume;
     const now = Date.now();
@@ -204,6 +213,56 @@ export function Root({
     }
   }
 
+  // spawn_agent bridge: look up the profile, run it on its assigned provider via
+  // the core sequential runner, and stream its running token usage into the
+  // bottom panel. Credentials come from stored config — exactly the providers the
+  // user is logged into — so a profile on an unauthenticated provider errors with
+  // a clear message the model relays to the user.
+  async function runSubAgent(
+    request: SpawnAgentRequest,
+    signal?: AbortSignal,
+  ): Promise<SpawnAgentResult> {
+    const profile = getProfile(request.agent);
+    if (!profile) {
+      throw new Error(
+        `No sub-agent profile named "${request.agent}". Create or assign one in /agents.`,
+      );
+    }
+
+    setAgentUsage((prev) => {
+      const next = new Map(prev);
+      next.set(profile.name, {
+        provider: profile.provider,
+        model: profile.model,
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      });
+      return next;
+    });
+
+    const { report } = await runSubAgentCore(
+      {
+        profile,
+        task: request.task,
+        cwd: process.cwd(),
+        system: config.system,
+        resolveCredentials: (provider) =>
+          resolveCredentials(provider, loadStoredConfig(), process.env),
+        onUsage: (usage) =>
+          setAgentUsage((prev) => {
+            const next = new Map(prev);
+            next.set(profile.name, {
+              provider: profile.provider,
+              model: profile.model,
+              usage,
+            });
+            return next;
+          }),
+      },
+      signal,
+    );
+    return { report };
+  }
+
   const [runtime, setRuntime] = useState<ActiveRuntime | null>(null);
 
   useEffect(() => {
@@ -239,6 +298,7 @@ export function Root({
       approveTool,
       askUser,
       presentPlan,
+      runSubAgent,
       mcp: resolveActivationMcp(next.mcp, mcpConfig),
       ...(config.temperature !== undefined
         ? { temperature: config.temperature }
@@ -433,6 +493,7 @@ export function Root({
       userQuestionRequest={userQuestionRequest}
       setUserQuestionRequest={setUserQuestionRequest}
       planRequest={planRequest}
+      agentUsage={agentUsage}
       mcpManager={runtime.mcpManager}
       mcpConfig={mcpConfig}
       onMcpConfigChange={onMcpConfigChange}

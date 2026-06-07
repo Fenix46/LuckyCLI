@@ -11,6 +11,8 @@ import {
   type AskUserRequest,
   type PlanProposal,
   type PlanDecision,
+  type SpawnAgentRequest,
+  type SpawnAgentResult,
   type Message,
   type McpServerConfig,
   type ProviderCredentials,
@@ -67,6 +69,10 @@ export interface BuildAgentOptions {
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
   presentPlan?: (plan: PlanProposal) => Promise<PlanDecision>;
+  runSubAgent?: (
+    request: SpawnAgentRequest,
+    signal?: AbortSignal,
+  ) => Promise<SpawnAgentResult>;
   extraTools?: Tool[];
   /**
    * Pre-built tool registry to use as-is. When given, `extraTools` is ignored —
@@ -137,6 +143,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     approveTool: opts.approveTool,
     askUser: opts.askUser,
     ...(opts.presentPlan ? { presentPlan: opts.presentPlan } : {}),
+    ...(opts.runSubAgent ? { runSubAgent: opts.runSubAgent } : {}),
     onFilesChanged: createGraphMaintainer(cwd),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
