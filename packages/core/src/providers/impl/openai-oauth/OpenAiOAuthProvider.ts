@@ -204,6 +204,13 @@ export class OpenAiOAuthProvider implements IProvider {
           yield { textDelta: event.delta };
         }
 
+        // Codex spends seconds reasoning before the first text token, emitting
+        // only `response.reasoning*` events. Surface them as an activity signal
+        // (no text) so a long thinking phase doesn't look like a hung stream.
+        if (event.type.startsWith("response.reasoning")) {
+          yield { reasoning: true };
+        }
+
         if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
           hasToolCalls = true;
           yield {

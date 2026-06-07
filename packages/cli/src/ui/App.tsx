@@ -289,7 +289,7 @@ export function App({
     [],
   );
   const onUsage = useCallback((_usage: TokenUsage) => {}, []);
-  const { busy, startedAt, streaming, abort, runTurn } = useTurnRunner({
+  const { busy, startedAt, streaming, reasoning, abort, runTurn } = useTurnRunner({
     agent,
     appendItems,
     patchTool,
@@ -1771,7 +1771,7 @@ export function App({
         ...items,
         streamingPreview
           ? { kind: "streaming", text: streamingPreview }
-          : { kind: "thinking", elapsedSeconds, frame: activityFrame },
+          : { kind: "thinking", elapsedSeconds, frame: activityFrame, reasoning },
       ];
     }
     return items;
@@ -1783,6 +1783,7 @@ export function App({
     streamingPreview,
     elapsedSeconds,
     activityFrame,
+    reasoning,
   ]);
 
   // The transcript ScrollBox uses flexGrow={1}, so it yields height to whatever

@@ -33,6 +33,7 @@ export interface CompactionResult {
 /** High-level events emitted by the agent loop for a single user turn. */
 export type AgentEvent =
   | { type: "text"; delta: string }
+  | { type: "reasoning" }
   | { type: "context"; status: ContextStatus }
   | { type: "context_compacted"; result: CompactionResult }
   | { type: "tool_start"; id: string; name: string; input: unknown }

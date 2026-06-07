@@ -38,6 +38,8 @@ export interface TurnRunner {
   startedAt: number | null;
   /** The live, still-streaming assistant text (empty when not streaming). */
   streaming: string;
+  /** The model is in a silent reasoning phase (no text yet, e.g. Codex). */
+  reasoning: boolean;
   /** Abort the active turn, if any. */
   abort: () => void;
   /** Run one agent turn for the given user text. */
@@ -61,6 +63,7 @@ export function useTurnRunner({
   const [busy, setBusy] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [streaming, setStreaming] = useState("");
+  const [reasoning, setReasoning] = useState(false);
 
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef("");
@@ -120,12 +123,15 @@ export function useTurnRunner({
         for await (const event of agent.send(text, controller.signal)) {
           handleEvent(event, {
             onText: (delta) => {
+              setReasoning(false);
               assistantBuf += delta;
               scheduleStreaming();
             },
+            onReasoning: () => setReasoning(true),
             onToolStart: (name, rawInput) => {
               // A tool call ends the current narration block — commit any text
               // the model wrote before the tool (and clear the live preview).
+              setReasoning(false);
               flushAssistant();
               if (HIDDEN_TOOLS.has(name)) return;
               appendItems([{ kind: "tool", name, input: rawInput }]);
@@ -174,6 +180,7 @@ export function useTurnRunner({
         }
         flushAssistant();
         setStreaming("");
+        setReasoning(false);
         setBusy(false);
         setStartedAt(null);
         persist();
@@ -182,5 +189,5 @@ export function useTurnRunner({
     [agent, appendItems, patchTool, onContext, onUsage, persist],
   );
 
-  return { busy, startedAt, streaming, abort, runTurn };
+  return { busy, startedAt, streaming, reasoning, abort, runTurn };
 }

@@ -203,6 +203,7 @@ export function ItemView({
             theme={theme}
             elapsedSeconds={item.elapsedSeconds}
             frame={item.frame}
+            reasoning={item.reasoning}
           />
         </Box>
       );

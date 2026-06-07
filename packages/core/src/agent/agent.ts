@@ -216,6 +216,7 @@ export class Agent {
             textBuf += chunk.textDelta;
             yield { type: "text", delta: chunk.textDelta };
           }
+          if (chunk.reasoning) yield { type: "reasoning" };
           if (chunk.toolCall) toolCalls.push(chunk.toolCall);
           if (chunk.finishReason) finishReason = chunk.finishReason;
           if (chunk.usage) usage = chunk.usage;

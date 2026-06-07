@@ -122,6 +122,12 @@ export interface StreamChunk {
   toolCall?: ToolCallPart;
   finishReason?: FinishReason;
   usage?: TokenUsage;
+  /**
+   * The model is in a silent reasoning phase that emits no text yet (e.g. Codex
+   * thinking before the first output token). Lets the UI show an active
+   * "reasoning" state so a slow turn doesn't look hung.
+   */
+  reasoning?: boolean;
 }
 
 // ─── Provider identity & capabilities ────────────────────────────────────────

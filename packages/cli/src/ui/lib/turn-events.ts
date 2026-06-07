@@ -2,6 +2,7 @@ import type { AgentEvent, ContextStatus, TokenUsage } from "@luckycli/core";
 
 export interface EventHandlers {
   onText: (delta: string) => void;
+  onReasoning: () => void;
   onToolStart: (name: string, rawInput: unknown) => void;
   onToolEnd: (name: string, output: string, error: boolean) => void;
   onError: (message: string) => void;
@@ -16,6 +17,9 @@ export function handleEvent(event: AgentEvent, h: EventHandlers): void {
   switch (event.type) {
     case "text":
       h.onText(event.delta);
+      break;
+    case "reasoning":
+      h.onReasoning();
       break;
     case "tool_start":
       h.onToolStart(event.name, event.input);
