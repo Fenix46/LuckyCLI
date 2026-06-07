@@ -146,16 +146,28 @@ export class OpenAiOAuthProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): Promise<GenerationResponse> {
-    const res = await fetch(CODEX_API_ENDPOINT, {
-      method: "POST",
-      headers: await this.authHeaders(),
-      body: JSON.stringify(buildRequestBody(messages, config, false)),
-      signal: config.abortSignal,
-    });
-    if (!res.ok) {
-      throw new Error(`ChatGPT API error (${res.status}): ${await res.text()}`);
+    // The Codex endpoint rejects non-streaming requests ("Stream must be set to
+    // true"), so a real non-streaming call is impossible. Drive the stream and
+    // aggregate it into a single GenerationResponse for callers that want one
+    // (e.g. compaction's summarizeMessages).
+    const content: ContentPart[] = [];
+    let text = "";
+    let usage: TokenUsage | undefined;
+    let finishReason: GenerationResponse["finishReason"] = "stop";
+
+    for await (const chunk of this.generateStream(messages, config)) {
+      if (chunk.textDelta) text += chunk.textDelta;
+      if (chunk.toolCall) content.push(chunk.toolCall);
+      if (chunk.usage) usage = chunk.usage;
+      if (chunk.finishReason) finishReason = chunk.finishReason;
     }
-    return fromResponse((await res.json()) as Record<string, unknown>);
+
+    if (text) content.unshift({ type: "text", text });
+    return {
+      content,
+      finishReason,
+      ...(usage ? { usage } : {}),
+    };
   }
 
   async *generateStream(
@@ -466,52 +478,6 @@ function buildRequestBody(
   };
 }
 
-function fromResponse(data: Record<string, unknown>): GenerationResponse {
-  const output =
-    (data.output as
-      | Array<{
-          type: string;
-          text?: string;
-          name?: string;
-          call_id?: string;
-          arguments?: string;
-        }>
-      | undefined) ?? [];
-  const content: ContentPart[] = [];
-
-  for (const item of output) {
-    if ((item.type === "message" || item.type === "text") && item.text) {
-      content.push({ type: "text", text: item.text });
-    }
-    if (item.type === "function_call") {
-      content.push({
-        type: "tool_call",
-        id: item.call_id ?? "",
-        name: item.name ?? "",
-        arguments: parseArgs(item.arguments ?? "{}"),
-      });
-    }
-  }
-
-  const usage = data.usage as
-    | { input_tokens?: number; output_tokens?: number }
-    | undefined;
-  return {
-    content,
-    finishReason: content.some((part) => part.type === "tool_call")
-      ? "tool_calls"
-      : "stop",
-    ...(usage
-      ? {
-          usage: {
-            inputTokens: usage.input_tokens ?? 0,
-            outputTokens: usage.output_tokens ?? 0,
-          },
-        }
-      : {}),
-    rawMetadata: data,
-  };
-}
 
 function textOf(content: ContentPart[]): string {
   return content

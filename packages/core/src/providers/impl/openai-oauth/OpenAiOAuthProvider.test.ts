@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAiOAuthProvider } from "./OpenAiOAuthProvider.js";
 
+/** Build a ReadableStream of SSE `data:` lines, as the Codex endpoint returns. */
+function sseStream(...lines: string[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode([...lines, ""].join("\n")));
+      controller.close();
+    },
+  });
+}
+
 describe("OpenAiOAuthProvider", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -9,10 +19,10 @@ describe("OpenAiOAuthProvider", () => {
   it("sends ChatGPT OAuth requests with tool history", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
-        output: [{ type: "message", text: "done" }],
-        usage: { input_tokens: 10, output_tokens: 2 },
-      }),
+      body: sseStream(
+        'data: {"type":"response.output_text.delta","delta":"done"}',
+        'data: {"type":"response.completed","usage":{"input_tokens":10,"output_tokens":2}}',
+      ),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -82,10 +92,12 @@ describe("OpenAiOAuthProvider", () => {
   });
 
   it("sends reasoning.effort when set, and omits it when not", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
+    // Fresh stream per call: generate() is invoked twice and a ReadableStream
+    // can only be read once.
+    const fetchMock = vi.fn().mockImplementation(async () => ({
       ok: true,
-      json: async () => ({ output: [{ type: "message", text: "ok" }] }),
-    });
+      body: sseStream('data: {"type":"response.completed"}'),
+    }));
     vi.stubGlobal("fetch", fetchMock);
 
     const provider = new OpenAiOAuthProvider({
@@ -110,7 +122,7 @@ describe("OpenAiOAuthProvider", () => {
   it("normalizes OpenAPI boolean exclusive minimums for ChatGPT tools", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ output: [] }),
+      body: sseStream('data: {"type":"response.completed"}'),
     });
     vi.stubGlobal("fetch", fetchMock);
 
