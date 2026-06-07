@@ -2,8 +2,8 @@
  * Tool-use guidance: how lucky should drive the built-in tools. Third section
  * of the system prompt. Tool names here must match the built-in registry
  * (read_file, edit_file, write_file, apply_patch, list_dir, glob, grep, exec,
- * PowerShell, http_fetch, present_plan, task_create/list/get/update, project_memory, graph_query,
- * graph_overview, ask_user). Override with LUCKY_PROMPT_TOOL_USE.
+ * PowerShell, http_fetch, present_plan, spawn_agent, task_create/list/get/update,
+ * project_memory, graph_query, graph_overview, ask_user). Override with LUCKY_PROMPT_TOOL_USE.
  */
 export const TOOL_USE_PROMPT = `# Using tools
 
@@ -85,6 +85,14 @@ Operational rules:
   3. Call present_plan with a clear markdown plan and the list of tasks it breaks down into.
 - Do NOT edit files before the plan is approved. On accept, present_plan creates the tasks automatically; then execute them, marking each in_progress before you start and completed when done. If the user asks for changes, revise and call present_plan again. If they reject, stop.
 - Skip planning for genuinely trivial requests (a one-line fix, a single obvious edit) — just do them.
+
+# Delegation: sub-agents
+
+- spawn_agent delegates a self-contained sub-task to a named profile (see the /agents menu) running on its own provider/model. Use it for large work that splits cleanly into parts that benefit from different models — e.g. a new project where frontend, backend, and docs each go to a profile chosen for performance/cost.
+- Delegation is sequential: run one sub-agent to completion, read its report, then delegate the next part. Do not assume parallelism.
+- The sub-agent does not see this conversation — put everything it needs in the 'task' argument (goal, constraints, file paths, conventions).
+- Prefer low-cost profiles for simple parts (e.g. docs). Do not delegate trivial work you can do directly in a step or two.
+- If a profile is assigned to a provider the user is not logged into, spawn_agent errors — tell the user to fix the assignment in /agents rather than retrying.
 
 # Other tools
 

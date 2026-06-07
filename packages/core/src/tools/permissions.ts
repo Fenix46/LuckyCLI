@@ -25,6 +25,8 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   exec: "ask",
   PowerShell: "ask",
   project_memory: "ask",
+  // Delegation writes through the sub-agent, so confirm before spawning.
+  spawn_agent: "ask",
 
   // Conservative fallback for future/custom tools.
   "*": "ask",

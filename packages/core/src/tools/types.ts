@@ -11,6 +11,20 @@ export interface AskUserRequest {
   allowFreeText?: boolean;
 }
 
+/** A request from the spawn_agent tool to delegate work to a sub-agent. */
+export interface SpawnAgentRequest {
+  /** Name of the agent profile to run as (see /agents). */
+  agent: string;
+  /** The task instructions for the sub-agent. */
+  task: string;
+}
+
+/** What the spawn_agent bridge returns once the sub-agent finishes. */
+export interface SpawnAgentResult {
+  /** The sub-agent's report, relayed back to the main agent. */
+  report: string;
+}
+
 export interface ToolContext {
   /** Working directory the agent is anchored to. */
   cwd: string;
@@ -23,6 +37,15 @@ export interface ToolContext {
    * user and return their accept/modify/reject decision.
    */
   presentPlan?: (plan: PlanProposal) => Promise<PlanDecision>;
+  /**
+   * Optional bridge for the spawn_agent tool: run a sub-agent (a named profile
+   * bound to a provider+model) to completion and return its report. Sequential
+   * in Phase 1 — one sub-agent runs start-to-finish per call.
+   */
+  runSubAgent?: (
+    request: SpawnAgentRequest,
+    signal?: AbortSignal,
+  ) => Promise<SpawnAgentResult>;
   /**
    * Notify the host that files changed (repo-relative or absolute paths), after
    * a successful mutation. The host uses this to keep the knowledge graph fresh

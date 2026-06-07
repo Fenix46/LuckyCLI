@@ -26,7 +26,14 @@ export {
 } from "./tools/permissions.js";
 export type { ToolPermission, ToolPermissionPolicy } from "./tools/permissions.js";
 export { defineTool } from "./tools/types.js";
-export type { AskUserRequest, Tool, ToolContext, ToolResult } from "./tools/types.js";
+export type {
+  AskUserRequest,
+  SpawnAgentRequest,
+  SpawnAgentResult,
+  Tool,
+  ToolContext,
+  ToolResult,
+} from "./tools/types.js";
 export {
   defaultToolRegistry,
   execTool,
@@ -43,12 +50,28 @@ export {
   taskGetTool,
   taskUpdateTool,
   presentPlanTool,
+  spawnAgentTool,
   projectMemoryTool,
   graphQueryTool,
   graphOverviewTool,
   askUserTool,
 } from "./tools/builtin/index.js";
 export type { PlanProposal, PlanDecision, PlanTask } from "./agent/plan.js";
+
+// Sub-agents.
+export {
+  AgentProfileSchema,
+  agentsRootDir,
+  deleteProfile,
+  getProfile,
+  listProfiles,
+  sanitizeProfileName,
+  saveProfile,
+  seedDefaultProfiles,
+} from "./agents/profiles.js";
+export type { AgentProfile, NewAgentProfile } from "./agents/profiles.js";
+export { runSubAgent } from "./agents/runner.js";
+export type { SubAgentRequest, SubAgentResult } from "./agents/runner.js";
 
 export {
   TASK_STATUSES,
