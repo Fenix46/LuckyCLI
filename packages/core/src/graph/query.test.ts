@@ -11,6 +11,13 @@ function fixture(): Graph {
     { id: "beta", label: "beta", kind: "function", sourceFile: "a.ts", sourceLocation: "L5" },
     { id: "gamma", label: "gamma", kind: "function", sourceFile: "a.ts", sourceLocation: "L9" },
     { id: "mod_fs", label: "node:fs", kind: "module", sourceFile: "node:fs" },
+    {
+      id: "mod_exo",
+      label: "androidx.media3.exoplayer.ExoPlayer",
+      kind: "module",
+      sourceFile: "androidx.media3.exoplayer.ExoPlayer",
+      external: true,
+    },
   ];
   g.edges = [
     { source: "a_ts", target: "alpha", relation: "defines", confidence: "EXTRACTED" },
@@ -29,6 +36,15 @@ describe("graph query helpers", () => {
     expect(resolveNodes(g, "node:fs").map((n) => n.id)).toEqual(["mod_fs"]);
     expect(resolveNodes(g, "a.ts").map((n) => n.id)).toContain("a_ts"); // label match wins
     expect(resolveNodes(g, "missing")).toEqual([]);
+  });
+
+  it("resolves a module by its short name (last segment of the FQN)", () => {
+    const g = fixture();
+    // language-agnostic: queries the short name, matches the qualified module.
+    expect(resolveNodes(g, "ExoPlayer").map((n) => n.id)).toEqual(["mod_exo"]);
+    expect(resolveNodes(g, "exoplayer").map((n) => n.id)).toEqual(["mod_exo"]); // case-insensitive
+    // an exact label still wins over a short-name match.
+    expect(resolveNodes(g, "androidx.media3.exoplayer.ExoPlayer").map((n) => n.id)).toEqual(["mod_exo"]);
   });
 
   it("finds callers and callees over calls edges only", () => {
@@ -62,9 +78,11 @@ describe("graph query helpers", () => {
   it("summarizes counts and kinds", () => {
     const o = summarize(fixture());
     expect(o.fileCount).toBe(2);
-    expect(o.nodeCount).toBe(5);
+    expect(o.nodeCount).toBe(6);
     expect(o.edgeCount).toBe(5);
     expect(o.kindCounts.function).toBe(3);
-    expect(o.kindCounts.module).toBe(1);
+    expect(o.kindCounts.module).toBe(1); // only the non-external module is counted
+    expect(o.externalNodeCount).toBe(1); // the ExoPlayer library node
+    expect(o.internalNodeCount).toBe(5);
   });
 });

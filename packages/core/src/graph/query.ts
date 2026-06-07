@@ -10,13 +10,33 @@
 import { edgesFrom, edgesTo, getNode } from "./store.js";
 import type { Graph, GraphNode } from "./types.js";
 
-/** Resolve a free-text query to nodes: exact id, then label, then file path. */
+/**
+ * Last path-like segment of a module label, splitting on any non-alphanumeric
+ * separator so it works across every language's import syntax — Kotlin/Java/C#
+ * `a.b.C`, Rust `a::B`, Go `a/b/c`, TS `node:path`. Lets a query for the short
+ * name (`ExoPlayer`, `Serialize`) resolve a fully-qualified module node.
+ */
+function lastSegment(label: string): string {
+  const tokens = label.split(/[^A-Za-z0-9_]+/).filter(Boolean);
+  return tokens.length > 0 ? tokens[tokens.length - 1]! : label;
+}
+
+/**
+ * Resolve a free-text query to nodes: exact id, then exact label, then a
+ * module's short name (last segment of its fully-qualified label), then file
+ * path. The short-name step is what lets `find ExoPlayer` reach a library node
+ * whose label is `androidx.media3.exoplayer.ExoPlayer`, in any language.
+ */
 export function resolveNodes(graph: Graph, query: string): GraphNode[] {
   const byId = getNode(graph, query);
   if (byId) return [byId];
   const needle = query.toLowerCase();
   const byLabel = graph.nodes.filter((n) => n.label.toLowerCase() === needle);
   if (byLabel.length > 0) return byLabel;
+  const byShortName = graph.nodes.filter(
+    (n) => n.kind === "module" && lastSegment(n.label).toLowerCase() === needle,
+  );
+  if (byShortName.length > 0) return byShortName;
   return graph.nodes.filter((n) => n.sourceFile === query);
 }
 

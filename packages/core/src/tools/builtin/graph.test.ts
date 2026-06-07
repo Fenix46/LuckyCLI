@@ -12,7 +12,7 @@ function fixture(root: string): Graph {
     { id: "a_ts", label: "a.ts", kind: "file", sourceFile: "a.ts" },
     { id: "alpha", label: "alpha", kind: "function", sourceFile: "a.ts", sourceLocation: "L1" },
     { id: "beta", label: "beta", kind: "function", sourceFile: "a.ts", sourceLocation: "L5" },
-    { id: "mod_fs", label: "node:fs", kind: "module", sourceFile: "node:fs" },
+    { id: "mod_fs", label: "node:fs", kind: "module", sourceFile: "node:fs", external: true },
   ];
   g.edges = [
     { source: "a_ts", target: "alpha", relation: "defines", confidence: "EXTRACTED" },
@@ -45,6 +45,22 @@ describe("graph tools", () => {
     expect(callers.content).toContain("alpha (function)");
     const callees = await graphQueryTool.execute({ query: "alpha", relation: "callees" }, { cwd });
     expect(callees.content).toContain("beta (function)");
+  });
+
+  it("graph_query neighbors splits project code from external libraries", async () => {
+    const r = await graphQueryTool.execute({ query: "a.ts", relation: "neighbors" }, { cwd });
+    // The file's own symbols are under project code.
+    expect(r.content).toContain("project code");
+    expect(r.content).toContain("alpha (function)");
+    // The library import is grouped under external, marked, and counted.
+    expect(r.content).toContain("External libraries (1)");
+    expect(r.content).toContain("node:fs (external module)");
+  });
+
+  it("graph_query find resolves a library by its short name", async () => {
+    // node:fs is the only module; querying "fs" should reach it.
+    const r = await graphQueryTool.execute({ query: "fs" }, { cwd });
+    expect(r.content).toContain("node:fs (external module)");
   });
 
   it("graph_query file lists symbols in a file", async () => {

@@ -65,7 +65,7 @@ export const graphQueryTool = defineTool({
       } else if (relation === "callees") {
         lines.push(section(`Called by ${formatNode(node)}`, calleesOf(graph, node.id).map(formatNode)));
       } else {
-        lines.push(section(`Neighbors of ${formatNode(node)}`, neighborsOf(graph, node.id).map(formatNeighbor)));
+        lines.push(neighborSection(node, neighborsOf(graph, node.id)));
       }
     }
     return { content: lines.join("\n\n") };
@@ -113,6 +113,34 @@ export const graphOverviewTool = defineTool({
 function formatNeighbor(n: Neighbor): string {
   const arrow = n.direction === "out" ? `${n.relation} →` : `← ${n.relation}`;
   return `${arrow} ${formatNode(n.node)}`;
+}
+
+// How many external-library neighbours to spell out before collapsing the rest
+// into a count, so a heavily-importing file (e.g. a UI screen with 50+ imports)
+// doesn't bury its handful of project-code neighbours.
+const MAX_EXTERNAL_NEIGHBORS = 15;
+
+/**
+ * Neighbours of a node, split into the project's own code and external
+ * libraries. The project group comes first and is never truncated; external
+ * dependencies follow and are capped, since for a file they're mostly a long
+ * list of framework imports that would otherwise drown the internal structure.
+ */
+function neighborSection(node: GraphNode, neighbors: Neighbor[]): string {
+  const project = neighbors.filter((n) => !n.node.external);
+  const external = neighbors.filter((n) => n.node.external);
+
+  const blocks = [
+    section(`Neighbors of ${formatNode(node)} — project code`, project.map(formatNeighbor)),
+  ];
+
+  const shown = external.slice(0, MAX_EXTERNAL_NEIGHBORS).map(formatNeighbor);
+  if (external.length > MAX_EXTERNAL_NEIGHBORS) {
+    shown.push(`…and ${external.length - MAX_EXTERNAL_NEIGHBORS} more external libraries`);
+  }
+  blocks.push(section(`External libraries (${external.length})`, shown));
+
+  return blocks.join("\n\n");
 }
 
 function formatRanked(r: RankedNode): string {
