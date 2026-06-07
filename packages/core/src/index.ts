@@ -166,6 +166,7 @@ export {
   topModules,
 } from "./graph/query.js";
 export type { GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
+export { renderGraphHtml } from "./graph/view.js";
 export {
   GRAPH_DIR,
   GRAPH_FILE,

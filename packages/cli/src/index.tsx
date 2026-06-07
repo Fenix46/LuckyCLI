@@ -5,12 +5,17 @@ import render from "./vendor/ink/root.js";
 import React from "react";
 import {
   buildAndSaveGraph,
+  graphDirPath,
   latestSession,
   listSessions,
   loadSession,
+  renderGraphHtml,
   resolveConfig,
+  tryLoadGraph,
   type Session,
 } from "@luckycli/core";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Root } from "./ui/Root.js";
 import { runMcpCommand } from "./mcp-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
@@ -35,6 +40,7 @@ Options:
 Commands:
   graph build [path]    build the project knowledge graph into .lucky/graph
   graph rebuild [path]  rebuild it from scratch
+  graph view [path]     render the graph as interactive HTML to explore
   mcp list              list configured MCP servers
   mcp status            connect to each MCP server and report status
   mcp login <name>      authorize a remote MCP server via OAuth
@@ -59,12 +65,33 @@ function printSessions(): void {
   }
 }
 
-/** `lucky graph build [path]` — build the project graph and exit (no TUI). */
+/** `lucky graph view [path]` — render the existing graph to interactive HTML. */
+async function runGraphView(target: string): Promise<void> {
+  const graph = await tryLoadGraph(target);
+  if (!graph) {
+    process.stderr.write(
+      `No graph found for ${target}. Run "lucky graph build" first.\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  const outPath = join(graphDirPath(target), "view.html");
+  await writeFile(outPath, renderGraphHtml(graph), "utf8");
+  process.stdout.write(
+    `Rendered ${graph.nodes.length} nodes, ${graph.edges.length} edges to\n${outPath}\n`,
+  );
+}
+
+/** `lucky graph build|rebuild|view [path]` — graph subcommands; print and exit (no TUI). */
 async function runGraphCommand(args: string[]): Promise<void> {
   const [sub, target = "."] = args;
+  if (sub === "view") {
+    await runGraphView(target);
+    return;
+  }
   if (sub !== "build" && sub !== "rebuild") {
     process.stderr.write(
-      `Unknown graph command "${sub ?? ""}". Usage: lucky graph build|rebuild [path]\n`,
+      `Unknown graph command "${sub ?? ""}". Usage: lucky graph build|rebuild|view [path]\n`,
     );
     process.exit(1);
   }
@@ -101,7 +128,7 @@ function main(): void {
   const rawArgs = process.argv.slice(2);
   if (rawArgs[0] === "graph") {
     runGraphCommand(rawArgs.slice(1)).catch((err) => {
-      process.stderr.write(`graph build failed: ${err instanceof Error ? err.message : err}\n`);
+      process.stderr.write(`graph command failed: ${err instanceof Error ? err.message : err}\n`);
       process.exit(1);
     });
     return;

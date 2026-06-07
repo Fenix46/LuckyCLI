@@ -2,6 +2,7 @@
 export * from "./types.js";
 export * from "./store.js";
 export * from "./query.js";
+export * from "./view.js";
 export * from "./detect.js";
 export * from "./build.js";
 export * from "./update.js";

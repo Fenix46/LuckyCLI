@@ -36,8 +36,9 @@ model mid-session without losing your conversation.
   the task is done (no fixed step cap) or you press `Esc`.
 - **A project knowledge graph.** Opt-in on first open, LuckyCLI maps your code's
   files, symbols, imports and calls into `.lucky/graph` so the agent navigates by
-  querying instead of re-reading files — cheaper in tokens — and keeps it current
-  automatically as it edits.
+  querying instead of re-reading files, renders to interactive HTML, and keeps
+  itself current automatically as the agent edits. Early real-LLM results in
+  [How much does it help?](#how-much-does-it-help-).
 - **Safety built in.** Side-effecting tools prompt for approval, the shell tool
   refuses destructive commands, file tools are sandboxed to the working
   directory, and `http_fetch` blocks private/SSRF targets.
@@ -256,7 +257,10 @@ side-effecting ones prompt for approval.
 | `glob` | allow | Find files by name with a glob (e.g. `src/**/*.tsx`) |
 | `grep` | allow | Search file contents with a regular expression |
 | `http_fetch` | allow | Fetch the text content of a public URL |
-| `todo_write` | allow | Maintain a session todo list for multi-step work |
+| `task_*` | allow | Create/list/get/update tasks — a structured todo list for multi-step work |
+| `present_plan` | allow | Show a step-by-step plan for the work before doing it |
+| `spawn_agent` | allow | Delegate a sub-task to a configured sub-agent |
+| `project_memory` | allow | Read/write durable per-project notes the agent recalls later |
 | `graph_query` | allow | Query the knowledge graph: find a symbol, its callers/callees, neighbors, or a file's symbols |
 | `graph_overview` | allow | Summarize the graph: counts, most-connected symbols, most-imported modules |
 | `ask_user` | allow | Ask you a clarifying question and wait for the answer |
@@ -264,6 +268,7 @@ side-effecting ones prompt for approval.
 | `edit_file` | ask | Replace an exact snippet in a file (fuzzy snippet matching) |
 | `apply_patch` | ask | Apply a unified-diff patch to text files |
 | `exec` | ask | Run a shell command and return its combined output |
+| `powershell` | ask | Run a PowerShell command (Windows) and return its output |
 
 ### Safety model
 
@@ -372,6 +377,43 @@ It works in three phases:
   edit is picked up the same way. Brand-new files an MCP tool creates aren't
   detected yet — they land on the next built-in edit or a rebuild.
   `lucky graph rebuild` (or `/graph rebuild`) forces a full rebuild.
+
+### Visualize
+
+`lucky graph view [path]` renders the graph as a single self-contained,
+interactive HTML page (`.lucky/graph/view.html`) — a force-directed map you can
+zoom, pan and click, with the project's own code coloured by kind and external
+dependencies dimmed and dashed. A side panel shows the overview counts, the most
+connected symbols ("god nodes") and the most-used libraries. This is for humans:
+the model never reads it (HTML is the least token-dense format), so it's
+generated on demand for exploring or presenting a codebase.
+
+### How much does it help? *
+
+> **\* Alpha, early numbers.** The graph is an early-stage feature; the figures
+> below come from a **single real session per mode**, so treat them as directional,
+> not as a controlled benchmark. Full write-up and transcripts in
+> [`docs/graph-benchmark.md`](docs/graph-benchmark.md).
+
+We ran the same agent (GPT-5.4) on the broad prompt *"Give me an overview of the
+project"*, once with the graph enabled and once without — a whole-project overview,
+which is the graph's **least favourable** case (the agent reads the README and entry
+files either way). What that one run showed:
+
+- **Efficiency:** a modest win for the graph (~1.5×) — smaller working context
+  (~21k vs ~32k) and fewer tool calls. On a sprawling overview the agent moves
+  broadly regardless; the graph trims some exploration, not all of it.
+- **Quality:** the two write-ups are **essentially on par**. The no-graph answer has
+  marginally more precise `file:line` citations (it read those files directly); the
+  graph answer is just as accurate and adds something the no-graph run *couldn't* — a
+  centrality view of the codebase: the most-connected "god nodes" (`Agent`,
+  `McpManager`, the Gemini client) and which files drive graph density.
+
+We'd expect a clearer efficiency gap on *targeted* navigation (find a definition, a
+caller, a file's symbols), since there the graph returns an exact location instead
+of the agent reading files to find it — but that isn't measured with a real LLM yet.
+Try it yourself: build the graph with `/graph`, then run the same prompt against a
+project with and without `.lucky/graph`.
 
 Languages: TypeScript, TSX, JavaScript, Python, Go, Rust, Java, Ruby, C#, PHP, C,
 C++, Kotlin, Swift and Dart (Flutter). Data/markup formats are mapped
@@ -550,11 +592,13 @@ approach.
 - [x] Native project knowledge graph (build, query tools, autonomous updates)
 - [x] More graph languages (Go, Rust, Java, Ruby, C#, PHP, C, C++, Kotlin, Swift, Dart)
 - [x] Structural graph for data/markup (JSON, TOML, HTML)
+- [x] Interactive HTML graph visualization (`lucky graph view`)
+- [x] MCP client: local + remote (Streamable HTTP) servers, OAuth, in-app registry panel
+- [ ] Proper graph benchmark suite (multiple prompts, repeated real-LLM runs, exact tokens)
 - [ ] More non-code graph nodes (Markdown/text documents, shell scripts, YAML)
 - [ ] Recorded fixtures / end-to-end tests against the live APIs
 - [ ] Streaming markdown rendering in the CLI
 - [ ] Retry/backoff + structured error taxonomy across providers
-- [ ] MCP tool support
 
 ## License
 
