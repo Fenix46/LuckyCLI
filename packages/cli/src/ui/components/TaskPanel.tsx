@@ -29,6 +29,20 @@ export function TaskPanel({
   const inProgress = tasks.filter((t) => t.status === "in_progress").length;
   const pending = tasks.length - completed - inProgress;
 
+  // Once everything is done, the full checklist is just noise that lingers for
+  // the rest of the session. Collapse it to a single summary line so it stops
+  // hogging chrome; a new pending/in_progress task re-expands it automatically.
+  // The list still lives on disk and is viewable via /task.
+  if (pending === 0 && inProgress === 0) {
+    return (
+      <Box marginBottom={1} paddingLeft={2}>
+        <Text color={theme.success} dimColor>
+          ✔ Tasks ({completed} done) — use /task to review or /task clear to reset
+        </Text>
+      </Box>
+    );
+  }
+
   const headerParts = [`${completed} done`];
   if (inProgress > 0) headerParts.push(`${inProgress} in progress`);
   headerParts.push(`${pending} open`);

@@ -95,6 +95,31 @@ describe("tasks store", () => {
     resetTaskList(a);
   });
 
+  it("archives a fully-completed list so the next task starts at #1", () => {
+    const a = createTask(cwd, { subject: "one", description: "x", status: "pending" });
+    const b = createTask(cwd, { subject: "two", description: "x", status: "pending" });
+    updateTask(cwd, a.id, { status: "completed" });
+    updateTask(cwd, b.id, { status: "completed" });
+
+    // List is fully done; the next create should archive it and restart fresh.
+    const next = createTask(cwd, { subject: "new work", description: "x", status: "pending" });
+    expect(next.id).toBe("1");
+    expect(listTasks(cwd)).toHaveLength(1);
+    expect(listTasks(cwd)[0]?.subject).toBe("new work");
+  });
+
+  it("does NOT archive while at least one task is still open", () => {
+    const a = createTask(cwd, { subject: "one", description: "x", status: "pending" });
+    const b = createTask(cwd, { subject: "two", description: "x", status: "pending" });
+    // #1 done, #2 still pending — the list is NOT fully complete.
+    updateTask(cwd, a.id, { status: "completed" });
+    void b;
+    const c = createTask(cwd, { subject: "three", description: "x", status: "pending" });
+    // No archive: ids keep climbing within the same list.
+    expect(c.id).toBe("3");
+    expect(listTasks(cwd)).toHaveLength(3);
+  });
+
   it("cleanupOrphanTaskLists removes lists not in the valid set", () => {
     const keep = `unit-keep-${Date.now()}`;
     const orphan = `unit-orphan-${Date.now()}`;

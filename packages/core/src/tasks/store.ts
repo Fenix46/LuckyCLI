@@ -138,8 +138,49 @@ function highestTaskId(taskListId: string): number {
   return highest;
 }
 
-/** Create a new task with the next sequential id. Returns the created task. */
+/** Directory holding archived (completed-and-superseded) task lists. */
+function archiveRootDir(taskListId: string): string {
+  return join(tasksRootDir(), "archive", sanitizePathComponent(taskListId));
+}
+
+/**
+ * True when the list has at least one task and every task is completed — i.e. a
+ * finished piece of work that a new task_create would otherwise pile onto.
+ */
+function isListFullyCompleted(taskListId: string): boolean {
+  const tasks = listTasks(taskListId);
+  return tasks.length > 0 && tasks.every((t) => t.status === "completed");
+}
+
+/**
+ * Move the current task list aside into archive/<id>/<timestamp>/ so the next
+ * task starts a fresh list (numbering from #1) instead of accumulating after
+ * completed work. Best-effort: a failure leaves the list in place.
+ */
+export function archiveTaskList(taskListId: string): void {
+  const dir = tasksDirFor(taskListId);
+  if (!existsSync(dir)) return;
+  const dest = join(archiveRootDir(taskListId), String(Date.now()));
+  try {
+    mkdirSync(join(dest, ".."), { recursive: true });
+    renameSync(dir, dest);
+  } catch {
+    // If the move fails, leave the active list untouched rather than losing it.
+  }
+}
+
+/**
+ * Create a new task with the next sequential id. Returns the created task.
+ *
+ * If the existing list is fully completed, it is archived first so the new task
+ * begins a clean list (numbered from #1) — distinct pieces of work don't get
+ * mixed into one ever-growing list.
+ */
 export function createTask(taskListId: string, data: NewTask): Task {
+  if (isListFullyCompleted(taskListId)) {
+    archiveTaskList(taskListId);
+    notifyTasksUpdated(taskListId);
+  }
   ensureTasksDir(taskListId);
   const id = String(highestTaskId(taskListId) + 1);
   const task: Task = TaskSchema.parse({ ...data, id });
@@ -216,11 +257,31 @@ export function cleanupOrphanTaskLists(validIds: Iterable<string>): void {
   if (!existsSync(root)) return;
   const keep = new Set([...validIds].map((id) => sanitizePathComponent(id)));
   for (const entry of readdirSync(root)) {
+    // The archive dir holds finished lists keyed by session id; prune it by the
+    // same valid-session set rather than deleting it wholesale.
+    if (entry === "archive") {
+      cleanupOrphanArchives(keep);
+      continue;
+    }
     if (keep.has(entry)) continue;
     try {
       rmSync(join(root, entry), { recursive: true, force: true });
     } catch {
       // Best-effort cleanup; ignore failures (e.g. a concurrent process).
+    }
+  }
+}
+
+/** Drop archived lists belonging to sessions no longer in `keep`. */
+function cleanupOrphanArchives(keep: Set<string>): void {
+  const archiveRoot = join(tasksRootDir(), "archive");
+  if (!existsSync(archiveRoot)) return;
+  for (const entry of readdirSync(archiveRoot)) {
+    if (keep.has(entry)) continue;
+    try {
+      rmSync(join(archiveRoot, entry), { recursive: true, force: true });
+    } catch {
+      // Best-effort; ignore.
     }
   }
 }
