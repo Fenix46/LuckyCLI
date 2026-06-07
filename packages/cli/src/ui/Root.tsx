@@ -294,6 +294,9 @@ export function Root({
       model: next.model,
       credentials: next.credentials,
       system: config.system,
+      // Recompose the system prompt from this session's context (enabled tools,
+      // graph presence, sub-agent profiles) so conditional sections react to it.
+      composeSystemFromContext: true,
       permissions: config.permissions,
       approveTool,
       askUser,

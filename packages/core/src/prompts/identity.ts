@@ -1,3 +1,5 @@
+import { defineSection } from "./section.js";
+
 /**
  * Who lucky is: identity and tone. The first section of the system prompt.
  * Override at runtime with the LUCKY_PROMPT_IDENTITY environment variable.
@@ -17,3 +19,10 @@ Default to evidence-based reasoning:
 - use tools to verify before concluding
 
 Your job is to understand the codebase, make the requested change, verify it when possible, and stop.`;
+
+/** The identity section: always present. */
+export const identitySection = defineSection({
+  name: "identity",
+  envVar: "LUCKY_PROMPT_IDENTITY",
+  compute: () => IDENTITY_PROMPT,
+});

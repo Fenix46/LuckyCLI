@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildSummarizationPrompt,
   buildSystemPrompt,
+  buildSystemPromptFromContext,
+  defineSection,
+  resolveSections,
+  SYSTEM_PROMPT_SECTIONS,
   IDENTITY_PROMPT,
   SUMMARIZATION_PROMPT,
   TOOL_USE_PROMPT,
@@ -48,6 +52,74 @@ describe("buildSystemPrompt", () => {
   it("ignores a blank override and keeps the default section", () => {
     const prompt = buildSystemPrompt(INFO, { LUCKY_PROMPT_TOOL_USE: "  " });
     expect(prompt).toContain(TOOL_USE_PROMPT);
+  });
+});
+
+describe("section architecture", () => {
+  it("exposes the ordered default sections", () => {
+    expect(SYSTEM_PROMPT_SECTIONS.map((s) => s.name)).toEqual([
+      "identity",
+      "agency",
+      "tool-use",
+      "environment",
+    ]);
+  });
+
+  it("drops sections that compute to null", () => {
+    const ctx = { environment: INFO, env: ENV };
+    const text = resolveSections(
+      [
+        defineSection({ name: "a", compute: () => "ALPHA" }),
+        defineSection({ name: "b", compute: () => null }),
+        defineSection({ name: "c", compute: () => "GAMMA" }),
+      ],
+      ctx,
+    );
+    expect(text).toBe("ALPHA\n\nGAMMA");
+  });
+
+  it("passes capability flags to sections via the context", () => {
+    const ctx = {
+      environment: INFO,
+      env: ENV,
+      hasGraph: true,
+      hasSubAgents: false,
+      enabledTools: new Set(["read_file"]),
+    };
+    const text = resolveSections(
+      [
+        defineSection({
+          name: "graph",
+          compute: (c) => (c.hasGraph ? "HAS GRAPH" : null),
+        }),
+        defineSection({
+          name: "delegation",
+          compute: (c) => (c.hasSubAgents ? "HAS SUBAGENTS" : null),
+        }),
+      ],
+      ctx,
+    );
+    expect(text).toContain("HAS GRAPH");
+    expect(text).not.toContain("HAS SUBAGENTS");
+  });
+
+  it("buildSystemPromptFromContext composes the same default prompt", () => {
+    const fromCtx = buildSystemPromptFromContext({ environment: INFO, env: ENV });
+    const fromCompat = buildSystemPrompt(INFO, ENV);
+    expect(fromCtx).toBe(fromCompat);
+  });
+
+  it("an empty env override is ignored, a non-empty one wins", () => {
+    const overridden = resolveSections(
+      [defineSection({ name: "x", envVar: "FOO", compute: () => "DEFAULT" })],
+      { environment: INFO, env: { FOO: "CUSTOM" } },
+    );
+    expect(overridden).toBe("CUSTOM");
+    const blank = resolveSections(
+      [defineSection({ name: "x", envVar: "FOO", compute: () => "DEFAULT" })],
+      { environment: INFO, env: { FOO: "   " } },
+    );
+    expect(blank).toBe("DEFAULT");
   });
 });
 

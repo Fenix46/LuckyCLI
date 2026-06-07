@@ -1,3 +1,5 @@
+import { defineSection } from "./section.js";
+
 /**
  * How lucky works: process, autonomy, and when to ask. The second section of
  * the system prompt. Override with the LUCKY_PROMPT_AGENCY environment variable.
@@ -58,3 +60,10 @@ For most coding tasks, follow this sequence:
 - Reference code as file_path:line when relevant.
 - State uncertainty honestly.
 - Do not claim something works unless you verified it.`;
+
+/** The agency section: always present. */
+export const agencySection = defineSection({
+  name: "agency",
+  envVar: "LUCKY_PROMPT_AGENCY",
+  compute: () => AGENCY_PROMPT,
+});

@@ -1,10 +1,14 @@
+import { existsSync } from "node:fs";
 import {
   Agent,
   McpManager,
   appendProjectMemoryToSystemPrompt,
+  buildSystemPromptFromContext,
   defaultToolRegistry,
   ensureProjectMemoryFile,
   getProvider,
+  graphFilePath,
+  listProfiles,
   nonInteractiveMcpOAuthProvider,
   resetProvider,
   updateGraphForFiles,
@@ -75,6 +79,14 @@ export interface BuildAgentOptions {
   ) => Promise<SpawnAgentResult>;
   extraTools?: Tool[];
   /**
+   * When true, recompose the system prompt from the live session context
+   * (enabled tools, whether a graph exists, whether sub-agents are configured)
+   * so conditional sections react to this session. Ignored if LUCKY_SYSTEM is
+   * set — a custom system prompt is always honored verbatim. Defaults to false,
+   * preserving the prebuilt `system` string.
+   */
+  composeSystemFromContext?: boolean;
+  /**
    * Pre-built tool registry to use as-is. When given, `extraTools` is ignored —
    * the caller owns the registry (e.g. to register MCP tools into it later).
    */
@@ -134,11 +146,32 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const provider = getProvider(opts.provider, opts.credentials);
   const cwd = process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
+  const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
+
+  // Optionally recompose the system prompt from this session's context so the
+  // conditional sections react to it. A custom LUCKY_SYSTEM always wins, so we
+  // only recompose when the prebuilt prompt is the default one.
+  const composed =
+    opts.composeSystemFromContext && process.env.LUCKY_SYSTEM === undefined
+      ? buildSystemPromptFromContext({
+          environment: {
+            cwd,
+            os: `${process.platform} (${process.arch})`,
+            date: new Date().toISOString().slice(0, 10),
+          },
+          model: opts.model,
+          enabledTools: new Set(tools.definitions().map((d) => d.name)),
+          hasGraph: existsSync(graphFilePath(cwd)),
+          hasSubAgents: listProfiles().length > 0,
+          env: process.env,
+        })
+      : opts.system;
+
   return new Agent({
     provider,
     model: opts.model,
-    tools: opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools),
-    system: appendProjectMemoryToSystemPrompt(opts.system, projectMemory),
+    tools,
+    system: appendProjectMemoryToSystemPrompt(composed, projectMemory),
     permissions: opts.permissions,
     approveTool: opts.approveTool,
     askUser: opts.askUser,

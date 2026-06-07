@@ -1,3 +1,5 @@
+import { defineSection } from "./section.js";
+
 /**
  * Tool-use guidance: how lucky should drive the built-in tools. Third section
  * of the system prompt. Tool names here must match the built-in registry
@@ -116,3 +118,14 @@ Operational rules:
 - If the project already has a graph, use it.
 - The graph updates itself after file edits; you do not need to rebuild it after normal changes.
 - If no graph exists, you may suggest /graph or \`lucky graph build\`, but do not build it unprompted.`;
+
+/**
+ * The tool-use section: always present. Splitting it into graph- and
+ * delegation-conditional sub-sections is a content-phase change; for now it
+ * returns the full guidance unchanged.
+ */
+export const toolUseSection = defineSection({
+  name: "tool-use",
+  envVar: "LUCKY_PROMPT_TOOL_USE",
+  compute: () => TOOL_USE_PROMPT,
+});
