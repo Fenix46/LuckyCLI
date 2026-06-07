@@ -41,23 +41,34 @@ export function UserQuestionRequestView({
 
       {options.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
-          {options.map((option, index) => (
-            <Box key={`${option}-${index}`} flexDirection="row">
-              <Text bold={index === selectedIndex} color={index === selectedIndex ? theme.accent : theme.muted} dimColor={index !== selectedIndex}>
-                {index === selectedIndex ? "❯ " : "  "}
-                {option}
-              </Text>
-            </Box>
-          ))}
+          {options.map((option, index) => {
+            const active = index === selectedIndex;
+            return (
+              <Box key={`${option}-${index}`} flexDirection="row">
+                <Text color={active ? theme.accent : theme.muted}>
+                  {active ? "❯ " : "  "}
+                </Text>
+                <Text
+                  bold={active}
+                  color={active ? theme.accent : "white"}
+                  dimColor={!active}
+                >
+                  {option}
+                </Text>
+              </Box>
+            );
+          })}
         </Box>
       ) : null}
 
       <Box marginTop={1}>
         <Text color={theme.muted} dimColor>
+          {options.length > 0 ? "↑↓ move · " : ""}
           {freeText
-            ? "type an answer · enter to send"
-            : "↑↓ / jk move · enter answer · esc skip"}
-          {freeText && options.length > 0 ? " · empty enter uses selected" : ""}
+            ? options.length > 0
+              ? "enter picks ❯ · or type to answer · esc skip"
+              : "type an answer · enter to send · esc skip"
+            : "enter to select · esc skip"}
         </Text>
       </Box>
     </Box>

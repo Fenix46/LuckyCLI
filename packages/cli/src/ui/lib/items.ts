@@ -66,7 +66,7 @@ export function messagesToItems(messages: Message[]): Item[] {
         // Task tools are surfaced by the live TaskPanel, not as transcript
         // rows — skip them on resume too so a reopened session matches what was
         // shown live (and the result below has nothing to attach to).
-        if (part.name.startsWith("task_")) continue;
+        if (part.name.startsWith("task_") || part.name === "ask_user") continue;
         toolIndexById.set(part.id, items.length);
         items.push({ kind: "tool", name: part.name, input: part.arguments });
       } else if (part.type === "tool_result") {
