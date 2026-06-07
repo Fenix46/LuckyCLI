@@ -139,6 +139,122 @@ export function makeNodeId(raw: string): string {
     .toLowerCase();
 }
 
+/** Extensions tried, in order, when resolving a relative import to a file. */
+const IMPORT_RESOLUTION_EXTS = [
+  "",
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  "/index.ts",
+  "/index.tsx",
+  "/index.js",
+  "/index.jsx",
+  "/__init__.py",
+];
+
+/** POSIX-style join+normalize of `from` dir and a relative `spec`, no `..` escape needed downstream. */
+function resolveRelative(fromDir: string, spec: string): string {
+  const parts = fromDir === "" ? [] : fromDir.split("/");
+  for (const seg of spec.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+/**
+ * Resolve relative `imports` edges (TS/JS/Python `./x`, `../y`) to the real
+ * `file` node they point at, dropping the throwaway `module` stub the extractor
+ * emitted. Extractors see one file at a time, so they can't know an import
+ * targets another repo file; only here, with every `file` node available, can we
+ * connect the project's own graph instead of leaving internal imports as
+ * external-looking module stubs. Bare specifiers (libraries) are left untouched.
+ *
+ * Mutates `graph.nodes`/`graph.edges` in place. Run before {@link markExternalNodes}.
+ */
+export function resolveInternalImports(graph: Graph): void {
+  // Map a repo-relative file path → its file node id.
+  const fileIdByPath = new Map<string, string>();
+  for (const node of graph.nodes) {
+    if (node.kind === "file") fileIdByPath.set(node.sourceFile, node.id);
+  }
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  const retargetedStubs = new Set<string>();
+  const stillReferenced = new Set<string>();
+
+  for (const edge of graph.edges) {
+    if (edge.relation !== "imports") continue;
+    const moduleNode = nodeById.get(edge.target);
+    const fileNode = nodeById.get(edge.source);
+    if (!moduleNode || moduleNode.kind !== "module" || !fileNode) continue;
+
+    const spec = moduleNode.label;
+    if (!spec.startsWith(".")) {
+      stillReferenced.add(edge.target);
+      continue; // bare specifier → external library, leave as-is
+    }
+
+    const fromDir = fileNode.sourceFile.includes("/")
+      ? fileNode.sourceFile.slice(0, fileNode.sourceFile.lastIndexOf("/"))
+      : "";
+    const base = resolveRelative(fromDir, spec.replace(/\.js$/, ""));
+
+    let targetFileId: string | undefined;
+    for (const ext of IMPORT_RESOLUTION_EXTS) {
+      const candidate = fileIdByPath.get(base + ext);
+      if (candidate) {
+        targetFileId = candidate;
+        break;
+      }
+    }
+
+    if (targetFileId) {
+      edge.target = targetFileId; // point the import at the real file node
+      retargetedStubs.add(moduleNode.id);
+    } else {
+      stillReferenced.add(edge.target); // unresolved relative import: keep the stub
+    }
+  }
+
+  // Drop module stubs that every importer resolved away (none still reference them).
+  const toDrop = new Set([...retargetedStubs].filter((id) => !stillReferenced.has(id)));
+  if (toDrop.size > 0) {
+    graph.nodes = graph.nodes.filter((n) => !toDrop.has(n.id));
+  }
+}
+
+/**
+ * Flag `module` nodes that don't correspond to a real project file as
+ * `external` (third-party libraries reached via imports). The set of real files
+ * is taken from the graph's own `file` nodes, so this is stable across a full
+ * build and an incremental update — both must call it so the project's own graph
+ * stays cleanly separable from its dependencies. Mutates the nodes in place.
+ */
+export function markExternalNodes(nodes: Iterable<GraphNode>): void {
+  const all = [...nodes];
+  const projectFiles = new Set<string>();
+  for (const node of all) {
+    if (node.kind === "file") projectFiles.add(node.sourceFile);
+  }
+  for (const node of all) {
+    if (node.kind !== "module") continue;
+    if (projectFiles.has(node.sourceFile)) {
+      // A module that resolves to a repo file isn't external; clear any stale flag.
+      delete node.external;
+    } else {
+      node.external = true;
+    }
+  }
+}
+
 /** An empty graph rooted at `root`, stamped now. */
 export function emptyGraph(root: string): Graph {
   return {

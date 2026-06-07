@@ -68,6 +68,25 @@ describe("graph build pipeline", () => {
     }
   });
 
+  it("resolves relative imports to the real file node, dropping the stub", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    // a.ts imports "./b.js" — the stub module is gone, replaced by a file→file edge.
+    const stub = nodes.find((n) => n.kind === "module" && n.label === "./b.js");
+    expect(stub).toBeUndefined();
+
+    const aFile = nodes.find((n) => n.sourceFile === "src/a.ts" && n.kind === "file")!;
+    const bFile = nodes.find((n) => n.sourceFile === "src/b.ts" && n.kind === "file")!;
+    const resolved = edges.find(
+      (e) => e.relation === "imports" && e.source === aFile.id && e.target === bFile.id,
+    );
+    expect(resolved).toBeDefined();
+
+    // The external library import (`import os`) is untouched.
+    expect(nodes.some((n) => n.kind === "module" && n.label === "os")).toBe(true);
+  });
+
   it("reports progress for each detected file", async () => {
     const seen: string[] = [];
     const summary = await buildGraph(root, {

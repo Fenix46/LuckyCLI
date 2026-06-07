@@ -22,9 +22,12 @@ Use it first for:
 - understanding who calls what
 - estimating the impact of a change
 - orienting in an unfamiliar area of the codebase
+- seeing which external libraries and frameworks a file depends on
+
+The graph separates the project's own code from external libraries. Library nodes (e.g. a UI framework, an HTTP client, a media player engine) are marked external. Use a file's import edges to external nodes to learn which dependency it relies on — read the dependency off the graph instead of guessing or grepping for it.
 
 Operational rules:
-- Start broad analysis with graph_overview when the area is unclear.
+- Start broad analysis with graph_overview when the area is unclear; it lists the project's most connected symbols and its most-used external libraries separately.
 - Use graph_query find to locate a symbol or file-level target.
 - Use graph_query callers before changing behavior that may be depended on elsewhere.
 - Use graph_query callees or neighbors when you need to understand local flow or adjacent abstractions.

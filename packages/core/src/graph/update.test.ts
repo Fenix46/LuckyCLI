@@ -36,6 +36,36 @@ describe("incremental graph update", () => {
     expect(validateGraph(graph)).toEqual([]);
   });
 
+  it("keeps external/internal import classification stable across an edit", async () => {
+    // a.ts pulls in an external lib and a sibling file; both must survive a
+    // re-extract without the graph re-dirtying (external flag, internal resolution).
+    await writeFile(
+      join(root, "src", "a.ts"),
+      `import os from "os";\nimport { beta } from "./b.js";\nexport function alpha() { return beta(); }\n`,
+    );
+    await updateGraphForFiles(root, ["src/a.ts"]);
+    // edit again and re-extract
+    await writeFile(
+      join(root, "src", "a.ts"),
+      `import os from "os";\nimport { beta } from "./b.js";\nexport function alpha() { return beta() + 1; }\n`,
+    );
+    await updateGraphForFiles(root, ["src/a.ts"]);
+
+    const graph = await loadGraph(root);
+    // External library stays a flagged module.
+    expect(graph.nodes.find((n) => n.label === "os")?.external).toBe(true);
+    // Internal relative import resolves to the real file node — no stub left.
+    expect(graph.nodes.some((n) => n.kind === "module" && n.label === "./b.js")).toBe(false);
+    const aFile = graph.nodes.find((n) => n.sourceFile === "src/a.ts" && n.kind === "file")!;
+    const bFile = graph.nodes.find((n) => n.sourceFile === "src/b.ts" && n.kind === "file")!;
+    expect(
+      graph.edges.some(
+        (e) => e.relation === "imports" && e.source === aFile.id && e.target === bFile.id,
+      ),
+    ).toBe(true);
+    expect(validateGraph(graph)).toEqual([]);
+  });
+
   it("adds a brand-new file to the graph", async () => {
     await writeFile(join(root, "src", "c.ts"), `export function gamma() {}\n`);
     await updateGraphForFiles(root, ["src/c.ts"]);

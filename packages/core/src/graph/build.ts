@@ -21,6 +21,8 @@ import {
   type GraphNode,
   assertValidGraph,
   emptyGraph,
+  markExternalNodes,
+  resolveInternalImports,
 } from "./types.js";
 
 export interface BuildProgress {
@@ -92,20 +94,6 @@ export async function buildGraph(cwd: string, options: BuildOptions = {}): Promi
     }
   }
 
-  // Mark external dependency nodes. Extractors emit a `module` node per import
-  // without knowing whether the target is a repo file or a third-party library —
-  // they only ever see one file at a time. Here we finally know the full set of
-  // real project files, so a `module` whose sourceFile isn't one of them is an
-  // external library (androidx.*, react, os, …). We keep it but flag it
-  // `external: true` so queries can separate the project's own graph from its
-  // dependencies instead of drowning in import noise.
-  const projectFiles = new Set(files.map((f) => f.relPath));
-  for (const node of nodes.values()) {
-    if (node.kind === "module" && !projectFiles.has(node.sourceFile)) {
-      node.external = true;
-    }
-  }
-
   // Drop dangling edges (endpoint not a real node) and dedup, like build_graph.
   const seenEdges = new Set<string>();
   const edges: GraphEdge[] = [];
@@ -125,6 +113,15 @@ export async function buildGraph(cwd: string, options: BuildOptions = {}): Promi
   graph.meta.fileCount = files.length;
   graph.nodes = [...nodes.values()];
   graph.edges = edges;
+
+  // Connect the project's own graph: rewrite relative imports (./x, ../y) to the
+  // real file node they target, dropping the stub module. Then flag whatever
+  // `module` nodes remain unresolved as external libraries (androidx.*, os, …),
+  // so queries can separate project code from its dependencies. Order matters:
+  // resolution removes internal stubs before marking, so only true externals
+  // stay flagged.
+  resolveInternalImports(graph);
+  markExternalNodes(graph.nodes);
   assertValidGraph(graph);
 
   return {

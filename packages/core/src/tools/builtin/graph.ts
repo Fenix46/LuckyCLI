@@ -29,7 +29,8 @@ export const graphQueryTool = defineTool({
     "Query the project knowledge graph instead of reading files. Resolves a " +
     "symbol name, module name, or file path and returns where it is and how it " +
     "connects. Use this first to locate definitions, callers, and call targets " +
-    "cheaply before opening source. Relations: 'find' (default, where a symbol " +
+    "cheaply before opening source. Results may include external library nodes " +
+    "(marked external) a file imports. Relations: 'find' (default, where a symbol " +
     "is defined), 'callers', 'callees', 'neighbors' (all links), 'file' (symbols " +
     "declared in a file path).",
   readonly: true,
@@ -74,8 +75,9 @@ export const graphQueryTool = defineTool({
 export const graphOverviewTool = defineTool({
   name: "graph_overview",
   description:
-    "Summarize the project knowledge graph: file/node/edge counts, the most " +
-    "connected symbols ('god nodes'), and the most-imported modules. Use this to " +
+    "Summarize the project knowledge graph: file/node/edge counts, how much is " +
+    "the project's own code vs external dependencies, the most connected project " +
+    "symbols ('god nodes'), and the most-used external libraries. Use this to " +
     "orient yourself in an unfamiliar codebase before diving into files.",
   readonly: true,
   schema: z.object({

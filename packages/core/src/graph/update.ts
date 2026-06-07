@@ -23,6 +23,8 @@ import {
   type GraphEdge,
   type GraphNode,
   assertValidGraph,
+  markExternalNodes,
+  resolveInternalImports,
 } from "./types.js";
 
 export interface UpdateSummary {
@@ -115,18 +117,25 @@ export async function updateGraphForFiles(
     edges.push(edge);
   }
 
+  graph.nodes = [...nodes.values()];
+  graph.edges = edges;
+
+  // Same passes as the full build, so an incremental update can't re-dirty the
+  // graph: rewrite relative imports to real file nodes (dropping their stubs),
+  // then re-flag the remaining unresolved `module` nodes as external libraries.
+  resolveInternalImports(graph);
+  markExternalNodes(graph.nodes);
+
   // Prune module nodes that no longer have any edge (no longer imported).
   const incident = new Set<string>();
-  for (const edge of edges) {
+  for (const edge of graph.edges) {
     incident.add(edge.source);
     incident.add(edge.target);
   }
-  for (const [id, node] of nodes) {
-    if (node.kind === "module" && !incident.has(id)) nodes.delete(id);
-  }
+  graph.nodes = graph.nodes.filter(
+    (node) => node.kind !== "module" || incident.has(node.id),
+  );
 
-  graph.nodes = [...nodes.values()];
-  graph.edges = edges;
   graph.meta.builtAt = new Date().toISOString();
   graph.meta.fileCount = graph.nodes.filter((n) => n.kind === "file").length;
   assertValidGraph(graph);
