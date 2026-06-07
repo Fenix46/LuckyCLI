@@ -6,36 +6,44 @@ import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { classifyCommandSemantics, execTool } from "./exec.js";
 import { classifyPowerShellCommandSemantics, powerShellTool } from "./powershell.js";
+import { resetTaskList, setActiveTaskListId } from "../../tasks/store.js";
 import { projectMemoryTool } from "./project-memory.js";
-import { getTodosForCwd, todoWriteTool } from "./todo-write.js";
+import { taskCreateTool, taskListTool } from "./tasks.js";
 
 describe("robust built-in tools", () => {
   let root: string;
+  let taskListId: string;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "lucky-robust-"));
+    // Task tools resolve the active task list id, not ctx.cwd — give each test
+    // a unique list so they don't collide with the shared on-disk default.
+    taskListId = `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setActiveTaskListId(taskListId);
   });
 
   afterEach(async () => {
+    resetTaskList(taskListId);
     await rm(root, { recursive: true, force: true });
   });
 
-  it("stores and summarizes todos", async () => {
-    const registry = new ToolRegistry().register(todoWriteTool);
-    const result = await registry.execute(
-      "todo_write",
-      {
-        todos: [
-          { id: "1", content: "Audit tools", status: "completed", priority: "high" },
-          { id: "2", content: "Add patch tool", status: "in_progress" },
-        ],
-      },
+  it("creates and lists tasks", async () => {
+    const registry = new ToolRegistry()
+      .register(taskCreateTool)
+      .register(taskListTool);
+
+    const created = await registry.execute(
+      "task_create",
+      { subject: "Audit tools", description: "Review the built-in tool set." },
       { cwd: root },
     );
+    expect(created.isError).toBeUndefined();
+    expect(created.content).toContain("Created task #1");
 
-    expect(result.isError).toBeUndefined();
-    expect(result.content).toContain("1 completed");
-    expect(getTodosForCwd(root)).toHaveLength(2);
+    const listed = await registry.execute("task_list", {}, { cwd: root });
+    expect(listed.isError).toBeUndefined();
+    expect(listed.content).toContain("1 pending");
+    expect(listed.content).toContain("Audit tools");
   });
 
   it("applies a unified diff to an existing file", async () => {

@@ -9,17 +9,28 @@ import {
   saveStoredConfig,
   type Agent,
   type AskUserRequest,
+  type PlanProposal,
+  type PlanDecision,
   type Message,
   type ProviderCredentials,
   type ProviderId,
   type ResolvedConfig,
   type Session,
   type ToolApproval,
+  type SpawnAgentRequest,
+  type SpawnAgentResult,
+  type TokenUsage,
   createSessionId,
+  setActiveTaskListId,
+  cleanupOrphanTaskLists,
+  listSessions,
+  getProfile,
+  resolveCredentials,
+  runSubAgent as runSubAgentCore,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
 import { buildAgentRuntime } from "../runtime.js";
-import { App, type ApprovalRequest, type PermissionMode, type UserQuestionRequest } from "./App.js";
+import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
 import { TrustPrompt } from "./TrustPrompt.js";
@@ -68,6 +79,10 @@ export function Root({
 }: RootProps): React.JSX.Element {
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
   const [userQuestionRequest, setUserQuestionRequest] = useState<UserQuestionRequest | null>(null);
+  const [planRequest, setPlanRequest] = useState<PlanRequest | null>(null);
+  // Live token consumption per sub-agent, keyed by profile name. Populated while
+  // spawn_agent runs and shown in the bottom AgentUsagePanel.
+  const [agentUsage, setAgentUsage] = useState<AgentUsageMap>(() => new Map());
   const [resumeSession, setResumeSession] = useState<Session>(() => {
     if (resume) return resume;
     const now = Date.now();
@@ -81,6 +96,27 @@ export function Root({
     };
   });
   const [picking, setPicking] = useState<boolean>(pickResume === true && !resume);
+
+  // Bind the active task list to the current session id, so the bottom task
+  // panel and the task_* tools read/write the list for THIS chat. A fresh chat
+  // gets a new session id (empty list); resuming brings that session's tasks
+  // back. Re-runs if the session changes (e.g. after the resume picker).
+  useEffect(() => {
+    setActiveTaskListId(resumeSession.id);
+  }, [resumeSession.id]);
+
+  // One-time cleanup of task lists left behind by sessions that no longer
+  // exist, so a fresh chat starts clean without orphaned lists accumulating on
+  // disk. Keep the active id and every still-resumable session id.
+  useEffect(() => {
+    const valid = new Set<string>([
+      resumeSession.id,
+      ...listSessions().map((s) => s.id),
+    ]);
+    cleanupOrphanTaskLists(valid);
+    // Intentionally run once at startup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // First open in this folder: ask to trust it (and offer to build the graph).
   // Once a decision is recorded it never re-prompts. Computed once at startup.
   const [trustNeeded, setTrustNeeded] = useState<boolean>(() =>
@@ -147,6 +183,86 @@ export function Root({
     });
   }
 
+  // Show the plan in the transcript (via planRequest, which App prints), then
+  // collect the decision through the existing question UI. Mapping: the picked
+  // option (or matching free text) becomes accept/modify/reject; any other free
+  // text on "modify" is the revision feedback.
+  async function presentPlan(plan: PlanProposal): Promise<PlanDecision> {
+    const ACCEPT = "Accept and run";
+    const MODIFY = "Modify";
+    const REJECT = "Reject";
+    setPlanRequest(plan);
+    try {
+      const answer = (
+        await askUser({
+          question: `Plan ready: ${plan.title}. Accept to create ${plan.tasks.length} task${plan.tasks.length === 1 ? "" : "s"} and run, Modify to request changes, or Reject.`,
+          options: [ACCEPT, MODIFY, REJECT],
+          allowFreeText: true,
+        })
+      ).trim();
+
+      if (answer === ACCEPT) return { action: "accept" };
+      if (answer === REJECT || /^(reject|no|cancel|annulla|rifiuta)$/i.test(answer)) {
+        return { action: "reject" };
+      }
+      if (answer === MODIFY) return { action: "modify" };
+      // Any other free text is treated as modification feedback.
+      return { action: "modify", feedback: answer };
+    } finally {
+      setPlanRequest(null);
+    }
+  }
+
+  // spawn_agent bridge: look up the profile, run it on its assigned provider via
+  // the core sequential runner, and stream its running token usage into the
+  // bottom panel. Credentials come from stored config — exactly the providers the
+  // user is logged into — so a profile on an unauthenticated provider errors with
+  // a clear message the model relays to the user.
+  async function runSubAgent(
+    request: SpawnAgentRequest,
+    signal?: AbortSignal,
+  ): Promise<SpawnAgentResult> {
+    const profile = getProfile(request.agent);
+    if (!profile) {
+      throw new Error(
+        `No sub-agent profile named "${request.agent}". Create or assign one in /agents.`,
+      );
+    }
+
+    setAgentUsage((prev) => {
+      const next = new Map(prev);
+      next.set(profile.name, {
+        provider: profile.provider,
+        model: profile.model,
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      });
+      return next;
+    });
+
+    const { report } = await runSubAgentCore(
+      {
+        profile,
+        task: request.task,
+        cwd: process.cwd(),
+        system: config.system,
+        resolveCredentials: (provider) =>
+          resolveCredentials(provider, loadStoredConfig(), process.env),
+        onUsage: (usage) =>
+          setAgentUsage((prev) => {
+            const next = new Map(prev);
+            next.set(profile.name, {
+              provider: profile.provider,
+              model: profile.model,
+              usage,
+            });
+            return next;
+          }),
+      },
+      signal,
+    );
+    return { report };
+  }
+
   const [runtime, setRuntime] = useState<ActiveRuntime | null>(null);
 
   useEffect(() => {
@@ -178,9 +294,14 @@ export function Root({
       model: next.model,
       credentials: next.credentials,
       system: config.system,
+      // Recompose the system prompt from this session's context (enabled tools,
+      // graph presence, sub-agent profiles) so conditional sections react to it.
+      composeSystemFromContext: true,
       permissions: config.permissions,
       approveTool,
       askUser,
+      presentPlan,
+      runSubAgent,
       mcp: resolveActivationMcp(next.mcp, mcpConfig),
       ...(config.temperature !== undefined
         ? { temperature: config.temperature }
@@ -374,6 +495,8 @@ export function Root({
       setApprovalRequest={setApprovalRequest}
       userQuestionRequest={userQuestionRequest}
       setUserQuestionRequest={setUserQuestionRequest}
+      planRequest={planRequest}
+      agentUsage={agentUsage}
       mcpManager={runtime.mcpManager}
       mcpConfig={mcpConfig}
       onMcpConfigChange={onMcpConfigChange}

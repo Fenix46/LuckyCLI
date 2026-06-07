@@ -8,5 +8,6 @@ dist-bin/
 .DS_Store
 coverage/
 .antigravitycli/
-.lucky/graph/
+# Local runtime data: knowledge graph, project memory, sessions, tasks.
+.lucky/
 

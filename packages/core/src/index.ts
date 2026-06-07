@@ -26,7 +26,14 @@ export {
 } from "./tools/permissions.js";
 export type { ToolPermission, ToolPermissionPolicy } from "./tools/permissions.js";
 export { defineTool } from "./tools/types.js";
-export type { AskUserRequest, Tool, ToolContext, ToolResult } from "./tools/types.js";
+export type {
+  AskUserRequest,
+  SpawnAgentRequest,
+  SpawnAgentResult,
+  Tool,
+  ToolContext,
+  ToolResult,
+} from "./tools/types.js";
 export {
   defaultToolRegistry,
   execTool,
@@ -38,12 +45,53 @@ export {
   globTool,
   grepTool,
   httpFetchTool,
-  todoWriteTool,
+  taskCreateTool,
+  taskListTool,
+  taskGetTool,
+  taskUpdateTool,
+  presentPlanTool,
+  spawnAgentTool,
   projectMemoryTool,
   graphQueryTool,
   graphOverviewTool,
   askUserTool,
 } from "./tools/builtin/index.js";
+export type { PlanProposal, PlanDecision, PlanTask } from "./agent/plan.js";
+
+// Sub-agents.
+export {
+  AgentProfileSchema,
+  agentsRootDir,
+  deleteProfile,
+  getProfile,
+  listProfiles,
+  sanitizeProfileName,
+  saveProfile,
+  seedDefaultProfiles,
+} from "./agents/profiles.js";
+export type { AgentProfile, NewAgentProfile } from "./agents/profiles.js";
+export { runSubAgent } from "./agents/runner.js";
+export type { SubAgentRequest, SubAgentResult } from "./agents/runner.js";
+
+export {
+  TASK_STATUSES,
+  TaskSchema,
+  TaskStatusSchema,
+  cleanupOrphanTaskLists,
+  createTask,
+  deleteTask,
+  getActiveTaskListId,
+  getTask,
+  listTasks,
+  onTasksUpdated,
+  resetTaskList,
+  sanitizePathComponent,
+  setActiveTaskListId,
+  tasksDirFor,
+  tasksRootDir,
+  updateTask,
+} from "./tasks/store.js";
+export type { NewTask, Task, TaskStatus } from "./tasks/store.js";
 
 export {
   PROJECT_MEMORY_DIR,
@@ -145,15 +193,19 @@ export type { CliOverrides, ResolvedConfig } from "./config/config.js";
 // Prompt assembly — composed from the section files in ./prompts.
 export {
   buildSystemPrompt,
+  buildSystemPromptFromContext,
   buildSummarizationPrompt,
   renderEnvironment,
+  resolveSections,
+  defineSection,
+  SYSTEM_PROMPT_SECTIONS,
   IDENTITY_PROMPT,
   AGENCY_PROMPT,
   TOOL_USE_PROMPT,
   ENVIRONMENT_PROMPT_TEMPLATE,
   SUMMARIZATION_PROMPT,
 } from "./prompts/index.js";
-export type { EnvironmentInfo } from "./prompts/index.js";
+export type { EnvironmentInfo, PromptContext, PromptSection } from "./prompts/index.js";
 
 // Persistent config store.
 export {

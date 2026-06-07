@@ -7,6 +7,7 @@ export type Item =
   | { kind: "assistant"; text: string }
   | { kind: "tool"; name: string; input: unknown; output?: string; error?: boolean }
   | { kind: "command"; title: string; rows: CommandRow[] }
+  | { kind: "plan"; title: string; markdown: string }
   | { kind: "status"; provider: ProviderStatus; context: ContextStatus }
   | { kind: "error"; text: string }
   // Transient items — built per-render, never persisted. They ride INSIDE the
@@ -62,6 +63,10 @@ export function messagesToItems(messages: Message[]): Item[] {
         }
         // system summaries (from compaction) are context only — skip in the UI
       } else if (part.type === "tool_call") {
+        // Task tools are surfaced by the live TaskPanel, not as transcript
+        // rows — skip them on resume too so a reopened session matches what was
+        // shown live (and the result below has nothing to attach to).
+        if (part.name.startsWith("task_") || part.name === "ask_user") continue;
         toolIndexById.set(part.id, items.length);
         items.push({ kind: "tool", name: part.name, input: part.arguments });
       } else if (part.type === "tool_result") {

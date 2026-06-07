@@ -12,7 +12,12 @@ import type {
 import { modelInfo } from "../providers/catalog.js";
 import { resolveToolPermission, type ToolPermissionPolicy } from "../tools/permissions.js";
 import type { ToolRegistry } from "../tools/registry.js";
-import type { AskUserRequest } from "../tools/types.js";
+import type {
+  AskUserRequest,
+  SpawnAgentRequest,
+  SpawnAgentResult,
+} from "../tools/types.js";
+import type { PlanDecision, PlanProposal } from "./plan.js";
 import { buildSummarizationPrompt } from "../prompts/index.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
@@ -49,6 +54,13 @@ export interface AgentConfig {
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   /** Optional bridge used by the ask_user tool to query the human. */
   askUser?: (request: AskUserRequest) => Promise<string>;
+  /** Optional bridge used by the present_plan tool to get the user's decision. */
+  presentPlan?: (plan: PlanProposal) => Promise<PlanDecision>;
+  /** Optional bridge used by the spawn_agent tool to run a sub-agent. */
+  runSubAgent?: (
+    request: SpawnAgentRequest,
+    signal?: AbortSignal,
+  ) => Promise<SpawnAgentResult>;
   /** Optional hook fired after a tool reports changed files (for graph upkeep). */
   onFilesChanged?: (paths: string[]) => void;
   /** Prior conversation to resume from. Copied into the history on construction. */
@@ -90,6 +102,8 @@ export class Agent {
   private readonly permissions: ToolPermissionPolicy | undefined;
   private readonly approveTool: ((name: string, input: unknown) => Promise<ToolApproval> | ToolApproval) | undefined;
   private readonly askUser: ((request: AskUserRequest) => Promise<string>) | undefined;
+  private readonly presentPlan: ((plan: PlanProposal) => Promise<PlanDecision>) | undefined;
+  private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
   private lastUsage: TokenUsage | undefined;
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
@@ -118,6 +132,8 @@ export class Agent {
     this.permissions = cfg.permissions;
     this.approveTool = cfg.approveTool;
     this.askUser = cfg.askUser;
+    this.presentPlan = cfg.presentPlan;
+    this.runSubAgent = cfg.runSubAgent;
     this.onFilesChanged = cfg.onFilesChanged;
     if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
@@ -125,6 +141,11 @@ export class Agent {
   /** The conversation so far. Useful for persistence or inspection. */
   get messages(): readonly Message[] {
     return this.history;
+  }
+
+  /** Cumulative token usage across every turn this agent has run. */
+  get totalTokenUsage(): TokenUsage {
+    return { ...this.totalUsage };
   }
 
   private currentModelInfo(): ModelInfo {
@@ -286,6 +307,8 @@ export class Agent {
             cwd: this.cwd,
             ...(signal ? { signal } : {}),
             ...(this.askUser ? { askUser: this.askUser } : {}),
+            ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
+            ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
             ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
           });
         }

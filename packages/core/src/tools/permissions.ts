@@ -9,7 +9,11 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   glob: "allow",
   grep: "allow",
   http_fetch: "allow",
-  todo_write: "allow",
+  task_create: "allow",
+  task_list: "allow",
+  task_get: "allow",
+  task_update: "allow",
+  present_plan: "allow",
   graph_query: "allow",
   graph_overview: "allow",
   ask_user: "allow",
@@ -21,6 +25,8 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   exec: "ask",
   PowerShell: "ask",
   project_memory: "ask",
+  // Delegation writes through the sub-agent, so confirm before spawning.
+  spawn_agent: "ask",
 
   // Conservative fallback for future/custom tools.
   "*": "ask",

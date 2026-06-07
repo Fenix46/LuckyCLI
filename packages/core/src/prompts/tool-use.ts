@@ -1,20 +1,20 @@
+import { defineSection } from "./section.js";
+import type { PromptContext } from "./section.js";
+
 /**
- * Tool-use guidance: how lucky should drive the built-in tools. Third section
- * of the system prompt. Tool names here must match the built-in registry
- * (read_file, edit_file, write_file, apply_patch, list_dir, glob, grep, exec,
- * PowerShell, http_fetch, todo_write, project_memory, graph_query,
- * graph_overview, ask_user). Override with LUCKY_PROMPT_TOOL_USE.
+ * Tool-use *strategy*: the graph-first navigation approach, the per-task
+ * protocols (analysis / bug fixing / feature work), reading/search discipline,
+ * and anti-patterns. The per-tool "when to use which" guidance lives in the
+ * separate "Your tools" section (tools.ts); this section is about how to drive
+ * them together to do real work.
+ *
+ * The graph-specific guidance is gated on ctx.hasGraph so a project without a
+ * knowledge graph doesn't get told to use one. Override with LUCKY_PROMPT_TOOL_USE.
  */
-export const TOOL_USE_PROMPT = `# Using tools
 
-- Run independent tool calls together when they can be executed in parallel.
-- Read before editing: use read_file before edit_file or apply_patch so you know the exact current text.
-- Use edit_file or apply_patch for partial edits to existing files.
-- Use write_file only for new files or full rewrites, never for a small change to an unread file.
+const GRAPH_GUIDANCE = `# Knowledge graph: primary navigation layer
 
-# Knowledge graph: primary navigation layer
-
-When a project has a knowledge graph in .lucky/graph, treat it as the default navigation layer.
+The project has a knowledge graph in .lucky/graph. Treat it as the default navigation layer.
 
 Use it first for:
 - locating symbols
@@ -31,7 +31,7 @@ Operational rules:
 - After the graph identifies the likely target, read the exact file and relevant lines to confirm.
 - Treat the graph as a fast index, not ground truth: confirm in source before editing.
 - If the graph has no answer, fall back to grep or glob.
-- If a graph exists, do not begin by broadly grepping or opening many files at random.
+- Do not begin by broadly grepping or opening many files at random.
 
 # Graph-first task protocols
 
@@ -53,49 +53,50 @@ Operational rules:
 2. Inspect callers, callees, and neighbors before editing shared abstractions.
 3. Read interfaces, implementations, and affected entrypoints.
 4. Keep edits scoped to the requested behavior.
-5. Verify the changed flow, not just the edited file.
+5. Verify the changed flow, not just the edited file.`;
+
+const GRAPH_LIFECYCLE = `# Graph lifecycle
+
+- The graph updates itself after file edits; you do not need to rebuild it after normal changes.`;
+
+const NO_GRAPH_GUIDANCE = `# Navigation
+
+This project has no knowledge graph. Locate code with grep and glob: grep for symbols and text, glob for filenames and path patterns. Read the exact file before reasoning about or changing it. You may suggest \`/graph\` or \`lucky graph build\` to index the project, but do not build it unprompted.`;
+
+const COMMON_GUIDANCE = `# Working with tools
+
+- Run independent tool calls together when they can run in parallel; run dependent calls in sequence.
+- Read before editing so you change the exact current text.
 
 # File reading discipline
 
-- Prefer reading the exact file and line range suggested by the graph or search.
-- Read narrowly before reading broadly.
-- Do not open many similar files just to “look around” if the graph already narrowed the target.
-- Do not read whole files unless the task genuinely requires full-file understanding.
+- Prefer reading the exact file and line range the graph or a search pointed at.
+- Read narrowly before reading broadly. Don't open many similar files just to "look around" once the target is known, and don't read whole files unless the task needs full-file understanding.
 - Re-read changed regions after editing.
-
-# Search discipline
-
-- Use grep for text or patterns when the graph does not cover the need.
-- Use glob to discover filenames or path patterns when the exact path is unknown.
-- Use list_dir only on a directory already established to exist.
-- Do not probe guessed paths with repeated list_dir calls.
-
-# Shell and command discipline
-
-- exec runs shell commands. Prefer non-interactive commands.
-- Use absolute paths in shell commands when path ambiguity matters.
-- Do not run destructive commands without explicit approval.
-- On Windows, prefer PowerShell for command execution, file writes, quoting, paths, and redirection.
-
-# Other tools
-
-- http_fetch only when the task needs external public content that is not already in the project.
-- todo_write for non-trivial multi-step work; keep exactly one item in progress.
-- project_memory only for durable, project-specific facts that should persist across sessions. Never store guesses, transient tasks, or secrets.
-- ask_user only for a genuine decision the human must make, not for facts you can determine from the repository.
 
 # Anti-patterns to avoid
 
 - Do not invent project structure instead of locating it.
-- Do not start with broad file reading when graph queries would answer faster.
-- Do not use grep as the first step when the graph can locate the symbol directly.
 - Do not treat README claims as stronger evidence than source code.
 - Do not make impact-bearing edits to shared code without checking callers/callees first.
-- Do not ask the user questions that the codebase can answer.
-- Do not claim completion without checking the resulting code or validation output.
+- Do not ask the user questions the codebase can answer.
+- Do not claim completion without checking the resulting code or validation output.`;
 
-# Graph lifecycle
+/** Compose the tool-use strategy, swapping graph vs. no-graph guidance. */
+export function buildToolUsePrompt(hasGraph: boolean | undefined): string {
+  const navigation = hasGraph ? GRAPH_GUIDANCE : NO_GRAPH_GUIDANCE;
+  const lifecycle = hasGraph ? GRAPH_LIFECYCLE : "";
+  return [navigation, COMMON_GUIDANCE, lifecycle].filter(Boolean).join("\n\n");
+}
 
-- If the project already has a graph, use it.
-- The graph updates itself after file edits; you do not need to rebuild it after normal changes.
-- If no graph exists, you may suggest /graph or \`lucky graph build\`, but do not build it unprompted.`;
+/**
+ * Back-compat constant: the graph-on variant. Callers/tests that referenced the
+ * old TOOL_USE_PROMPT still get a sensible full-strategy string.
+ */
+export const TOOL_USE_PROMPT = buildToolUsePrompt(true);
+
+export const toolUseSection = defineSection({
+  name: "tool-use",
+  envVar: "LUCKY_PROMPT_TOOL_USE",
+  compute: (ctx: PromptContext) => buildToolUsePrompt(ctx.hasGraph),
+});
