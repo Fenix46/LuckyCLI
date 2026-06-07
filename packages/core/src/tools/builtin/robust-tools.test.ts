@@ -117,6 +117,71 @@ describe("robust built-in tools", () => {
     await expect(stat(join(root, "delete-me.txt"))).rejects.toThrow();
   });
 
+  it("applies a Codex *** Begin Patch envelope to an existing file", async () => {
+    await writeFile(join(root, "m.txt"), "one\ntwo\nthree\n", "utf8");
+    const registry = new ToolRegistry().register(applyPatchTool);
+
+    const result = await registry.execute(
+      "apply_patch",
+      {
+        patch: [
+          "*** Begin Patch",
+          "*** Update File: m.txt",
+          "@@",
+          " one",
+          "-two",
+          "+TWO",
+          " three",
+          "*** End Patch",
+        ].join("\n"),
+      },
+      { cwd: root },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain("Applied patch");
+    await expect(readFile(join(root, "m.txt"), "utf8")).resolves.toBe("one\nTWO\nthree\n");
+  });
+
+  it("creates a file from a Codex *** Begin Patch envelope", async () => {
+    const registry = new ToolRegistry().register(applyPatchTool);
+
+    const result = await registry.execute(
+      "apply_patch",
+      {
+        patch: [
+          "*** Begin Patch",
+          "*** Add File: nested/codex.txt",
+          "+alpha",
+          "+beta",
+          "*** End Patch",
+        ].join("\n"),
+      },
+      { cwd: root },
+    );
+
+    expect(result.isError).toBeUndefined();
+    await expect(readFile(join(root, "nested", "codex.txt"), "utf8")).resolves.toBe("alpha\nbeta");
+  });
+
+  it("deletes a file from a Codex *** Begin Patch envelope", async () => {
+    await writeFile(join(root, "gone.txt"), "x\ny\n", "utf8");
+    const registry = new ToolRegistry().register(applyPatchTool);
+
+    const result = await registry.execute(
+      "apply_patch",
+      {
+        patch: ["*** Begin Patch", "*** Delete File: gone.txt", "-x", "-y", "*** End Patch"].join(
+          "\n",
+        ),
+      },
+      { cwd: root },
+    );
+
+    expect(result.isError).toBeUndefined();
+    await expect(stat(join(root, "gone.txt"))).rejects.toThrow();
+  });
+
   it("rejects patch path traversal", async () => {
     const registry = new ToolRegistry().register(applyPatchTool);
     const result = await registry.execute(

@@ -61,6 +61,8 @@ interface FilePatch {
 }
 
 interface Hunk {
+  // `oldStart < 0` means the position is unknown (Codex `*** Begin Patch`
+  // hunks carry no @@ line numbers); applyFilePatch locates it by context.
   oldStart: number;
   oldCount: number;
   newStart: number;
@@ -69,6 +71,13 @@ interface Hunk {
 }
 
 export function parseUnifiedDiff(patch: string): FilePatch[] {
+  // Codex (ChatGPT OAuth) is trained to emit OpenAI's `*** Begin Patch`
+  // envelope, not classic unified diff. Detect and route to that parser so the
+  // tool works regardless of which provider produced the patch.
+  if (/^\*\*\* Begin Patch/m.test(patch)) {
+    return parseBeginPatch(patch);
+  }
+
   const lines = patch.replace(/\r\n/g, "\n").split("\n");
   const files: FilePatch[] = [];
   let current: FilePatch | undefined;
@@ -159,8 +168,12 @@ export function applyFilePatch(content: string, patch: FilePatch): string {
   if (content === "") lines.splice(0, lines.length);
 
   let offset = 0;
+  let searchFrom = 0;
   for (const hunk of patch.hunks) {
-    const start = (hunk.oldStart === 0 ? 0 : hunk.oldStart - 1) + offset;
+    const start =
+      hunk.oldStart < 0
+        ? locateHunk(lines, hunk, searchFrom)
+        : (hunk.oldStart === 0 ? 0 : hunk.oldStart - 1) + offset;
     if (start < 0 || start > lines.length) throw new Error(`Hunk starts outside file: ${hunk.oldStart}.`);
 
     const replacement: string[] = [];
@@ -188,9 +201,114 @@ export function applyFilePatch(content: string, patch: FilePatch): string {
 
     lines.splice(start, cursor - start, ...replacement);
     offset += replacement.length - (cursor - start);
+    searchFrom = start + replacement.length;
   }
 
   const out = lines.join("\n");
   if (out.length === 0) return "";
   return hadTrailingNewline ? `${out}\n` : out;
+}
+
+/**
+ * Find where a position-less hunk (Codex `*** Begin Patch`) applies by matching
+ * its context + removal lines against the file, starting at `from`.
+ */
+function locateHunk(lines: string[], hunk: Hunk, from: number): number {
+  const anchor = hunk.lines
+    .filter((line) => line.startsWith(" ") || line.startsWith("-"))
+    .map((line) => line.slice(1));
+  // A pure-insertion hunk (only `+` lines) has no anchor; apply at `from`.
+  if (anchor.length === 0) return from;
+
+  for (let start = from; start + anchor.length <= lines.length; start++) {
+    let match = true;
+    for (let j = 0; j < anchor.length; j++) {
+      if (lines[start + j] !== anchor[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return start;
+  }
+  throw new Error(`Could not locate context for hunk: ${JSON.stringify(anchor[0] ?? "")}.`);
+}
+
+/**
+ * Parse OpenAI's `*** Begin Patch` envelope (the format Codex / ChatGPT OAuth
+ * emits). Hunks carry no line numbers, so each is recorded with `oldStart: -1`
+ * and located by context at apply time.
+ */
+export function parseBeginPatch(patch: string): FilePatch[] {
+  const lines = patch.replace(/\r\n/g, "\n").split("\n");
+  const files: FilePatch[] = [];
+  let current: FilePatch | undefined;
+  let hunk: Hunk | undefined;
+  let started = false;
+
+  const pushHunk = () => {
+    if (current && hunk && hunk.lines.length > 0) {
+      finalizeBeginHunk(hunk);
+      current.hunks.push(hunk);
+    }
+    hunk = undefined;
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("*** Begin Patch")) {
+      started = true;
+      continue;
+    }
+    if (line.startsWith("*** End Patch")) {
+      pushHunk();
+      break;
+    }
+    if (!started) continue;
+
+    const fileHeader = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(line);
+    if (fileHeader) {
+      pushHunk();
+      const op = fileHeader[1]!;
+      current = {
+        path: cleanDiffPath(fileHeader[2]!.trim()),
+        operation: op === "Add" ? "add" : op === "Delete" ? "delete" : "update",
+        hunks: [],
+      };
+      files.push(current);
+      continue;
+    }
+
+    // `*** Move to: ...` and other directives are not supported; ignore the
+    // line rather than treating it as a hunk body line.
+    if (line.startsWith("*** ")) continue;
+    if (!current) continue;
+
+    if (line.startsWith("@@")) {
+      // Section marker. Begin a fresh hunk; the @@ text itself is context we do
+      // not consume (it just helps the model anchor).
+      pushHunk();
+      hunk = { oldStart: -1, oldCount: 0, newStart: -1, newCount: 0, lines: [] };
+      continue;
+    }
+
+    if (/^[ +\-]/.test(line)) {
+      hunk ??= { oldStart: -1, oldCount: 0, newStart: -1, newCount: 0, lines: [] };
+      hunk.lines.push(line);
+      continue;
+    }
+
+    // A blank line with no prefix is treated as a blank context line.
+    if (line === "") {
+      hunk ??= { oldStart: -1, oldCount: 0, newStart: -1, newCount: 0, lines: [] };
+      hunk.lines.push(" ");
+    }
+  }
+
+  pushHunk();
+  if (files.length === 0) throw new Error("No file patches found.");
+  return files;
+}
+
+function finalizeBeginHunk(hunk: Hunk): void {
+  hunk.oldCount = hunk.lines.filter((l) => l.startsWith(" ") || l.startsWith("-")).length;
+  hunk.newCount = hunk.lines.filter((l) => l.startsWith(" ") || l.startsWith("+")).length;
 }
