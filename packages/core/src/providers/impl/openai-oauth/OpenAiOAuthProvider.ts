@@ -68,7 +68,6 @@ interface ResponsesRequest {
   instructions: string;
   store: boolean;
   stream: boolean;
-  max_output_tokens?: number;
   reasoning?: { effort: string };
   tools?: ResponsesTool[];
 }
@@ -463,7 +462,8 @@ function buildRequestBody(
     instructions: systemParts.join("\n") || "You are a helpful AI coding assistant.",
     store: false,
     stream,
-    ...(config.maxTokens !== undefined ? { max_output_tokens: config.maxTokens } : {}),
+    // The Codex endpoint rejects max_output_tokens ("Unsupported parameter"),
+    // so config.maxTokens (e.g. from compaction) must not be forwarded.
     ...(config.reasoningEffort ? { reasoning: { effort: config.reasoningEffort } } : {}),
     ...(config.tools?.length
       ? {

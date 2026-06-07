@@ -119,6 +119,27 @@ describe("OpenAiOAuthProvider", () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning).toBeUndefined();
   });
 
+  it("never forwards max_output_tokens (Codex rejects it)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: sseStream('data: {"type":"response.completed"}'),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "t",
+      refresh: "r",
+      expires: Date.now() + 3_600_000,
+    });
+
+    await provider.generate([{ role: "user", content: [{ type: "text", text: "hi" }] }], {
+      model: "gpt-5.5",
+      maxTokens: 2048,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("max_output_tokens");
+  });
+
   it("normalizes OpenAPI boolean exclusive minimums for ChatGPT tools", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
