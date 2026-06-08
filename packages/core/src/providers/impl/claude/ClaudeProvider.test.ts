@@ -52,11 +52,20 @@ describe("ClaudeProvider", () => {
     );
 
     expect(Anthropic).toHaveBeenCalledWith({ apiKey: "test-key" });
+    // The system prompt is sent as a cached block so each step re-reads it at
+    // cache-read price instead of re-billing the whole prefix.
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        system: "Be concise.",
+        system: [
+          { type: "text", text: "Be concise.", cache_control: { type: "ephemeral" } },
+        ],
         messages: [
-          { role: "user", content: [{ type: "text", text: "hello" }] },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "hello", cache_control: { type: "ephemeral" } },
+            ],
+          },
         ],
       }),
       expect.any(Object),
@@ -173,12 +182,13 @@ describe("ClaudeProvider", () => {
     );
 
     const request = createMock.mock.calls[0]?.[0];
+    // Last system block carries the cache breakpoint covering the whole prefix.
     expect(request.system).toEqual([
       {
         type: "text",
         text: "x-anthropic-billing-header: cc_version=2.1.158.cea; cc_entrypoint=cli; cch=d1656;",
       },
-      { type: "text", text: "Be concise." },
+      { type: "text", text: "Be concise.", cache_control: { type: "ephemeral" } },
     ]);
   });
 
@@ -413,7 +423,13 @@ describe("ClaudeProvider", () => {
 
     expect(countTokensMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        system: "Be concise.\nProject rules.",
+        system: [
+          {
+            type: "text",
+            text: "Be concise.\nProject rules.",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
       }),
     );
   });
@@ -472,6 +488,8 @@ describe("ClaudeProvider", () => {
                 type: "tool_result",
                 tool_use_id: "toolu_1",
                 content: "contents",
+                // Moving cache breakpoint on the last block of the transcript.
+                cache_control: { type: "ephemeral" },
               },
             ],
           },

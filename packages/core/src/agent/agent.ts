@@ -22,6 +22,15 @@ import { buildSummarizationPrompt } from "../prompts/index.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
+// Compaction summaries are a mechanical, low-stakes task: run them on the
+// cheapest model the provider exposes rather than the (possibly Opus-class)
+// model driving the conversation. Falls back to the main model if the provider
+// has no cheaper option.
+const SUMMARIZATION_MODEL_BY_PROVIDER: Record<string, string> = {
+  claude: "claude-haiku-4-5-20251001",
+  "openai-oauth": "gpt-5.4-mini",
+  antigravity: "gemini-3.5-flash-low",
+};
 
 export interface AgentConfig {
   provider: IProvider;
@@ -156,6 +165,19 @@ export class Agent {
     return this.contextStatusFor(this.history);
   }
 
+  /**
+   * Context status for the routine per-turn compaction check, without a billed
+   * round-trip. Reuses the last stream's usage (an authoritative measure of the
+   * transcript we sent) when available; only falls back to a real count on the
+   * very first turn, before any usage has been observed.
+   */
+  private async cheapContextStatus(): Promise<ContextStatus> {
+    if (this.lastUsage) {
+      return this.contextStatusFromUsage(this.lastUsage, undefined, "provider");
+    }
+    return this.contextStatus();
+  }
+
   async providerStatus(): Promise<ProviderStatus> {
     if (this.provider.getStatus) return this.provider.getStatus();
     return {
@@ -183,7 +205,13 @@ export class Agent {
       content: [{ type: "text", text: userInput }],
     });
 
-    const beforeStatus = await this.contextStatus();
+    // Use the cheap, already-known context size for the routine pre-turn check.
+    // The previous stream's final usage measured the full transcript we sent, so
+    // it is an authoritative count — and reusing it avoids a real billed probe
+    // (Claude OAuth has no free /count_tokens; it would re-send the whole
+    // transcript) on every single turn. A real count only happens on demand
+    // (/context, /status) or as a fallback when there is no prior usage yet.
+    const beforeStatus = await this.cheapContextStatus();
     yield { type: "context", status: beforeStatus };
     if (this.shouldCompact(beforeStatus)) {
       const result = await this.compactHistory(beforeStatus.usedTokens);
@@ -462,10 +490,11 @@ export class Agent {
   private async summarizeMessages(messages: Message[]): Promise<string> {
     const transcript = serializeForSummary(messages);
     const prompt = `${buildSummarizationPrompt()}\n\n${transcript}`;
+    const model = this.summarizationModel();
     const response = await this.provider.generate(
       [{ role: "user", content: [{ type: "text", text: prompt }] }],
       {
-        model: this.model,
+        model,
         ...(this.system ? { systemPrompt: this.system } : {}),
         maxTokens: Math.min(2048, this.currentModelInfo().maxOutputTokens ?? 2048),
       },
@@ -476,6 +505,18 @@ export class Agent {
       .join("\n")
       .trim();
     return text || "Earlier conversation was compacted, but the provider returned an empty summary.";
+  }
+
+  /**
+   * The model used for compaction summaries: the provider's cheapest known
+   * model when available (and offered by this provider), else the main model.
+   */
+  private summarizationModel(): string {
+    const candidate = SUMMARIZATION_MODEL_BY_PROVIDER[this.provider.info.id];
+    if (candidate && this.provider.info.availableModels?.includes(candidate)) {
+      return candidate;
+    }
+    return this.model;
   }
 
   private contextStatusFromUsage(

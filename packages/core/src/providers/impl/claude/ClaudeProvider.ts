@@ -50,6 +50,13 @@ const CLAUDE_CODE_BILLING_SYSTEM =
   "x-anthropic-billing-header: cc_version=2.1.158.cea; cc_entrypoint=cli; cch=d1656;";
 // Small/fast model used for OAuth token-count probes (see countTokensViaProbe).
 const CLAUDE_COUNT_PROBE_MODEL = "claude-haiku-4-5-20251001";
+// Ephemeral prompt-cache marker. Placed on the stable prefix of every request
+// (system prompt + tool definitions) and on a moving breakpoint at the end of
+// the transcript so each step re-reads the prior context at cache-read price
+// (~1/10) instead of re-billing the entire prefix at full input price. The API
+// allows at most 4 cache_control blocks per request, so we use exactly 3:
+// last system block, last tool, last message block.
+const CACHE_CONTROL = { type: "ephemeral" } as const;
 
 export class ClaudeProvider implements IProvider {
   info: ProviderInfo;
@@ -365,14 +372,16 @@ export class ClaudeProvider implements IProvider {
   private systemParam(
     system: string | undefined,
   ): { system?: string | Anthropic.Messages.TextBlockParam[] } {
-    if (this.credentials.authMethod !== "oauth") {
-      return system ? { system } : {};
+    const blocks: Anthropic.Messages.TextBlockParam[] = [];
+    if (this.credentials.authMethod === "oauth") {
+      blocks.push({ type: "text", text: CLAUDE_CODE_BILLING_SYSTEM });
     }
-
-    const blocks: Anthropic.Messages.TextBlockParam[] = [
-      { type: "text", text: CLAUDE_CODE_BILLING_SYSTEM },
-    ];
     if (system) blocks.push({ type: "text", text: system });
+    if (blocks.length === 0) return {};
+
+    // Cache the whole system prefix: it's identical across every step of a turn.
+    const last = blocks[blocks.length - 1]!;
+    last.cache_control = CACHE_CONTROL;
     return { system: blocks };
   }
 
@@ -472,10 +481,13 @@ function buildOptions(config: GenerationConfig, model: string) {
     ...(effort ? { output_config: { effort } } : {}),
     ...(config.tools && config.tools.length > 0
       ? {
-          tools: config.tools.map((t) => ({
+          // Cache the tool block (stable across a turn) by marking the last
+          // tool — cache_control on a tool covers every tool before it.
+          tools: config.tools.map((t, i) => ({
             name: t.name,
             description: t.description,
             input_schema: toClaudeJsonSchema(t.parameters) as Anthropic.Messages.Tool["input_schema"],
+            ...(i === config.tools!.length - 1 ? { cache_control: CACHE_CONTROL } : {}),
           })),
         }
       : {}),
@@ -615,10 +627,26 @@ function toAnthropic(
     result.push({ role, content });
   }
 
+  // Moving cache breakpoint: mark the last block of the last message so the
+  // entire transcript up to here is cached and re-read at ~1/10 price on the
+  // next step, when this block has become part of the stable prefix.
+  markLastBlock(result);
+
   const system = systemParts.join("\n").trim();
   return system
     ? { system, messages: result }
     : { messages: result };
+}
+
+function markLastBlock(messages: Anthropic.Messages.MessageParam[]): void {
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage || typeof lastMessage.content === "string") return;
+  const lastBlock = lastMessage.content[lastMessage.content.length - 1];
+  // Thinking/redacted-thinking blocks cannot carry cache_control; only the
+  // content shapes we emit (text, tool_use, tool_result, image) accept it.
+  if (lastBlock && "type" in lastBlock) {
+    (lastBlock as { cache_control?: typeof CACHE_CONTROL }).cache_control = CACHE_CONTROL;
+  }
 }
 
 function toAnthropicBlock(part: ContentPart): Anthropic.Messages.ContentBlockParam {
