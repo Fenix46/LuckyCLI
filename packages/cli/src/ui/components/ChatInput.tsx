@@ -1,5 +1,5 @@
 import { useInput } from "../../vendor/ink-compat.js";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { PromptBlock } from "./PromptBlock.js";
 import {
   countLines,
@@ -17,6 +17,8 @@ export function ChatInput({
   width,
   active,
   submitEnabled,
+  history = [],
+  historyEnabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -28,16 +30,48 @@ export function ChatInput({
   width: number;
   active: boolean;
   submitEnabled: boolean;
+  /** Previously sent prompts, oldest first, for arrow-up recall. */
+  history?: string[];
+  /** False while a picker/menu owns the arrow keys, so recall never collides. */
+  historyEnabled?: boolean;
 }): React.JSX.Element {
   const [cursorOffset, setCursorOffset] = useState(value.length);
+  // Arrow-up history recall: null = composing, otherwise the index into
+  // `history` currently shown. The draft preserves whatever was being typed
+  // when navigation started, restored when arrowing back past the newest entry.
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const draftRef = useRef("");
 
   useEffect(() => {
     setCursorOffset((offset) => Math.min(offset, value.length));
   }, [value.length]);
 
+  const recall = (index: number | null) => {
+    const next = index === null ? draftRef.current : history[index] ?? "";
+    setHistoryIndex(index);
+    onChange(next);
+    setCursorOffset(next.length);
+  };
+
   useInput((input, key) => {
     if (!active) return;
-    if (key.upArrow || key.downArrow || key.tab || (key.ctrl && input === "c")) return;
+    if (key.upArrow || key.downArrow) {
+      if (!historyEnabled || history.length === 0) return;
+      const navigating = historyIndex !== null;
+      if (key.upArrow) {
+        // Only steal arrow-up from an empty (or already-navigating) prompt;
+        // while composing fresh text the arrows stay inert as before.
+        if (!navigating && value.trim() !== "") return;
+        if (!navigating) draftRef.current = value;
+        recall(navigating ? Math.max(0, historyIndex - 1) : history.length - 1);
+        return;
+      }
+      if (!navigating) return;
+      const next = historyIndex + 1;
+      recall(next >= history.length ? null : next);
+      return;
+    }
+    if (key.tab || (key.ctrl && input === "c")) return;
 
     if (key.return || input === "\r" || input === "\n") {
       // Ink reports a *plain* Enter as key.return === true with no modifiers.
@@ -49,11 +83,13 @@ export function ChatInput({
       const isPlainEnter = key.return && !key.ctrl && !key.meta;
       if (!isPlainEnter) {
         const nextValue = insertAt(value, cursorOffset, "\n");
+        setHistoryIndex(null);
         onChange(nextValue);
         setCursorOffset(cursorOffset + 1);
         return;
       }
       if (!submitEnabled) return;
+      setHistoryIndex(null);
       onSubmit(value);
       return;
     }
@@ -70,6 +106,7 @@ export function ChatInput({
 
     if (key.backspace || key.delete) {
       if (cursorOffset === 0) return;
+      setHistoryIndex(null);
       onChange(value.slice(0, cursorOffset - 1) + value.slice(cursorOffset));
       setCursorOffset(cursorOffset - 1);
       return;
@@ -84,6 +121,7 @@ export function ChatInput({
     // control-char guard below because a multi-line paste legitimately
     // contains "\n".
     if (key.isPasted && onPaste && nextPasteId) {
+      setHistoryIndex(null);
       const cleaned = input.replace(/\r\n?/g, "\n");
       if (shouldStashPaste(cleaned)) {
         const id = nextPasteId();
@@ -104,6 +142,7 @@ export function ChatInput({
     // Guard against stray control/escape bytes leaking in (e.g. fragments of
     // SGR mouse-wheel sequences, which share stdin with the wheel listener).
     if (hasControlChar(input)) return;
+    setHistoryIndex(null);
     const nextValue = insertAt(value, cursorOffset, input);
     onChange(nextValue);
     setCursorOffset(cursorOffset + input.length);

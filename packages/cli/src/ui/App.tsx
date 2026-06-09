@@ -1827,6 +1827,20 @@ export function App({
   }, []);
   const allocatePasteId = useCallback(() => nextPasteIdRef.current++, []);
 
+  // Prompts already sent this session (oldest first), for arrow-up recall.
+  const promptHistory = useMemo(
+    () => items.filter((item) => item.kind === "user").map((item) => (item as { text: string }).text),
+    [items],
+  );
+  // Recall must never collide with a picker/menu that owns the arrow keys.
+  const historyEnabled =
+    !showSlashMenu &&
+    !modelPicker.open &&
+    !themePicker.open &&
+    !effortPicker &&
+    !approvalRequest &&
+    !userQuestionRequest;
+
   const chatInput = (
     <ChatInput
       value={input}
@@ -1836,6 +1850,8 @@ export function App({
       nextPasteId={allocatePasteId}
       width={inputWidth}
       active={!mcpPanelOpen && !agentsPanelOpen}
+      history={promptHistory}
+      historyEnabled={historyEnabled}
       submitEnabled={
         !mcpPanelOpen &&
         !agentsPanelOpen &&
