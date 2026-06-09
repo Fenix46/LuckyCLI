@@ -58,9 +58,12 @@ export async function checkForUpdate(
   const release = await fetchLatestRelease();
   const latestVersion = release.tag_name;
   const releaseUrl = release.html_url;
+  // Merge into the existing update block: it also carries the autoUpdate
+  // policy and any staged-binary record, which a check must never wipe.
   saveStoredConfig({
     ...cfg,
     update: {
+      ...cfg.update,
       lastCheckedAt: now,
       ...(latestVersion ? { latestVersion } : {}),
       ...(releaseUrl ? { releaseUrl } : {}),

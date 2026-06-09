@@ -121,7 +121,9 @@ function main(): void {
   // cold start always lands on the newest binary. Best-effort: never blocks startup.
   const staged = applyStagedUpdateIfAny();
   if (staged.swapped) {
-    process.stdout.write(`Updated to ${staged.version}. Running the new version.\n`);
+    // The on-disk binary is new, but THIS process was spawned from the old
+    // image — the next launch runs the update. Say so honestly.
+    process.stdout.write(`Update ${staged.version} installed — active from the next launch.\n`);
   }
 
   // Subcommands are handled before the TUI path (they print and exit).

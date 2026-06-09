@@ -54,7 +54,7 @@ import {
   type Task,
   type AgentProfile,
 } from "@luckycli/core";
-import { applyUpdateNow, checkForUpdate, stageUpdate, updateRows } from "../update.js";
+import { applyUpdateNow, checkForUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { messagesToItems, patchLastTool } from "./lib/items.js";
@@ -322,27 +322,44 @@ export function App({
       .then(async (info) => {
         if (cancelled || !info.updateAvailable) return;
 
-        // "auto": download + verify in the background and stage it; the next
-        // launch applies it. We never swap the binary under a live session.
+        // "auto": download, verify and install right away, narrating progress
+        // in the transcript. Swapping the on-disk binary is safe under a live
+        // session — the running process keeps its loaded image — so the user
+        // only has to restart lucky to be on the new version.
         if (policy === "auto" && info.latestVersion && detectSelfUpdate().ok) {
+          const version = info.latestVersion;
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "Update",
+              rows: [
+                { label: "version", value: version },
+                { label: "status", value: "downloading in the background…" },
+              ],
+            },
+          ]);
           try {
-            const staged = await stageUpdate(info.latestVersion);
-            if (!cancelled && staged) {
+            const result = await applyUpdateNow(version);
+            if (cancelled) return;
+            if (result.applied) {
               setItems((prev) => [
                 ...prev,
                 {
                   kind: "command",
-                  title: "Update Ready",
+                  title: "Update installed",
                   rows: [
-                    { label: "version", value: info.latestVersion! },
-                    { label: "status", value: "downloaded — applies on next launch" },
+                    { label: "version", value: version },
+                    { label: "status", value: "restart lucky to use the new version" },
                   ],
                 },
               ]);
               return;
             }
+            // Could not self-update (dev runtime, unwritable dir): fall
+            // through to the notify banner with the manual command.
           } catch {
-            // Staging is best-effort; fall through to the notify banner.
+            // Download/verify failed; fall through to the notify banner.
           }
         }
 
