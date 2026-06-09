@@ -77,6 +77,7 @@ export function TrustPrompt({ cwd, onDone }: TrustPromptProps): React.JSX.Elemen
                   { label: "No", value: "no" },
                 ]}
                 onSelect={(item) => onTrust(String(item.value))}
+                theme={theme}
               />
             </Box>
           </>
@@ -96,6 +97,7 @@ export function TrustPrompt({ cwd, onDone }: TrustPromptProps): React.JSX.Elemen
                   { label: "Skip for now (you can run /graph later)", value: "skip" },
                 ]}
                 onSelect={(item) => onGraph(String(item.value))}
+                theme={theme}
               />
             </Box>
           </>
@@ -116,6 +118,7 @@ export function TrustPrompt({ cwd, onDone }: TrustPromptProps): React.JSX.Elemen
               <SelectList
                 items={[{ label: "Continue", value: "continue" }]}
                 onSelect={() => onDone()}
+                theme={theme}
               />
             </Box>
           </>

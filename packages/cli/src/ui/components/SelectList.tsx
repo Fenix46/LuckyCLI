@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "../../vendor/ink-compat.js";
 import React, { useState } from "react";
+import type { Theme } from "../themes.js";
 
 export interface SelectItem<V> {
   label: string;
@@ -18,12 +19,17 @@ export function SelectList<V>({
   items,
   onSelect,
   isFocused = true,
+  theme,
 }: {
   items: SelectItem<V>[];
   onSelect: (item: SelectItem<V>) => void;
   /** When false, the list ignores keyboard input. */
   isFocused?: boolean;
+  /** Active theme; falls back to legacy cyan/gray when not provided. */
+  theme?: Theme;
 }): React.JSX.Element {
+  const accent = theme?.accent ?? "cyan";
+  const muted = theme?.muted ?? "gray";
   const [index, setIndex] = useState(0);
   const safeIndex = items.length === 0 ? 0 : Math.min(index, items.length - 1);
 
@@ -48,8 +54,8 @@ export function SelectList<V>({
         const selected = i === safeIndex;
         return (
           <Box key={`${String(item.value)}-${i}`} flexDirection="row">
-            <Text color={selected ? "cyan" : "gray"}>{selected ? "❯ " : "  "}</Text>
-            <Text color={selected ? "cyan" : undefined} bold={selected}>
+            <Text color={selected ? accent : muted}>{selected ? "❯ " : "  "}</Text>
+            <Text color={selected ? accent : undefined} bold={selected}>
               {item.label}
             </Text>
           </Box>

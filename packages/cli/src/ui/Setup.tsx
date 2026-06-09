@@ -364,19 +364,19 @@ export function Setup({
     <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
       <Box
         flexDirection="column"
-        borderStyle="single"
+        borderStyle="round"
         borderColor={theme.muted}
         paddingX={2}
         paddingY={1}
         width="100%"
       >
         <Box flexDirection="row" marginBottom={1}>
-          <Text bold color={theme.accent}>›_ </Text>
+          <Text bold color={theme.accent}>▌ </Text>
           <Text bold color={theme.primary}>
             {mode === "initial" ? "LuckyCLI setup" : "Provider setup"}
           </Text>
           <Text color={theme.muted}>
-            {mode === "initial" ? "  first run" : "  switch provider"}
+            {mode === "initial" ? " · first run" : " · switch provider"}
           </Text>
         </Box>
 
@@ -396,6 +396,7 @@ export function Setup({
                   value: candidate.id,
                 }))}
                 onSelect={onSelectTheme}
+                theme={theme}
               />
               <SetupNavigationHint theme={theme} />
             </SetupSection>
@@ -418,6 +419,7 @@ export function Setup({
                   };
                 })}
                 onSelect={onSelectProvider}
+                theme={theme}
               />
               <SetupNavigationHint
                 theme={theme}
@@ -448,6 +450,7 @@ export function Setup({
                   })),
                 ]}
                 onSelect={onSelectAuthChoice}
+                theme={theme}
               />
               <SetupNavigationHint theme={theme} />
             </SetupSection>
@@ -493,6 +496,7 @@ export function Setup({
                   value: model,
                 }))}
                 onSelect={onSelectModel}
+                theme={theme}
               />
               <SetupNavigationHint theme={theme} selectLabel="save" />
             </SetupSection>
@@ -693,8 +697,8 @@ function SetupInput({
         <TextField value={value} onChange={onChange} onSubmit={onSubmit} {...(mask ? { mask } : {})} />
       </Box>
       <Box marginTop={1}>
-        <Text color={theme.muted}>
-          {hint ? `${hint} · ` : ""}Enter to continue · Esc to go back
+        <Text color={theme.muted} dimColor>
+          {hint ? `${hint} · ` : ""}enter continue · esc go back
         </Text>
       </Box>
     </Box>
@@ -712,7 +716,7 @@ function SetupNavigationHint({
 }): React.JSX.Element {
   return (
     <Box marginTop={1}>
-      <Text color={theme.muted}>Up/Down to move · Enter to {selectLabel} · Esc to {escapeLabel}</Text>
+      <Text color={theme.muted} dimColor>↑↓ move · enter {selectLabel} · esc {escapeLabel}</Text>
     </Box>
   );
 }

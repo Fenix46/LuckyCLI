@@ -1,7 +1,8 @@
 import { Box, Text, useInput } from "../vendor/ink-compat.js";
 import React, { useMemo } from "react";
 import { SelectList } from "./components/SelectList.js";
-import { listSessions, loadSession, type Session } from "@luckycli/core";
+import { listSessions, loadSession, loadStoredConfig, type Session } from "@luckycli/core";
+import { themeById } from "./themes.js";
 
 interface SessionPickerProps {
   /** Called with the chosen session when the user picks one. */
@@ -19,6 +20,7 @@ function formatWhen(ms: number): string {
  * move, Enter to resume, Esc to start a fresh session instead.
  */
 export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React.JSX.Element {
+  const theme = themeById(loadStoredConfig().theme);
   const sessions = useMemo(() => listSessions(), []);
 
   useInput((_input, key) => {
@@ -27,18 +29,13 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
 
   if (sessions.length === 0) {
     return (
-      <Box
-        flexDirection="column"
-        paddingX={2}
-        paddingY={1}
-        width="100%"
-      >
-        <Text bold color="yellow">⏪ RESUME A SESSION</Text>
+      <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
+        <Text bold color={theme.accent}>▌ Resume session</Text>
         <Box marginTop={1}>
-          <Text color="gray">No saved sessions were found on this machine.</Text>
+          <Text color={theme.muted}>No saved sessions were found on this machine.</Text>
         </Box>
-        <Box marginTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={1}>
-          <Text color="gray" dimColor italic>Press Esc to start a fresh new session instead.</Text>
+        <Box marginTop={1}>
+          <Text color={theme.muted} dimColor>esc start fresh</Text>
         </Box>
       </Box>
     );
@@ -51,21 +48,14 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
   }));
 
   return (
-    <Box
-      flexDirection="column"
-      paddingX={2}
-      paddingY={1}
-      width="100%"
-    >
-      <Text bold color="cyan">
-        ⏪ RESUME A SESSION
+    <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
+      <Text bold color={theme.accent}>
+        ▌ Resume session <Text color={theme.muted}>· {sessions.length} saved</Text>
       </Text>
-      <Text color="gray">
-        Choose a saved session to restore your conversation context and continue collaborating.
-      </Text>
-      <Box marginY={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={1} flexDirection="column">
+      <Box marginY={1} flexDirection="column">
         <SelectList
           items={items}
+          theme={theme}
           onSelect={(item) => {
             const session = loadSession(item.value);
             if (session) onSelect(session);
@@ -73,11 +63,7 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
           }}
         />
       </Box>
-      <Box borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray" paddingTop={1}>
-        <Text color="gray" dimColor italic>
-          💡 Use ↑/↓ to choose · Enter to resume · Esc to start fresh
-        </Text>
-      </Box>
+      <Text color={theme.muted} dimColor>↑↓ move · enter resume · esc start fresh</Text>
     </Box>
   );
 }
