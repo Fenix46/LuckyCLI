@@ -1,5 +1,6 @@
 import { useInput } from "../../vendor/ink-compat.js";
 import React, { useEffect, useRef, useState } from "react";
+import { deleteWordLeft, wordLeft, wordRight } from "../lib/line-edit.js";
 import { PromptBlock } from "./PromptBlock.js";
 import {
   countLines,
@@ -95,12 +96,51 @@ export function ChatInput({
     }
 
     if (key.leftArrow) {
-      setCursorOffset((offset) => Math.max(0, offset - 1));
+      // Alt+← jumps a word; plain ← moves one character.
+      setCursorOffset((offset) => (key.meta ? wordLeft(value, offset) : Math.max(0, offset - 1)));
       return;
     }
 
     if (key.rightArrow) {
-      setCursorOffset((offset) => Math.min(value.length, offset + 1));
+      setCursorOffset((offset) => (key.meta ? wordRight(value, offset) : Math.min(value.length, offset + 1)));
+      return;
+    }
+
+    // Readline-style editing. Ctrl+letter arrives as the bare letter with
+    // key.ctrl set (see vendor/ink input-event.ts).
+    if (key.ctrl && input === "a") {
+      setCursorOffset(0);
+      return;
+    }
+    if (key.ctrl && input === "e") {
+      setCursorOffset(value.length);
+      return;
+    }
+    if (key.ctrl && input === "u") {
+      setHistoryIndex(null);
+      onChange(value.slice(cursorOffset));
+      setCursorOffset(0);
+      return;
+    }
+    if (key.ctrl && input === "k") {
+      setHistoryIndex(null);
+      onChange(value.slice(0, cursorOffset));
+      return;
+    }
+    if (key.ctrl && input === "w") {
+      const next = deleteWordLeft(value, cursorOffset);
+      setHistoryIndex(null);
+      onChange(next.text);
+      setCursorOffset(next.offset);
+      return;
+    }
+    // Alt+B / Alt+F word jumps, the readline aliases for Alt+arrows.
+    if (key.meta && input === "b") {
+      setCursorOffset((offset) => wordLeft(value, offset));
+      return;
+    }
+    if (key.meta && input === "f") {
+      setCursorOffset((offset) => wordRight(value, offset));
       return;
     }
 
