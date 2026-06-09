@@ -280,6 +280,25 @@ export class Agent {
 
       // No tools requested -> the turn is complete.
       if (toolCalls.length === 0 || finishReason !== "tool_calls") {
+        // A turn can end with tool calls left unexecuted — e.g. max_tokens cut
+        // the response right after a complete tool_use block, or the provider
+        // reported an unexpected stop reason. Those blocks are already in the
+        // assistant message above; leaving them unanswered poisons the
+        // transcript (Anthropic and OpenAI both reject the next request when a
+        // tool call has no matching result, and the session persists as-is).
+        // Close them with synthetic error results so the history stays valid.
+        if (toolCalls.length > 0) {
+          this.history.push({
+            role: "tool",
+            content: toolCalls.map((call) => ({
+              type: "tool_result",
+              toolCallId: call.id,
+              name: call.name,
+              content: `Tool call was not executed: the response ended early (${finishReason}).`,
+              isError: true,
+            })),
+          });
+        }
         // The stream's final usage reports input_tokens for the full transcript
         // we just sent, so it is an authoritative measure of used context —
         // mark it "provider" so compaction can act on it even when a provider

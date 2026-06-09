@@ -208,6 +208,49 @@ describe("Agent loop", () => {
     });
   });
 
+  it("closes unexecuted tool calls with error results when the turn ends early", async () => {
+    // max_tokens can cut a response right after a complete tool_use block:
+    // the tool call streams in but finishReason is not "tool_calls". The
+    // assistant message keeps the tool_use, so the history must also carry a
+    // matching tool_result or the next request is rejected by the provider.
+    const provider = new ScriptedProvider([
+      [
+        {
+          toolCall: {
+            type: "tool_call",
+            id: "t1",
+            name: "echo",
+            arguments: { value: "x" },
+          },
+        },
+        { finishReason: "max_tokens" },
+      ],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+    });
+
+    const events = await collect(agent.send("use the tool"));
+    // The turn ends without executing the tool…
+    expect(events.map((e) => e.type)).not.toContain("tool_start");
+    expect(events.at(-1)?.type).toBe("turn_end");
+
+    // …but every tool_use in history has a matching error tool_result.
+    const assistant = agent.messages.find((m) => m.role === "assistant");
+    expect(assistant?.content).toContainEqual(
+      expect.objectContaining({ type: "tool_call", id: "t1" }),
+    );
+    const toolMsg = agent.messages.find((m) => m.role === "tool");
+    expect(toolMsg?.content[0]).toMatchObject({
+      type: "tool_result",
+      toolCallId: "t1",
+      name: "echo",
+      isError: true,
+    });
+  });
+
   it("denies a tool when permission policy denies it", async () => {
     const provider = new ScriptedProvider([
       [
