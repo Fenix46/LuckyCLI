@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
+import { fileDiff } from "../../diff.js";
 import { resolveExistingInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 import { replace } from "./edit-replace.js";
@@ -31,7 +32,11 @@ export const editFileTool = defineTool({
       const updated = replace(original, oldString, newString, replaceAll ?? false);
       await writeFile(abs, updated, "utf8");
       ctx.onFilesChanged?.([path]);
-      return { content: `Edited ${path}` };
+      const diff = fileDiff(path, original, updated);
+      return {
+        content: `Edited ${path} (+${diff.additions} -${diff.deletions})`,
+        metadata: { diff: [diff] },
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: `Failed to edit ${path}: ${message}`, isError: true };

@@ -67,6 +67,25 @@ describe("edit_file tool", () => {
     await expect(readFile(join(root, "f.ts"), "utf8")).resolves.toBe("const a = 2;\n");
   });
 
+  it("attaches a structured diff for the UI", async () => {
+    await writeFile(join(root, "f.ts"), "const a = 1;\nconst b = 2;\n", "utf8");
+
+    const result = await registry.execute(
+      "edit_file",
+      { path: "f.ts", oldString: "a = 1", newString: "a = 9" },
+      { cwd: root },
+    );
+
+    expect(result.content).toBe("Edited f.ts (+1 -1)");
+    const diff = result.metadata?.diff?.[0];
+    expect(diff).toMatchObject({ path: "f.ts", additions: 1, deletions: 1 });
+    expect(diff?.hunks[0]?.lines.map((l) => `${l.type}:${l.text}`)).toEqual([
+      "del:const a = 1;",
+      "add:const a = 9;",
+      "context:const b = 2;",
+    ]);
+  });
+
   it("returns an error result when the snippet is missing", async () => {
     await writeFile(join(root, "f.ts"), "const a = 1;\n", "utf8");
 

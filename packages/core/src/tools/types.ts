@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { PlanDecision, PlanProposal } from "../agent/plan.js";
+import type { FileDiff } from "../diff.js";
 
 /** Context handed to every tool at execution time. */
 export interface AskUserRequest {
@@ -54,10 +55,22 @@ export interface ToolContext {
   onFilesChanged?: (paths: string[]) => void;
 }
 
+/**
+ * Structured, UI-facing details a tool can attach to its result. Never sent to
+ * the model — `content` stays the only model-visible channel — so attaching
+ * rich data here costs zero tokens.
+ */
+export interface ToolResultMetadata {
+  /** Structured per-file diffs for mutations (edit_file, write_file, apply_patch). */
+  diff?: FileDiff[];
+}
+
 /** Result of running a tool. `content` is always a string fed back to the model. */
 export interface ToolResult {
   content: string;
   isError?: boolean;
+  /** Optional structured details for the UI (diffs etc.); not model-visible. */
+  metadata?: ToolResultMetadata;
 }
 
 /**

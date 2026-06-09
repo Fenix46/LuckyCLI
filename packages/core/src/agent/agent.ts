@@ -367,6 +367,7 @@ export class Agent {
           name: call.name,
           content: result.content,
           isError: result.isError ?? false,
+          ...(result.metadata ? { metadata: result.metadata } : {}),
         };
         resultBlocks.push({
           type: "tool_result",

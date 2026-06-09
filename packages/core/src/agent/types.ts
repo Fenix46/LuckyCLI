@@ -1,4 +1,5 @@
 import type { TokenUsage } from "../providers/types.js";
+import type { ToolResultMetadata } from "../tools/types.js";
 
 export interface ContextStatus {
   model: string;
@@ -43,6 +44,8 @@ export type AgentEvent =
       name: string;
       content: string;
       isError: boolean;
+      /** Structured UI-facing details (diffs etc.); never sent to the model. */
+      metadata?: ToolResultMetadata;
     }
   | { type: "turn_end"; usage?: TokenUsage }
   | { type: "aborted" }

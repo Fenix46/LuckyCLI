@@ -1,8 +1,10 @@
 import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
+import { fileDiff, type FileDiff } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import type { ApprovalRequest } from "../lib/requests.js";
 import { inputString, truncateSingleLine, wrapText } from "../lib/format.js";
+import { DiffView } from "./DiffView.js";
 
 export function ApprovalRequestView({
   request,
@@ -47,7 +49,11 @@ export function ApprovalRequestView({
         </Box>
       ) : null}
 
-      {detail.preview.length > 0 ? (
+      {detail.diff ? (
+        <Box marginTop={1}>
+          <DiffView diffs={detail.diff} theme={theme} width={Math.max(32, panelWidth - 6)} />
+        </Box>
+      ) : detail.preview.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
           {detail.preview.map((line, index) => (
             <Box key={index} flexDirection="row">
@@ -111,6 +117,8 @@ interface ApprovalDisplay {
   question: string;
   target?: string;
   preview: { text: string; color?: "added" | "removed" | "muted" }[];
+  /** Structured diff rendered with DiffView; takes precedence over preview. */
+  diff?: FileDiff[];
 }
 
 function approvalDisplay(request: ApprovalRequest, width: number): ApprovalDisplay {
@@ -124,23 +132,36 @@ function approvalDisplay(request: ApprovalRequest, width: number): ApprovalDispl
   }
 
   if (request.name === "edit_file") {
+    // A real line diff of the requested replacement. Line numbers refer to the
+    // snippet, not the file (the file hasn't been read at approval time), but
+    // changed lines and their context read exactly like the post-edit diff.
     const path = inputString(request.input, "path");
-    const oldString = inputString(request.input, "oldString");
-    const newString = inputString(request.input, "newString");
+    const oldString = inputString(request.input, "oldString") ?? "";
+    const newString = inputString(request.input, "newString") ?? "";
     return {
       question: "Apply this edit?",
       ...(path ? { target: path } : {}),
-      preview: editPreview(oldString, newString, previewWidth),
+      preview: [],
+      diff: [fileDiff(path ?? "(unknown file)", oldString, newString)],
     };
   }
 
   if (request.name === "write_file") {
     const path = inputString(request.input, "path");
-    const content = inputString(request.input, "content");
+    const content = inputString(request.input, "content") ?? "";
     return {
       question: "Write this file?",
       ...(path ? { target: path } : {}),
-      preview: content ? codePreview(content, previewWidth, 8) : [],
+      preview: [],
+      diff: [fileDiff(path ?? "(unknown file)", "", content, { created: true })],
+    };
+  }
+
+  if (request.name === "apply_patch") {
+    const patch = inputString(request.input, "patch");
+    return {
+      question: "Apply this patch?",
+      preview: patch ? patchPreview(patch, previewWidth) : [],
     };
   }
 
@@ -150,22 +171,24 @@ function approvalDisplay(request: ApprovalRequest, width: number): ApprovalDispl
   };
 }
 
-function editPreview(
-  oldString: string | undefined,
-  newString: string | undefined,
+/** Render raw patch text with +/- coloring (it is already a diff). */
+function patchPreview(
+  patch: string,
   width: number,
 ): { text: string; color?: "added" | "removed" | "muted" }[] {
-  const lines: { text: string; color?: "added" | "removed" | "muted" }[] = [];
-  if (oldString) {
-    lines.push({ text: "Remove:", color: "muted" });
-    lines.push(...codePreview(oldString, width - 2, 5, "- ", "removed"));
-  }
-  if (newString) {
-    if (lines.length > 0) lines.push({ text: "", color: "muted" });
-    lines.push({ text: "Add:", color: "muted" });
-    lines.push(...codePreview(newString, width - 2, 5, "+ ", "added"));
-  }
-  return lines.length > 0 ? lines : [{ text: "No preview available", color: "muted" }];
+  const lines = patch.replace(/\t/g, "  ").split("\n").slice(0, 24);
+  const out = lines.map((line) => ({
+    text: line.length > width ? `${line.slice(0, width - 1)}…` : line,
+    color:
+      line.startsWith("+") && !line.startsWith("+++")
+        ? ("added" as const)
+        : line.startsWith("-") && !line.startsWith("---")
+          ? ("removed" as const)
+          : ("muted" as const),
+  }));
+  const total = patch.split("\n").length;
+  if (total > 24) out.push({ text: `… +${total - 24} more lines`, color: "muted" as const });
+  return out;
 }
 
 function codePreview(

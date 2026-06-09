@@ -1,6 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
+import { fileDiff } from "../../diff.js";
 import { resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 
@@ -21,6 +22,14 @@ export const writeFileTool = defineTool({
     const target = resolveInsideCwd(ctx.cwd, path);
     await mkdir(dirname(target), { recursive: true });
     const abs = await resolveWritableInsideCwd(ctx.cwd, path);
+    // Capture the previous contents (if any) so the UI can show a real diff
+    // for overwrites and a pure-addition diff for creations.
+    let original: string | undefined;
+    try {
+      original = await readFile(abs, "utf8");
+    } catch {
+      original = undefined;
+    }
     try {
       await writeFile(abs, content, {
         encoding: "utf8",
@@ -37,6 +46,10 @@ export const writeFileTool = defineTool({
       throw err;
     }
     ctx.onFilesChanged?.([path]);
-    return { content: `Wrote ${content.length} chars to ${path}` };
+    const diff = fileDiff(path, original ?? "", content, { created: original === undefined });
+    return {
+      content: `Wrote ${content.length} chars to ${path}`,
+      metadata: { diff: [diff] },
+    };
   },
 });

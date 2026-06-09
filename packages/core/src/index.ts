@@ -33,7 +33,10 @@ export type {
   Tool,
   ToolContext,
   ToolResult,
+  ToolResultMetadata,
 } from "./tools/types.js";
+export { diffLines, fileDiff } from "./diff.js";
+export type { DiffHunk, DiffLine, FileDiff } from "./diff.js";
 export {
   defaultToolRegistry,
   execTool,

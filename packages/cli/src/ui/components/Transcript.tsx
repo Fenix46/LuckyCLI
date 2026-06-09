@@ -5,6 +5,7 @@ import type { Theme } from "../themes.js";
 import type { Item } from "../lib/items.js";
 import { formatToolAction, formatToolResultSummary, truncateSingleLine } from "../lib/format.js";
 import { SPINNER_FRAMES } from "./constants.js";
+import { DiffView } from "./DiffView.js";
 import { Markdown } from "../markdown/Markdown.js";
 import { IntroBanner } from "./IntroBanner.js";
 import { PromptBlock } from "./PromptBlock.js";
@@ -176,7 +177,11 @@ export function ItemView({
             <Text bold wrap="truncate-end">{truncateSingleLine(action, Math.max(24, width - 8))}</Text>
             {isRunning ? <Text color={theme.accent}>…</Text> : null}
           </Box>
-          {!isRunning && result ? (
+          {!isRunning && item.metadata?.diff?.length ? (
+            <Box paddingLeft={2}>
+              <DiffView diffs={item.metadata.diff} theme={theme} width={Math.max(24, width - 4)} />
+            </Box>
+          ) : !isRunning && result ? (
             <Box flexDirection="row" paddingLeft={2}>
               <Text color={theme.muted}>⎿ </Text>
               <Text color={item.error ? theme.error : theme.muted} wrap="truncate-end">

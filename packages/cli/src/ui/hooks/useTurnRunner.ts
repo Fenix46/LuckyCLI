@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Agent, ContextStatus, TokenUsage } from "@luckycli/core";
+import type { Agent, ContextStatus, TokenUsage, ToolResultMetadata } from "@luckycli/core";
 import type { Item } from "../lib/items.js";
 import { formatNumber } from "../lib/format.js";
 import { humanizeError } from "../lib/errors.js";
@@ -24,7 +24,7 @@ interface TurnRunnerDeps {
   /** Append items to the transcript. */
   appendItems: (next: Item[]) => void;
   /** Replace the last matching running tool with its output. */
-  patchTool: (name: string, output: string, error: boolean) => void;
+  patchTool: (name: string, output: string, error: boolean, metadata?: ToolResultMetadata) => void;
   onContext: (status: ContextStatus) => void;
   onUsage: (usage: TokenUsage) => void;
   /** Persist the session once the turn settles. */
@@ -136,9 +136,9 @@ export function useTurnRunner({
               if (HIDDEN_TOOLS.has(name)) return;
               appendItems([{ kind: "tool", name, input: rawInput }]);
             },
-            onToolEnd: (name, output, error) => {
+            onToolEnd: (name, output, error, metadata) => {
               if (HIDDEN_TOOLS.has(name)) return;
-              patchTool(name, output, error);
+              patchTool(name, output, error, metadata);
             },
             onError: (message) => {
               flushAssistant();

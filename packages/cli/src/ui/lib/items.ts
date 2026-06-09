@@ -1,11 +1,19 @@
-import type { ContextStatus, Message, ProviderStatus } from "@luckycli/core";
+import type { ContextStatus, Message, ProviderStatus, ToolResultMetadata } from "@luckycli/core";
 
 /** A line in the scrollback transcript. */
 export type Item =
   | { kind: "intro" }
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
-  | { kind: "tool"; name: string; input: unknown; output?: string; error?: boolean }
+  | {
+      kind: "tool";
+      name: string;
+      input: unknown;
+      output?: string;
+      error?: boolean;
+      /** Structured tool details (diffs etc.) for rich rendering. */
+      metadata?: ToolResultMetadata;
+    }
   | { kind: "command"; title: string; rows: CommandRow[] }
   | { kind: "plan"; title: string; markdown: string }
   | { kind: "status"; provider: ProviderStatus; context: ContextStatus }
@@ -36,12 +44,13 @@ export function patchLastTool(
   name: string,
   output: string,
   error: boolean,
+  metadata?: ToolResultMetadata,
 ): Item[] {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item && item.kind === "tool" && item.name === name && item.output === undefined) {
       const next = [...items];
-      next[i] = { ...item, output, error };
+      next[i] = { ...item, output, error, ...(metadata ? { metadata } : {}) };
       return next;
     }
   }

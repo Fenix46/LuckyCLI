@@ -1,6 +1,7 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
+import { fileDiff, type FileDiff } from "../../diff.js";
 import { resolveExistingInsideCwd, resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 
@@ -21,6 +22,7 @@ export const applyPatchTool = defineTool({
       if (files.length === 0) throw new Error("No file patches found.");
 
       const changed: string[] = [];
+      const diffs: FileDiff[] = [];
       for (const file of files) {
         if (file.operation === "add") {
           const target = resolveInsideCwd(ctx.cwd, file.path);
@@ -28,6 +30,7 @@ export const applyPatchTool = defineTool({
           const abs = await resolveWritableInsideCwd(ctx.cwd, file.path);
           const updated = applyFilePatch("", file);
           await writeFile(abs, updated, "utf8");
+          diffs.push(fileDiff(file.path, "", updated, { created: true }));
         } else if (file.operation === "delete") {
           const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
           const original = await readFile(abs, "utf8");
@@ -36,17 +39,22 @@ export const applyPatchTool = defineTool({
             throw new Error(`Delete patch for ${file.path} did not remove all content.`);
           }
           await unlink(abs);
+          diffs.push(fileDiff(file.path, original, ""));
         } else {
           const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
           const original = await readFile(abs, "utf8");
           const updated = applyFilePatch(original, file);
           await writeFile(abs, updated, "utf8");
+          diffs.push(fileDiff(file.path, original, updated));
         }
         changed.push(file.path);
       }
 
       if (changed.length > 0) ctx.onFilesChanged?.(changed);
-      return { content: `Applied patch to ${changed.length} file(s): ${changed.join(", ")}` };
+      return {
+        content: `Applied patch to ${changed.length} file(s): ${changed.join(", ")}`,
+        metadata: { diff: diffs },
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: `Failed to apply patch: ${message}`, isError: true };

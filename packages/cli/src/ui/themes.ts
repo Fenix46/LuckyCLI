@@ -11,6 +11,10 @@ export interface Theme {
   userBg: string;
   /** Foreground of sent user messages in the transcript. */
   userFg: string;
+  /** Background of added lines in diff views. */
+  diffAddedBg: string;
+  /** Background of removed lines in diff views. */
+  diffRemovedBg: string;
 }
 
 export const THEMES: Theme[] = [
@@ -25,6 +29,8 @@ export const THEMES: Theme[] = [
     error: "#ff6b7a",
     userBg: "#223246",
     userFg: "#f2f5f8",
+    diffAddedBg: "#1e3a2a",
+    diffRemovedBg: "#4a1f28",
   },
   {
     id: "lucky-light",
@@ -37,6 +43,8 @@ export const THEMES: Theme[] = [
     error: "#b4233f",
     userBg: "#dbe4f0",
     userFg: "#1c2430",
+    diffAddedBg: "#d6f0dc",
+    diffRemovedBg: "#f5d9dd",
   },
   {
     id: "terminal-dark",
@@ -49,6 +57,8 @@ export const THEMES: Theme[] = [
     error: "#bf616a",
     userBg: "#3b4252",
     userFg: "#eceff4",
+    diffAddedBg: "#2e4238",
+    diffRemovedBg: "#4a3038",
   },
   {
     id: "terminal-ansi",
@@ -61,6 +71,8 @@ export const THEMES: Theme[] = [
     error: "redBright",
     userBg: "blackBright",
     userFg: "white",
+    diffAddedBg: "green",
+    diffRemovedBg: "red",
   },
   {
     id: "daltonized-dark",
@@ -73,10 +85,12 @@ export const THEMES: Theme[] = [
     error: "#ff7f7f",
     userBg: "#2b3a55",
     userFg: "#f0f4ff",
+    diffAddedBg: "#1d3a52",
+    diffRemovedBg: "#52301d",
   },
-  { id: "minimal", name: "Legacy Monochrome", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white", userBg: "blackBright", userFg: "white" },
-  { id: "matrix", name: "Digital Matrix (CRT)", primary: "#00ff00", accent: "#008f11", success: "#00ff00", warning: "#ffff00", muted: "#335533", error: "#ff5555", userBg: "#013220", userFg: "#aaffaa" },
-  { id: "amber", name: "DEC Amber Mainframe", primary: "#ffb000", accent: "#ff8000", success: "#ffd166", warning: "#ff4500", muted: "#806033", error: "#ff5555", userBg: "#33220a", userFg: "#ffd9a0" },
+  { id: "minimal", name: "Legacy Monochrome", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white", userBg: "blackBright", userFg: "white", diffAddedBg: "green", diffRemovedBg: "red" },
+  { id: "matrix", name: "Digital Matrix (CRT)", primary: "#00ff00", accent: "#008f11", success: "#00ff00", warning: "#ffff00", muted: "#335533", error: "#ff5555", userBg: "#013220", userFg: "#aaffaa", diffAddedBg: "#014421", diffRemovedBg: "#441111" },
+  { id: "amber", name: "DEC Amber Mainframe", primary: "#ffb000", accent: "#ff8000", success: "#ffd166", warning: "#ff4500", muted: "#806033", error: "#ff5555", userBg: "#33220a", userFg: "#ffd9a0", diffAddedBg: "#2e3300", diffRemovedBg: "#441b0a" },
 ];
 
 export function themeById(id: string | undefined): Theme {

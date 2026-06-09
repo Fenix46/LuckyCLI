@@ -1,10 +1,10 @@
-import type { AgentEvent, ContextStatus, TokenUsage } from "@luckycli/core";
+import type { AgentEvent, ContextStatus, TokenUsage, ToolResultMetadata } from "@luckycli/core";
 
 export interface EventHandlers {
   onText: (delta: string) => void;
   onReasoning: () => void;
   onToolStart: (name: string, rawInput: unknown) => void;
-  onToolEnd: (name: string, output: string, error: boolean) => void;
+  onToolEnd: (name: string, output: string, error: boolean, metadata?: ToolResultMetadata) => void;
   onError: (message: string) => void;
   onContext: (status: ContextStatus) => void;
   onCompacted: (result: { beforeTokens?: number; afterTokens?: number; removedMessages: number; keptMessages: number }) => void;
@@ -25,7 +25,7 @@ export function handleEvent(event: AgentEvent, h: EventHandlers): void {
       h.onToolStart(event.name, event.input);
       break;
     case "tool_end":
-      h.onToolEnd(event.name, event.content, event.isError);
+      h.onToolEnd(event.name, event.content, event.isError, event.metadata);
       break;
     case "error":
       h.onError(event.message);

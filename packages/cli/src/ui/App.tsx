@@ -16,6 +16,7 @@ import {
   type ProviderQuotaStatus,
   type Session,
   type TokenUsage,
+  type ToolResultMetadata,
   CodexModelCache,
   antigravityModelLabel,
   buildAndSaveGraph,
@@ -290,8 +291,8 @@ export function App({
     [],
   );
   const patchTool = useCallback(
-    (name: string, output: string, error: boolean) =>
-      setItems((prev) => patchLastTool(prev, name, output, error)),
+    (name: string, output: string, error: boolean, metadata?: ToolResultMetadata) =>
+      setItems((prev) => patchLastTool(prev, name, output, error, metadata)),
     [],
   );
   const onUsage = useCallback((_usage: TokenUsage) => {}, []);
