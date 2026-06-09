@@ -2033,6 +2033,9 @@ export function App({
         <Box flexDirection="column" paddingLeft={2} marginTop={1} width="100%">
           {filteredCommands.map((cmd, idx) => (
             <Box key={cmd.name} flexDirection="row">
+              <Text color={idx === selectedCommandIndex ? activeTheme.accent : "gray"}>
+                {idx === selectedCommandIndex ? "❯ " : "  "}
+              </Text>
               <Text bold color={idx === selectedCommandIndex ? activeTheme.primary : "white"}>
                 {cmd.name.padEnd(12)}
               </Text>

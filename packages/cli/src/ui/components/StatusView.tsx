@@ -32,23 +32,23 @@ export function StatusView({
     <Box flexDirection="column" marginTop={1} paddingLeft={1}>
       <Box
         flexDirection="column"
-        borderStyle="single"
+        borderStyle="round"
         borderColor={theme.muted}
         paddingX={2}
         paddingY={1}
         width={panelWidth}
       >
         <Box flexDirection="row" marginBottom={1}>
-          <Text bold color={theme.accent}>›_ </Text>
+          <Text bold color={theme.accent}>▌ </Text>
           <Text bold>{provider.displayName}</Text>
-          <Text color={theme.muted}> ({provider.provider})</Text>
+          <Text color={theme.muted}> · {provider.provider}</Text>
         </Box>
 
         <Box flexDirection="column" marginBottom={1}>
           {details.map((row) => (
             <Box key={row.label} flexDirection="row">
               <Box width={15}>
-                <Text color={theme.muted}>{row.label}:</Text>
+                <Text color={theme.muted}>{row.label}</Text>
               </Box>
               <Text color="white">{row.value}</Text>
               {row.hint ? <Text color={theme.muted}> {row.hint}</Text> : null}

@@ -11,7 +11,7 @@ export function PickerHint({
 }): React.JSX.Element {
   return (
     <Box marginTop={1}>
-      <Text color={theme.muted}>Up/Down to move · Enter to {selectLabel} · Esc to close</Text>
+      <Text color={theme.muted} dimColor>↑↓ move · enter {selectLabel} · esc close</Text>
     </Box>
   );
 }

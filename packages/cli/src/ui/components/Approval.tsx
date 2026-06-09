@@ -32,9 +32,8 @@ export function ApprovalRequestView({
       paddingLeft={2}
     >
       <Box flexDirection="row">
-        <Text bold color={theme.warning}>● Permission required</Text>
-        <Text color={theme.muted}>  ·  </Text>
-        <Text bold color={theme.accent}>{request.name}</Text>
+        <Text bold color={theme.warning}>Permission required</Text>
+        <Text color={theme.muted}> · {request.name}</Text>
       </Box>
 
       <Box marginTop={1}>

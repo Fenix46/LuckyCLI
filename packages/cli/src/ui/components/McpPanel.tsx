@@ -32,7 +32,7 @@ export function McpPanel({
 }): React.JSX.Element {
   return (
     <Box flexDirection="column" paddingLeft={2} marginBottom={1} width="100%">
-      <Text bold color={theme.accent}>🧩 MCP CONTROL PANEL</Text>
+      <Text bold color={theme.accent}>▌ MCP servers</Text>
       <Box flexDirection="row" marginTop={1}>
         <Text bold color={tab === "installed" ? theme.primary : theme.muted}>
           {tab === "installed" ? "❯ " : "  "}Installed
@@ -57,13 +57,13 @@ export function McpPanel({
                   {row.name.padEnd(22)}
                 </Text>
                 <Text color={idx === selectedInstalledIndex ? "white" : theme.muted}>
-                  ┃ {truncateSingleLine(row.summary, Math.max(20, width - 32))}
+                  {truncateSingleLine(row.summary, Math.max(20, width - 32))}
                 </Text>
               </Box>
             ))
           )}
           <Box marginTop={1}>
-            <Text color={theme.muted}>Enter toggle enable · d remove · r reload · Tab switch tab · Esc close</Text>
+            <Text color={theme.muted} dimColor>enter toggle · d remove · r reload · tab switch · esc close</Text>
           </Box>
         </Box>
       ) : (
@@ -85,13 +85,13 @@ export function McpPanel({
                   {truncateSingleLine(item.name, 28)}
                 </Text>
                 <Text color={idx === selectedSearchIndex ? "white" : theme.muted}>
-                  ┃ {truncateSingleLine(item.title ?? item.description ?? item.version ?? "no description", Math.max(20, width - 38))}
+                  {truncateSingleLine(item.title ?? item.description ?? item.version ?? "no description", Math.max(20, width - 38))}
                 </Text>
               </Box>
             ))
           )}
           <Box marginTop={1}>
-            <Text color={theme.muted}>Type to search · Enter install selected · Tab switch tab · Esc close</Text>
+            <Text color={theme.muted} dimColor>type to search · enter install · tab switch · esc close</Text>
           </Box>
         </Box>
       )}

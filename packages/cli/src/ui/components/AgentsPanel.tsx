@@ -52,7 +52,7 @@ export function AgentsPanel({
   return (
     <Box flexDirection="column" paddingLeft={2} marginBottom={1} width="100%">
       <Text bold color={theme.accent}>
-        🤖 SUB-AGENTS
+        ▌ Sub-agents
       </Text>
 
       {view === "list" ? (

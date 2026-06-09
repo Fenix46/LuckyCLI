@@ -138,21 +138,29 @@ export function ItemView({
         </Box>
       );
     case "tool": {
+      // Two-line layout: the action on its own row (status glyph + verb +
+      // target), the result summary indented underneath with an elbow marker.
+      // Keeping the result off the action row stops long targets and long
+      // results from fighting over one truncated line.
       const isRunning = item.output === undefined;
       const toolColor = item.error ? theme.error : isRunning ? theme.accent : theme.success;
-      const statusSymbol = item.error ? "✖" : isRunning ? "•" : "✔";
+      const statusSymbol = item.error ? "✖" : isRunning ? "●" : "●";
       const action = formatToolAction(item.name, item.input, isRunning, item.error);
       const result = item.output ? formatToolResultSummary(item.name, item.output, item.error) : "";
       return (
-        <Box flexDirection="row" paddingLeft={2} gap={1}>
-          <Text bold color={toolColor}>{statusSymbol}</Text>
-          <Text bold color={toolColor} wrap="truncate-end">{truncateSingleLine(action, Math.max(24, width - 18))}</Text>
-          {isRunning ? (
-            <Text color={theme.accent}>...</Text>
-          ) : result ? (
-            <Text color={item.error ? theme.error : theme.muted} wrap="truncate-end">
-              - {truncateSingleLine(result, Math.max(16, width - action.length - 12))}
-            </Text>
+        <Box flexDirection="column" paddingLeft={2}>
+          <Box flexDirection="row" gap={1}>
+            <Text bold color={toolColor}>{statusSymbol}</Text>
+            <Text bold wrap="truncate-end">{truncateSingleLine(action, Math.max(24, width - 8))}</Text>
+            {isRunning ? <Text color={theme.accent}>…</Text> : null}
+          </Box>
+          {!isRunning && result ? (
+            <Box flexDirection="row" paddingLeft={2}>
+              <Text color={theme.muted}>⎿ </Text>
+              <Text color={item.error ? theme.error : theme.muted} wrap="truncate-end">
+                {truncateSingleLine(result, Math.max(16, width - 10))}
+              </Text>
+            </Box>
           ) : null}
         </Box>
       );

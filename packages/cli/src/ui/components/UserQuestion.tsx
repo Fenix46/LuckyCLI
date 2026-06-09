@@ -30,9 +30,8 @@ export function UserQuestionRequestView({
       paddingLeft={2}
     >
       <Box flexDirection="row">
-        <Text bold color={theme.accent}>● Question from agent</Text>
-        <Text color={theme.muted}>  ·  </Text>
-        <Text bold color={theme.accent}>ask_user</Text>
+        <Text bold color={theme.accent}>Question</Text>
+        <Text color={theme.muted}> · ask_user</Text>
       </Box>
 
       <Box marginTop={1}>

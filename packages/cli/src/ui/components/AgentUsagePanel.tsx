@@ -50,7 +50,7 @@ export function AgentUsagePanel({
           </Box>
         ))}
         <Text color={theme.muted}>
-          {"  "}TOTAL {formatTokens(total)} tok
+          {"  "}total {formatTokens(total)} tok
         </Text>
       </Box>
     </Box>
