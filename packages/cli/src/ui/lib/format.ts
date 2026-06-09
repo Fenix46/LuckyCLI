@@ -1,5 +1,4 @@
 import os from "node:os";
-import type { CommandRow } from "./items.js";
 
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
@@ -37,17 +36,6 @@ export function firstName(username: string): string {
 export function prettyCwd(cwd: string): string {
   const home = os.homedir();
   return cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
-}
-
-export function formatCommandRows(title: string, rows: CommandRow[]): string {
-  const labelWidth = Math.max(
-    title.length,
-    ...rows.map((row) => row.label.length),
-  );
-  return [
-    title,
-    ...rows.map((row) => `${row.label.padEnd(labelWidth)}  ${row.value}`),
-  ].join("\n");
 }
 
 export function formatToolAction(
@@ -269,12 +257,6 @@ export function wrapText(text: string, width: number): string[] {
   }
 
   return output.length > 0 ? output : [""];
-}
-
-export function pushWrappedLines(text: string, width: number): string[] {
-  const output: string[] = [];
-  pushWrapped(output, text, width);
-  return output;
 }
 
 export function pushWrapped(
