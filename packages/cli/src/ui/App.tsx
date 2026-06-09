@@ -1762,6 +1762,11 @@ export function App({
   );
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);
+  // Content width inside the bordered input frame: the frame consumes 4 more
+  // columns (left/right border + paddingX) on top of the root's paddingX.
+  // Sizing the inner content to messageWidth instead pushes the right border
+  // past the terminal edge and the frame renders open-ended.
+  const inputWidth = Math.max(24, terminalSize.width - 8);
 
   // Claude Code's approach: the live streaming reply / thinking indicator /
   // empty-state hint ride INSIDE the virtualized list as transient items, not
@@ -1776,7 +1781,7 @@ export function App({
         ...items,
         {
           kind: "hint",
-          text: "lucky › Input instruction payload or type / for command directory...",
+          text: "Describe a task, or type / for commands.",
         },
       ];
     }
@@ -1829,7 +1834,7 @@ export function App({
       onSubmit={submit}
       onPaste={handlePaste}
       nextPasteId={allocatePasteId}
-      width={messageWidth}
+      width={inputWidth}
       active={!mcpPanelOpen && !agentsPanelOpen}
       submitEnabled={
         !mcpPanelOpen &&
@@ -1881,7 +1886,7 @@ export function App({
           width="100%"
         >
           <Text bold color={activeTheme.accent}>
-            🧠 REASONING EFFORT FOR {effortPicker.model.toUpperCase()}
+            Reasoning effort <Text color={activeTheme.muted}>· {effortPicker.model}</Text>
           </Text>
           <Box flexDirection="column" marginTop={1}>
             {effortPicker.levels.map((level, idx) => (
@@ -1905,7 +1910,7 @@ export function App({
           width="100%"
         >
           <Text bold color={activeTheme.accent}>
-            🤖 SELECT MODEL FOR {PROVIDER_CATALOG[meta.provider].displayName.toUpperCase()}
+            Select model <Text color={activeTheme.muted}>· {PROVIDER_CATALOG[meta.provider].displayName}</Text>
           </Text>
           <Box flexDirection="column" marginTop={1}>
             {modelPicker.items.length > 0 ? (
@@ -1934,7 +1939,7 @@ export function App({
           marginBottom={1}
           width="100%"
         >
-          <Text bold color={activeTheme.accent}>🎨 CHOOSE INTERFACE THEME</Text>
+          <Text bold color={activeTheme.accent}>Interface theme</Text>
           <Box flexDirection="column" marginTop={1}>
             {themePicker.items.length > 0 ? (
               themePicker.items.map((theme, idx) => (
@@ -1947,7 +1952,7 @@ export function App({
                     {theme.id.padEnd(12)}
                   </Text>
                   <Text color={idx === selectedThemeIndex ? "white" : activeTheme.muted}>
-                    ┃ {theme.name}
+                    {theme.name}
                   </Text>
                 </Box>
               ))
@@ -1984,36 +1989,43 @@ export function App({
         />
       ) : null}
 
-      <Box flexDirection="column" width="100%" marginTop={1}>
-        <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
-        <Box flexDirection="column" paddingX={0} width="100%">
-          {approvalRequest ? (
-            // Permission prompt lives inside the input frame, which grows to
-            // fit it — the same place the user would otherwise be typing.
-            <ApprovalRequestView
-              request={approvalRequest}
-              selectedIndex={selectedApprovalIndex}
-              options={approvalOptions}
+      {/* Input frame: a single rounded border instead of full-width rules.
+          The border doubles as a live status cue — accent while a turn is
+          running, muted when idle — so the UI reads as active without extra
+          chrome. */}
+      <Box
+        flexDirection="column"
+        width={terminalSize.width - 2}
+        marginTop={1}
+        borderStyle="round"
+        borderColor={busy || compacting ? activeTheme.accent : activeTheme.muted}
+        paddingX={1}
+      >
+        {approvalRequest ? (
+          // Permission prompt lives inside the input frame, which grows to
+          // fit it — the same place the user would otherwise be typing.
+          <ApprovalRequestView
+            request={approvalRequest}
+            selectedIndex={selectedApprovalIndex}
+            options={approvalOptions}
+            theme={activeTheme}
+            width={inputWidth}
+          />
+        ) : userQuestionRequest ? (
+          <Box flexDirection="column">
+            <UserQuestionRequestView
+              request={userQuestionRequest}
+              selectedIndex={selectedQuestionOptionIndex}
               theme={activeTheme}
-              width={messageWidth}
+              width={inputWidth}
             />
-          ) : userQuestionRequest ? (
-            <Box flexDirection="column">
-              <UserQuestionRequestView
-                request={userQuestionRequest}
-                selectedIndex={selectedQuestionOptionIndex}
-                theme={activeTheme}
-                width={messageWidth}
-              />
-              {(userQuestionRequest.allowFreeText ?? true) ? (
-                <Box marginTop={1}>{chatInput}</Box>
-              ) : null}
-            </Box>
-          ) : (
-            chatInput
-          )}
-        </Box>
-        <Text color={activeTheme.muted}>{"─".repeat(terminalSize.width - 2)}</Text>
+            {(userQuestionRequest.allowFreeText ?? true) ? (
+              <Box marginTop={1}>{chatInput}</Box>
+            ) : null}
+          </Box>
+        ) : (
+          chatInput
+        )}
       </Box>
 
       {/* Slash-command menu sits just below the prompt (Claude Code style). */}

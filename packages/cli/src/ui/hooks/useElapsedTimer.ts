@@ -10,9 +10,10 @@ export interface ElapsedTimer {
 /**
  * Drives the elapsed-time readout and the thinking animation while a turn is in
  * progress. Previously layered on Ink's `useAnimation`; the vendored Ink fork
- * doesn't expose that hook, so this uses a plain 500ms interval — a coarse
- * timer doesn't need to be tied to the render loop. Resets to 0 when `busy`
- * flips off. `startedAt` anchors elapsed time so it survives re-renders.
+ * doesn't expose that hook, so this uses a plain interval. 120ms keeps the
+ * braille spinner fluid while only redrawing the transient tail of the
+ * transcript (Ink diffs the rest away). Resets to 0 when `busy` flips off.
+ * `startedAt` anchors elapsed time so it survives re-renders.
  */
 export function useElapsedTimer(busy: boolean, startedAt: number | null): ElapsedTimer {
   const [frame, setFrame] = useState(0);
@@ -29,7 +30,7 @@ export function useElapsedTimer(busy: boolean, startedAt: number | null): Elapse
       frameRef.current += 1;
       setFrame(frameRef.current);
       forceTick((n) => n + 1);
-    }, 500);
+    }, 120);
     return () => clearInterval(id);
   }, [busy]);
 

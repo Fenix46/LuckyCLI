@@ -66,35 +66,20 @@ export function TranscriptItem({
   provider: ProviderId;
   model: string;
 }): React.JSX.Element {
+  // Whitespace is the only separator: an extra blank line when the speaker
+  // changes (or a new user turn starts) keeps the transcript scannable without
+  // drawing horizontal rules through it.
   return (
-    <Box flexDirection="column" marginTop={1}>
-      {shouldSeparate(item, previous) ? (
-        <TranscriptDelimiter theme={theme} width={width} />
-      ) : null}
+    <Box flexDirection="column" marginTop={spacingBefore(item, previous)}>
       <ItemView item={item} theme={theme} width={width} provider={provider} model={model} />
     </Box>
   );
 }
 
-export function shouldSeparate(item: Item, previous?: Item): boolean {
-  if (!previous) return false;
-  if (item.kind === "tool" && previous.kind === "tool") return false;
-  return item.kind !== previous.kind || item.kind === "user";
-}
-
-function TranscriptDelimiter({
-  theme,
-  width,
-}: {
-  theme: Theme;
-  width: number;
-}): React.JSX.Element {
-  const line = "─".repeat(Math.max(12, Math.min(width, 100)));
-  return (
-    <Box marginTop={1}>
-      <Text color={theme.muted} dimColor>{line}</Text>
-    </Box>
-  );
+function spacingBefore(item: Item, previous?: Item): number {
+  if (!previous) return 1;
+  if (item.kind === "tool" && previous.kind === "tool") return 0;
+  return item.kind !== previous.kind || item.kind === "user" ? 2 : 1;
 }
 
 export function ItemView({
@@ -235,11 +220,11 @@ export function ItemView({
     case "command":
       return (
         <Box flexDirection="column" paddingLeft={2}>
-          <Text bold color={theme.accent}>ℹ {item.title}</Text>
+          <Text bold color={theme.accent}>▌ {item.title}</Text>
           <Box flexDirection="column" paddingLeft={2} marginTop={1}>
             {item.rows.map((row, idx) => (
               <Box key={idx} flexDirection="row">
-                <Text color={theme.muted}>{row.label.padEnd(12)}: </Text>
+                <Text color={theme.muted}>{row.label.padEnd(14)}</Text>
                 <Text color="white">{row.value}</Text>
               </Box>
             ))}

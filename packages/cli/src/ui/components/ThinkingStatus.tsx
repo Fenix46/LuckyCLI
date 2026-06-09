@@ -15,9 +15,12 @@ function ThinkingStatusInner({
   reasoning?: boolean;
   label?: string;
 }): React.JSX.Element {
-  const frames = ["●", "●", "◆", "◆", "▲", "▲"];
-  const pulse = frames[frame % frames.length] ?? "●";
-  const dots = ".".repeat((frame % 3) + 1).padEnd(3, " ");
+  // Braille spinner: smooth rotation at the timer's tick rate. The trailing
+  // dots cycle slower (every ~4 ticks) so the two animations read as one
+  // calm "working" indicator instead of competing flickers.
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  const pulse = frames[frame % frames.length] ?? "⠋";
+  const dots = ".".repeat((Math.floor(frame / 4) % 3) + 1).padEnd(3, " ");
   // An explicit label (e.g. "compacting") wins; otherwise Codex reasoning shows
   // "reasoning" and the default is "thinking". Either way the phase reads as
   // active, not hung, during a long silent stretch.
