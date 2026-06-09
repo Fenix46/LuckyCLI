@@ -1,28 +1,33 @@
 import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
+import type { Theme } from "../themes.js";
 
 export function PromptBlock({
   text,
   width,
   cursorOffset,
   active = false,
+  theme,
 }: {
   text: string;
   width: number;
   cursorOffset?: number;
   active?: boolean;
+  /** Active theme; sent-message colors fall back to lucky-dark values. */
+  theme?: Theme;
 }): React.JSX.Element {
   const lineWidth = Math.max(18, width);
 
   // Active = the live input line. Keep it clean: a chevron prompt and the typed
-  // text, with no "you" badge and no background fill. The full highlight is
-  // reserved for sent messages so they stand out in the transcript.
+  // text in the terminal's default foreground, with no "you" badge and no
+  // background fill. The full highlight is reserved for sent messages so they
+  // stand out in the transcript.
   if (active) {
     const lines = promptBlockLines(text, cursorOffset, lineWidth, "› ");
     return (
       <Box flexDirection="column" width="100%">
         {lines.map((line, index) => (
-          <Text key={`${index}-${line.text}`} color="#f2f5f8">
+          <Text key={`${index}-${line.text}`}>
             {line.beforeCursor}
             {line.cursor ? <Text inverse>{line.cursor}</Text> : null}
             {line.afterCursor}
@@ -33,9 +38,11 @@ export function PromptBlock({
   }
 
   // Sent user message: a "you ›" badge over a full-width highlight, so the
-  // user's own turns stay instantly distinguishable in the scrollback.
-  const bg = "#223246";
-  const fg = "#f2f5f8";
+  // user's own turns stay instantly distinguishable in the scrollback. The
+  // colors come from the theme so a light palette gets a light block.
+  const bg = theme?.userBg ?? "#223246";
+  const fg = theme?.userFg ?? "#f2f5f8";
+  const pad = theme?.muted ?? "#9ba6b8";
   const lines = promptBlockLines(text, cursorOffset, lineWidth, "you › ");
 
   return (
@@ -49,7 +56,7 @@ export function PromptBlock({
             </Text>
           ) : null}
           {line.afterCursor}
-          <Text backgroundColor={bg} color="#9ba6b8">
+          <Text backgroundColor={bg} color={pad}>
             {line.pad}
           </Text>
         </Text>

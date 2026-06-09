@@ -110,7 +110,7 @@ export function ItemView({
     case "user":
       return (
         <Box flexDirection="column">
-          <PromptBlock text={item.text} width={width} />
+          <PromptBlock text={item.text} width={width} theme={theme} />
         </Box>
       );
     case "assistant":

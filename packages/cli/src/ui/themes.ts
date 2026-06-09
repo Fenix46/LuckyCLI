@@ -7,6 +7,10 @@ export interface Theme {
   warning: string;
   muted: string;
   error: string;
+  /** Background of sent user messages in the transcript. */
+  userBg: string;
+  /** Foreground of sent user messages in the transcript. */
+  userFg: string;
 }
 
 export const THEMES: Theme[] = [
@@ -19,6 +23,8 @@ export const THEMES: Theme[] = [
     warning: "#d9a441",
     muted: "#6f7787",
     error: "#ff6b7a",
+    userBg: "#223246",
+    userFg: "#f2f5f8",
   },
   {
     id: "lucky-light",
@@ -29,6 +35,8 @@ export const THEMES: Theme[] = [
     warning: "#8a641c",
     muted: "#6b7280",
     error: "#b4233f",
+    userBg: "#dbe4f0",
+    userFg: "#1c2430",
   },
   {
     id: "terminal-dark",
@@ -39,6 +47,8 @@ export const THEMES: Theme[] = [
     warning: "#ebcb8b",
     muted: "#667085",
     error: "#bf616a",
+    userBg: "#3b4252",
+    userFg: "#eceff4",
   },
   {
     id: "terminal-ansi",
@@ -49,6 +59,8 @@ export const THEMES: Theme[] = [
     warning: "yellow",
     muted: "gray",
     error: "redBright",
+    userBg: "blackBright",
+    userFg: "white",
   },
   {
     id: "daltonized-dark",
@@ -59,10 +71,12 @@ export const THEMES: Theme[] = [
     warning: "#e69f00",
     muted: "#7f8797",
     error: "#ff7f7f",
+    userBg: "#2b3a55",
+    userFg: "#f0f4ff",
   },
-  { id: "minimal", name: "Legacy Monochrome", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white" },
-  { id: "matrix", name: "Digital Matrix (CRT)", primary: "#00ff00", accent: "#008f11", success: "#00ff00", warning: "#ffff00", muted: "#335533", error: "#ff5555" },
-  { id: "amber", name: "DEC Amber Mainframe", primary: "#ffb000", accent: "#ff8000", success: "#ffd166", warning: "#ff4500", muted: "#806033", error: "#ff5555" },
+  { id: "minimal", name: "Legacy Monochrome", primary: "white", accent: "gray", success: "white", warning: "white", muted: "gray", error: "white", userBg: "blackBright", userFg: "white" },
+  { id: "matrix", name: "Digital Matrix (CRT)", primary: "#00ff00", accent: "#008f11", success: "#00ff00", warning: "#ffff00", muted: "#335533", error: "#ff5555", userBg: "#013220", userFg: "#aaffaa" },
+  { id: "amber", name: "DEC Amber Mainframe", primary: "#ffb000", accent: "#ff8000", success: "#ffd166", warning: "#ff4500", muted: "#806033", error: "#ff5555", userBg: "#33220a", userFg: "#ffd9a0" },
 ];
 
 export function themeById(id: string | undefined): Theme {
