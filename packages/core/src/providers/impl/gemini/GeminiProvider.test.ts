@@ -291,6 +291,42 @@ describe("GeminiProvider", () => {
     );
   });
 
+  it("keeps in-history system messages (compaction summary) as a user turn", async () => {
+    const provider = new GeminiProvider({
+      type: "gemini",
+      authMethod: "api_key",
+      apiKey: "test-api-key",
+    });
+
+    await provider.generate(
+      [
+        {
+          role: "system",
+          content: [{ type: "text", text: "Earlier conversation summary:\nwe fixed the parser" }],
+        },
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ],
+      { model: "gemini-test", systemPrompt: "be helpful" },
+    );
+
+    const instance = (GoogleGenAI as any).mock.results.at(-1).value;
+    expect(instance.models.generateContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // The summary must survive as a turn (merged with the adjacent user
+        // turn), not be silently dropped with the system role.
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: "Earlier conversation summary:\nwe fixed the parser" },
+              { text: "continue" },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+
   it("adds Code Assist thought signatures to tool call history", async () => {
     const provider = new GeminiProvider({
       type: "gemini",

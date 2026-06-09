@@ -492,8 +492,12 @@ function buildConfig(config: GenerationConfig) {
 function toGeminiContents(messages: Message[]): Content[] {
   const contents: Content[] = [];
   for (const msg of messages) {
-    // System prompt is passed via config.systemInstruction, not as a turn.
-    if (msg.role === "system") continue;
+    // The configured system prompt travels via config.systemInstruction, but a
+    // system message INSIDE the history (the compaction summary) has no such
+    // channel — Gemini only accepts user/model turns. Fold it into a user turn
+    // instead of dropping it, or the model silently loses every compacted
+    // turn. The same-role merge below keeps the request valid when the next
+    // message is also a user turn.
     const role = msg.role === "assistant" ? "model" : "user";
     const parts = msg.content.map(toGeminiPart);
     // A Content with an empty parts[] is rejected with 400 INVALID_ARGUMENT.
