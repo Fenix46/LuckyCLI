@@ -4,6 +4,7 @@ import type { ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import type { Item } from "../lib/items.js";
 import { formatToolAction, formatToolResultSummary, truncateSingleLine } from "../lib/format.js";
+import { SPINNER_FRAMES } from "./constants.js";
 import { Markdown } from "../markdown/Markdown.js";
 import { IntroBanner } from "./IntroBanner.js";
 import { PromptBlock } from "./PromptBlock.js";
@@ -27,12 +28,15 @@ export function TranscriptList({
   theme,
   provider,
   model,
+  activityFrame = 0,
 }: {
   items: Item[];
   width: number;
   theme: Theme;
   provider: ProviderId;
   model: string;
+  /** Animation tick while a turn runs; drives the running tool spinner. */
+  activityFrame?: number;
 }): React.JSX.Element {
   return (
     <Box flexDirection="column" width="100%">
@@ -45,6 +49,7 @@ export function TranscriptList({
           width={width}
           provider={provider}
           model={model}
+          activityFrame={activityFrame}
         />
       ))}
     </Box>
@@ -58,6 +63,7 @@ export function TranscriptItem({
   width,
   provider,
   model,
+  activityFrame = 0,
 }: {
   item: Item;
   previous?: Item;
@@ -65,13 +71,21 @@ export function TranscriptItem({
   width: number;
   provider: ProviderId;
   model: string;
+  activityFrame?: number;
 }): React.JSX.Element {
   // Whitespace is the only separator: an extra blank line when the speaker
   // changes (or a new user turn starts) keeps the transcript scannable without
   // drawing horizontal rules through it.
   return (
     <Box flexDirection="column" marginTop={spacingBefore(item, previous)}>
-      <ItemView item={item} theme={theme} width={width} provider={provider} model={model} />
+      <ItemView
+        item={item}
+        theme={theme}
+        width={width}
+        provider={provider}
+        model={model}
+        activityFrame={activityFrame}
+      />
     </Box>
   );
 }
@@ -88,12 +102,14 @@ export function ItemView({
   width,
   provider,
   model,
+  activityFrame = 0,
 }: {
   item: Item;
   theme: Theme;
   width: number;
   provider?: ProviderId;
   model?: string;
+  activityFrame?: number;
 }): React.JSX.Element {
   switch (item.kind) {
     case "intro":
@@ -144,7 +160,13 @@ export function ItemView({
       // results from fighting over one truncated line.
       const isRunning = item.output === undefined;
       const toolColor = item.error ? theme.error : isRunning ? theme.accent : theme.success;
-      const statusSymbol = item.error ? "✖" : isRunning ? "●" : "●";
+      // While running, the bullet is the shared braille spinner (the timer
+      // already re-renders the app each tick); done/error get a fixed glyph.
+      const statusSymbol = item.error
+        ? "✖"
+        : isRunning
+          ? SPINNER_FRAMES[activityFrame % SPINNER_FRAMES.length] ?? "●"
+          : "●";
       const action = formatToolAction(item.name, item.input, isRunning, item.error);
       const result = item.output ? formatToolResultSummary(item.name, item.output, item.error) : "";
       return (

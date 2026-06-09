@@ -39,3 +39,6 @@ export const LOGO = [
 
 /** Columns needed to render LOGO without wrapping (plus card padding). */
 export const LOGO_WIDTH = 42;
+
+/** Shared braille spinner frames — one "working" animation everywhere. */
+export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

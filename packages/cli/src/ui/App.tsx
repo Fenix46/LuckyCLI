@@ -1885,6 +1885,7 @@ export function App({
         theme={activeTheme}
         provider={meta.provider}
         model={meta.model}
+        activityFrame={activityFrame}
       />
 
       {/* Bottom chrome: pickers/overlays, the prompt input frame, the slash
