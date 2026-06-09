@@ -3,7 +3,12 @@ import React from "react";
 import type { ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import type { Item } from "../lib/items.js";
-import { formatToolAction, formatToolResultSummary, truncateSingleLine } from "../lib/format.js";
+import {
+  formatToolAction,
+  formatToolResultSummary,
+  toolResultPreviewLines,
+  truncateSingleLine,
+} from "../lib/format.js";
 import { SPINNER_FRAMES } from "./constants.js";
 import { DiffView } from "./DiffView.js";
 import { Markdown } from "../markdown/Markdown.js";
@@ -182,11 +187,18 @@ export function ItemView({
               <DiffView diffs={item.metadata.diff} theme={theme} width={Math.max(24, width - 4)} />
             </Box>
           ) : !isRunning && result ? (
-            <Box flexDirection="row" paddingLeft={2}>
-              <Text color={theme.muted}>⎿ </Text>
-              <Text color={item.error ? theme.error : theme.muted} wrap="truncate-end">
-                {truncateSingleLine(result, Math.max(16, width - 10))}
-              </Text>
+            <Box flexDirection="column" paddingLeft={2}>
+              <Box flexDirection="row">
+                <Text color={theme.muted}>⎿ </Text>
+                <Text color={item.error ? theme.error : theme.muted} wrap="truncate-end">
+                  {truncateSingleLine(result, Math.max(16, width - 10))}
+                </Text>
+              </Box>
+              {toolResultPreviewLines(item.name, item.output ?? "", item.error).map((line, i) => (
+                <Text key={i} color={theme.muted} dimColor wrap="truncate-end">
+                  {"  "}{truncateSingleLine(line, Math.max(16, width - 12))}
+                </Text>
+              ))}
             </Box>
           ) : null}
         </Box>

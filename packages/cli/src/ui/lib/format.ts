@@ -199,6 +199,35 @@ export function formatToolResultSummary(name: string, output: string, error?: bo
   }
 }
 
+// Tools whose first few result lines are worth showing under the summary —
+// search/listing tools where WHAT was found matters, not just how much.
+// read_file is deliberately absent: its content preview would only be noise.
+const RESULT_PREVIEW_LINES: Record<string, number> = {
+  grep: 3,
+  glob: 3,
+  list_dir: 3,
+};
+
+/**
+ * The first few actual result lines for tools where they aid scanning.
+ * Pure rendering: the full output already went to the model, so this costs
+ * zero tokens. Bracketed status lines ("[showing…]") are skipped.
+ */
+export function toolResultPreviewLines(
+  name: string,
+  output: string,
+  error?: boolean,
+): string[] {
+  if (error) return [];
+  const limit = RESULT_PREVIEW_LINES[name];
+  if (!limit) return [];
+  const lines = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("[") && !/^no matches/i.test(line));
+  return lines.slice(0, limit);
+}
+
 export function summarizeReadOutput(lines: string[]): string {
   const rangeLine = lines.find((line) => /^\[showing \d+ of \d+ lines\]$/.test(line));
   if (rangeLine) return rangeLine.replace(/^\[|\]$/g, "");
