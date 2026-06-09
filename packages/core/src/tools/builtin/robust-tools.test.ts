@@ -226,6 +226,43 @@ describe("robust built-in tools", () => {
     });
   });
 
+  it("classifies in-place editors and /dev/null redirects correctly", () => {
+    // sed/awk are read-only filters…
+    expect(classifyCommandSemantics("sed -n '1,10p' file.txt")).toMatchObject({
+      category: "read_only",
+    });
+    // …but mutate with -i / --in-place / -i inplace.
+    expect(classifyCommandSemantics("sed -i 's/a/b/' file.txt")).toMatchObject({
+      category: "mutating",
+      reason: "sed in-place edit",
+    });
+    expect(classifyCommandSemantics("sed --in-place 's/a/b/' file.txt")).toMatchObject({
+      category: "mutating",
+    });
+    expect(classifyCommandSemantics("sed -i.bak 's/a/b/' file.txt")).toMatchObject({
+      category: "mutating",
+    });
+    expect(classifyCommandSemantics("awk -i inplace '{print}' file.txt")).toMatchObject({
+      category: "mutating",
+    });
+
+    // Redirecting to /dev/null is noise suppression, not a file write.
+    expect(classifyCommandSemantics("ls missing 2>/dev/null")).toMatchObject({
+      category: "read_only",
+    });
+    expect(classifyCommandSemantics("grep -r foo . 2>/dev/null")).toMatchObject({
+      category: "read_only",
+    });
+    // Real redirects still count as writes.
+    expect(classifyCommandSemantics("echo hi > out.txt")).toMatchObject({
+      category: "mutating",
+      reason: "file redirect",
+    });
+    expect(classifyCommandSemantics("cat a 2> err.log")).toMatchObject({
+      category: "mutating",
+    });
+  });
+
   it("runs normal exec commands", async () => {
     const registry = new ToolRegistry().register(execTool);
     const result = await registry.execute("exec", { command: "printf ok" }, { cwd: root });

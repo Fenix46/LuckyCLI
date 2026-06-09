@@ -92,8 +92,14 @@ export function classifyCommandSemantics(command: string): CommandSemantics {
 
   const mutating: Array<[RegExp, string]> = [
     [/\b(?:mv|cp|mkdir|touch|ln|chmod|chown)\b/, "filesystem mutation"],
-    [/(^|[^>])>\s*[^&\s]/, "file redirect"],
-    [/>>\s*[^&\s]/, "file append redirect"],
+    // In-place editors: `sed`/`awk` are read-only filters by default but write
+    // the file when given -i / --in-place / `-i inplace`.
+    [/\bsed\b[^\n;&|]*\s(?:-i\S*|--in-place\b)/, "sed in-place edit"],
+    [/\bawk\b[^\n;&|]*\s-i\s*inplace\b/, "awk in-place edit"],
+    // Redirects write files — except to /dev/null, which mutates nothing and
+    // would otherwise flag harmless noise-suppression like `cmd 2>/dev/null`.
+    [/(^|[^>])>\s*(?!\/dev\/null(?:\s|$|[;&|]))[^&\s]/, "file redirect"],
+    [/>>\s*(?!\/dev\/null(?:\s|$|[;&|]))[^&\s]/, "file append redirect"],
     [/\b(?:npm|pnpm|yarn|bun)\s+(?:install|add|remove|update|upgrade)\b/, "package mutation"],
     [/\b(?:pip|pip3)\s+(?:install|uninstall)\b/, "python package mutation"],
     [/\bgit\s+(?:add|commit|merge|rebase|cherry-pick|pull|push|checkout|switch|restore)\b/, "git mutation"],
