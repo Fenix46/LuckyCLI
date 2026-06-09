@@ -110,6 +110,10 @@ export class ClaudeProvider implements IProvider {
       messages,
       config.systemPrompt,
     );
+    // Tracks whether any chunk reached the consumer. An auth failure may only
+    // be retried transparently while nothing has been yielded — replaying the
+    // stream after partial output would hand the caller duplicated text.
+    let yielded = false;
     try {
       const request = {
         model: config.model || INFO.defaultModel,
@@ -142,6 +146,7 @@ export class ClaudeProvider implements IProvider {
             break;
           case "content_block_delta":
             if (event.delta.type === "text_delta") {
+              yielded = true;
               yield { textDelta: event.delta.text };
             } else if (event.delta.type === "input_json_delta") {
               const buf = toolBuffers.get(event.index);
@@ -151,12 +156,13 @@ export class ClaudeProvider implements IProvider {
           case "content_block_stop": {
             const buf = toolBuffers.get(event.index);
             if (buf) {
+              yielded = true;
               yield {
                 toolCall: {
                   type: "tool_call",
                   id: buf.id,
                   name: buf.name,
-                  arguments: buf.json ? JSON.parse(buf.json) : {},
+                  arguments: parseToolArguments(buf.json),
                 },
               };
               toolBuffers.delete(event.index);
@@ -171,7 +177,7 @@ export class ClaudeProvider implements IProvider {
       const final = await stream.finalMessage();
       yield { finishReason: mapStopReason(final.stop_reason), usage: usageOf(final.usage) };
     } catch (e) {
-      if (await this.tryRefreshOnAuthError(e)) {
+      if (!yielded && await this.tryRefreshOnAuthError(e)) {
         yield* this.generateStream(messages, config);
         return;
       }
@@ -716,6 +722,23 @@ function usageOf(usage: Anthropic.Messages.Usage | undefined): TokenUsage | unde
       ? { cacheWriteTokens: usage.cache_creation_input_tokens }
       : {}),
   };
+}
+
+/**
+ * Parse streamed tool-call JSON defensively. Truncated arguments (e.g.
+ * max_tokens cutting the stream mid-object) must not blow up the whole turn;
+ * the tool layer's schema validation reports the problem back to the model.
+ */
+function parseToolArguments(json: string): Record<string, unknown> {
+  if (!json) return {};
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 function mapStopReason(reason: string | null): FinishReason {

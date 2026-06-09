@@ -33,6 +33,24 @@ vi.mock("@anthropic-ai/sdk", () => {
   return { default: Anthropic };
 });
 
+/**
+ * Minimal stand-in for the SDK's MessageStream: async-iterates the given
+ * events, optionally throwing `error` afterwards, and resolves finalMessage.
+ */
+function makeFakeStream(
+  events: unknown[],
+  final?: unknown,
+  error?: unknown,
+) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const event of events) yield event;
+      if (error) throw error;
+    },
+    finalMessage: async () => final,
+  };
+}
+
 describe("ClaudeProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -353,6 +371,95 @@ describe("ClaudeProvider", () => {
       }),
     );
     expect(createMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers from truncated tool-call JSON instead of failing the turn", async () => {
+    streamMock.mockReturnValueOnce(
+      makeFakeStream(
+        [
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "tool_use", id: "t1", name: "echo" },
+          },
+          // max_tokens cut the arguments mid-object: invalid JSON.
+          { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"value": "x' } },
+          { type: "content_block_stop", index: 0 },
+        ],
+        { stop_reason: "max_tokens", usage: { input_tokens: 1, output_tokens: 1 } },
+      ),
+    );
+    const provider = new ClaudeProvider({ type: "claude", apiKey: "test-key" });
+
+    const chunks = [];
+    for await (const chunk of provider.generateStream(
+      [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      { model: "claude-test" },
+    )) {
+      chunks.push(chunk);
+    }
+
+    const toolCall = chunks.find((c) => c.toolCall)?.toolCall;
+    expect(toolCall).toMatchObject({ id: "t1", name: "echo", arguments: {} });
+  });
+
+  it("retries a stream auth error only when nothing was yielded yet", async () => {
+    refreshClaudeOAuthTokenMock.mockResolvedValue({
+      accessToken: "refreshed-access-token",
+      refreshToken: "oauth-refresh-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+    const authError = {
+      status: 401,
+      message: "Invalid authentication credentials",
+      error: { type: "authentication_error", message: "Invalid authentication credentials" },
+    };
+
+    // Case 1: failure before any chunk -> transparent retry.
+    streamMock
+      .mockReturnValueOnce(makeFakeStream([], undefined, authError))
+      .mockReturnValueOnce(
+        makeFakeStream(
+          [{ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } }],
+          { stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
+        ),
+      );
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "stale-access-token",
+      refreshToken: "oauth-refresh-token",
+    });
+    const texts = [];
+    for await (const chunk of provider.generateStream(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      { model: "claude-test" },
+    )) {
+      if (chunk.textDelta) texts.push(chunk.textDelta);
+    }
+    expect(texts).toEqual(["ok"]);
+    expect(streamMock).toHaveBeenCalledTimes(2);
+
+    // Case 2: failure after a chunk was yielded -> no replay (it would
+    // duplicate output); the error surfaces instead.
+    streamMock.mockReset();
+    streamMock.mockReturnValueOnce(
+      makeFakeStream(
+        [{ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "partial" } }],
+        undefined,
+        authError,
+      ),
+    );
+    const consume = async () => {
+      for await (const _chunk of provider.generateStream(
+        [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        { model: "claude-test" },
+      )) {
+        // drain
+      }
+    };
+    await expect(consume()).rejects.toThrow(/authentication|401/i);
+    expect(streamMock).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes OpenAPI boolean exclusive minimums for Claude tools", async () => {
