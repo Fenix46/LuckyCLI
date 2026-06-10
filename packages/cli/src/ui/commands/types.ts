@@ -1,4 +1,4 @@
-import type { Agent, ContextStatus, ProviderId } from "@luckycli/core";
+import type { Agent, ContextStatus, McpServerConfig, ProviderId } from "@luckycli/core";
 import type { Item } from "../lib/items.js";
 import type { McpPanelTab } from "../components/McpPanel.js";
 
@@ -33,7 +33,11 @@ export interface CommandContext {
     changeModel(model: string): void;
     exit(): void;
     setContextStatus(status: ContextStatus): void;
+    /** Toggle compaction-in-progress (App also tracks the started-at time). */
     setCompacting(on: boolean): void;
+    /** Propagate a changed MCP config to the live manager. */
+    setMcpConfig(next: Record<string, McpServerConfig>): void;
+    persistSession(): void;
   };
 }
 

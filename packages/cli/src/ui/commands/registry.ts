@@ -1,17 +1,21 @@
 import { basicCommands } from "./basic.js";
 import { unknownCommand } from "./helpers.js";
+import { maintenanceCommands } from "./maintenance.js";
+import { mcpCommands } from "./mcp.js";
 import { providerCommands } from "./provider.js";
 import type { Command, CommandContext } from "./types.js";
 
 /**
  * The single source of truth for slash commands. The slash menu, /help and
  * dispatch all derive from this list; order here is menu order.
- *
- * Remaining command groups land here as they migrate out of App.tsx's
- * submit() (APP_REFACTOR_PLAN.md tasks 3–4).
  */
 export function buildCommandRegistry(): Command[] {
-  return [...basicCommands(), ...providerCommands()];
+  return [
+    ...basicCommands(),
+    ...providerCommands(),
+    ...maintenanceCommands(),
+    ...mcpCommands(),
+  ];
 }
 
 function matchCommand(text: string, registry: Command[]): { command: Command; args: string } | null {

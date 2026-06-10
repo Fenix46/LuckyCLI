@@ -1,10 +1,8 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "../vendor/ink-compat.js";
 import React, { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import {
-  CachedMcpCatalog,
   OfficialMcpRegistryCatalog,
   PROVIDER_CATALOG,
-  catalogDetailToPreset,
   type Agent,
   type CatalogServerSummary,
   type ContextStatus,
@@ -19,7 +17,6 @@ import {
   type ToolResultMetadata,
   CodexModelCache,
   antigravityModelLabel,
-  buildAndSaveGraph,
   claudeEffortLevelsForModel,
   createSessionId,
   defaultEffortFor,
@@ -37,15 +34,12 @@ import {
   saveProfile,
   deleteProfile,
   seedDefaultProfiles,
-  listSessions,
   listTasks,
   loadStoredConfig,
   onTasksUpdated,
-  recordGraphBuilt,
   saveReasoningEffort,
   saveSession,
   saveStoredConfig,
-  withAutoUpdatePolicy,
   withMcpServer,
   withoutMcpServer,
   type CodexModel,
@@ -62,7 +56,6 @@ import {
   getThemePickerState,
   validateModel,
 } from "./lib/model-picker.js";
-import { formatNumber } from "./lib/format.js";
 import {
   expandPastedRefs,
   pruneOrphanedPastes,
@@ -70,6 +63,7 @@ import {
   type PastedContents,
 } from "./lib/paste.js";
 import { formatStatusFooter } from "./lib/status.js";
+import { installCatalogServer } from "./commands/mcp.js";
 import { buildCommandRegistry, dispatchCommand } from "./commands/registry.js";
 import { ALL_SLASH_COMMANDS } from "./commands/slash-menu.js";
 import type { CommandContext } from "./commands/types.js";
@@ -738,7 +732,9 @@ export function App({
         if (!selected) return;
         setMcpPanelLoading(true);
         setMcpPanelError(null);
-        void installCatalogServerByName(selected.name)
+        void installCatalogServer(selected.name, onMcpConfigChange, (item) =>
+          setItems((prev) => [...prev, item]),
+        )
           .then(() => {
             setMcpPanelLoading(false);
             setMcpPanelTab("installed");
@@ -1162,28 +1158,6 @@ export function App({
     [applyTheme],
   );
 
-  async function installCatalogServerByName(name: string) {
-    const catalog = new CachedMcpCatalog(new OfficialMcpRegistryCatalog());
-    const detail = await catalog.get(name);
-    const preset = catalogDetailToPreset(detail);
-    const cfg = loadStoredConfig();
-    const next = withMcpServer(cfg, preset.name, preset.config);
-    saveStoredConfig(next);
-    onMcpConfigChange(next.mcp ?? {});
-    setItems((prev) => [
-      ...prev,
-      {
-        kind: "command",
-        title: "MCP Added",
-        rows: [
-          { label: "server", value: preset.name },
-          { label: "type", value: preset.config.type },
-          { label: "source", value: "official-registry" },
-        ],
-      },
-    ]);
-  }
-
   function toggleInstalledServer(name: string) {
     const cfg = loadStoredConfig();
     const current = cfg.mcp?.[name];
@@ -1239,247 +1213,6 @@ export function App({
 
       if (!text || busy || compacting) return;
 
-      if (text === "/resume") {
-        if (listSessions().length === 0) {
-          setItems((prev) => [
-            ...prev,
-            { kind: "error", text: "no saved sessions to resume" },
-          ]);
-          setInput("");
-          return;
-        }
-        onTriggerResume();
-        setInput("");
-        return;
-      }
-      if (text === "/mcp" || text === "/mcp status" || text === "/mcp list") {
-        openMcpPanel("installed");
-        setInput("");
-        return;
-      }
-      if (text === "/agents") {
-        openAgentsPanel();
-        setInput("");
-        return;
-      }
-      if (text === "/mcp search" || text.startsWith("/mcp search ")) {
-        const query = text.slice("/mcp search".length).trim();
-        openMcpPanel("search", query);
-        setInput("");
-        return;
-      }
-      if (text.startsWith("/mcp show ")) {
-        const name = text.slice("/mcp show ".length).trim();
-        if (!name) {
-          setItems((prev) => [...prev, { kind: "error", text: "usage: /mcp show <server-name>" }]);
-          setInput("");
-          return;
-        }
-        try {
-          const catalog = new CachedMcpCatalog(new OfficialMcpRegistryCatalog());
-          const detail = await catalog.get(name);
-          const preset = catalogDetailToPreset(detail);
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: `MCP Server: ${detail.name}`,
-              rows: [
-                ...(detail.title ? [{ label: "title", value: detail.title }] : []),
-                ...(detail.description ? [{ label: "description", value: detail.description }] : []),
-                ...(detail.version ? [{ label: "version", value: detail.version }] : []),
-                { label: "preset", value: preset.config.type === "local" ? preset.config.command.join(" ") : preset.config.url },
-              ],
-            },
-          ]);
-        } catch (error) {
-          setItems((prev) => [
-            ...prev,
-            { kind: "error", text: error instanceof Error ? error.message : "failed to load MCP server" },
-          ]);
-        }
-        setInput("");
-        return;
-      }
-      if (text.startsWith("/mcp add ")) {
-        const name = text.slice("/mcp add ".length).trim();
-        if (!name) {
-          setItems((prev) => [...prev, { kind: "error", text: "usage: /mcp add <server-name>" }]);
-          setInput("");
-          return;
-        }
-        try {
-          await installCatalogServerByName(name);
-        } catch (error) {
-          setItems((prev) => [
-            ...prev,
-            { kind: "error", text: error instanceof Error ? error.message : "failed to add MCP server" },
-          ]);
-        }
-        setInput("");
-        return;
-      }
-      if (text === "/update" || text.startsWith("/update ")) {
-        const arg = text.slice("/update".length).trim();
-        setInput("");
-
-        // `/update auto <off|notify|auto>`: set the policy in-session.
-        if (arg.startsWith("auto")) {
-          const policy = arg.slice("auto".length).trim();
-          if (policy !== "off" && policy !== "notify" && policy !== "auto") {
-            setItems((prev) => [
-              ...prev,
-              { kind: "error", text: "usage: /update auto <off|notify|auto>" },
-            ]);
-            return;
-          }
-          saveStoredConfig(withAutoUpdatePolicy(loadStoredConfig(), policy));
-          setItems((prev) => [
-            ...prev,
-            { kind: "command", title: "Update", rows: [{ label: "policy", value: policy }] },
-          ]);
-          return;
-        }
-
-        try {
-          const info = await checkForUpdate(APP_VERSION, { force: true });
-
-          // `/update apply`: download, verify, swap, then exit cleanly. Typing
-          // the subcommand is the confirmation; we never swap mid-turn silently.
-          if (arg === "apply") {
-            if (!info.updateAvailable) {
-              setItems((prev) => [
-                ...prev,
-                { kind: "command", title: "Update", rows: updateRows(info) },
-              ]);
-              return;
-            }
-            const result = await applyUpdateNow(undefined);
-            if (result.applied) {
-              setItems((prev) => [
-                ...prev,
-                {
-                  kind: "command",
-                  title: "Updated",
-                  rows: [
-                    { label: "version", value: info.latestVersion ?? "latest" },
-                    { label: "status", value: "installed — restart lucky" },
-                  ],
-                },
-              ]);
-              exit();
-              return;
-            }
-            setItems((prev) => [
-              ...prev,
-              {
-                kind: "command",
-                title: "Update",
-                rows: [
-                  { label: "status", value: `cannot self-update (${result.reason})` },
-                  ...(result.installCommand
-                    ? [{ label: "command", value: result.installCommand }]
-                    : []),
-                ],
-              },
-            ]);
-            return;
-          }
-
-          // Plain `/update`: show status, and how to apply if available.
-          const rows = updateRows(info);
-          if (info.updateAvailable && detectSelfUpdate().ok) {
-            rows.push({ label: "apply", value: "run /update apply to install" });
-          }
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: info.updateAvailable ? "Update Available" : "Update",
-              rows,
-            },
-          ]);
-        } catch (error) {
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "error",
-              text: error instanceof Error ? error.message : "failed to check for updates",
-            },
-          ]);
-        }
-        return;
-      }
-      if (text === "/compact") {
-        setInput("");
-        setCompacting(true);
-        setCompactStartedAt(Date.now());
-        try {
-          const result = await agent.compactNow();
-          const status = await agent.contextStatus();
-          setContextStatus(status);
-          persistSession();
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: "Compaction",
-              rows: [
-                { label: "removed", value: `${result.removedMessages} messages` },
-                { label: "kept", value: `${result.keptMessages} messages` },
-                {
-                  label: "tokens",
-                  value:
-                    result.beforeTokens !== undefined && result.afterTokens !== undefined
-                      ? `${formatNumber(result.beforeTokens)} -> ${formatNumber(result.afterTokens)}`
-                      : "not available",
-                },
-              ],
-            },
-          ]);
-        } catch (error) {
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "error",
-              text: error instanceof Error ? error.message : "failed to compact context",
-            },
-          ]);
-        } finally {
-          setCompacting(false);
-          setCompactStartedAt(null);
-        }
-        return;
-      }
-      if (text === "/graph" || text === "/graph build" || text === "/graph rebuild") {
-        setInput("");
-        setItems((prev) => [
-          ...prev,
-          { kind: "command", title: "Graph", rows: [{ label: "building", value: "scanning project files…" }] },
-        ]);
-        const cwd = process.cwd();
-        void buildAndSaveGraph(cwd)
-          .then((summary) => {
-            recordGraphBuilt(cwd);
-            const rows = [
-              { label: "files", value: String(summary.fileCount) },
-              { label: "nodes", value: String(summary.nodeCount) },
-              { label: "edges", value: String(summary.edgeCount) },
-              { label: "saved", value: summary.path },
-            ];
-            if (summary.droppedEdges > 0) {
-              rows.push({ label: "dropped", value: `${summary.droppedEdges} unresolved edges` });
-            }
-            setItems((prev) => [...prev, { kind: "command", title: "Graph built", rows }]);
-          })
-          .catch((err) => {
-            setItems((prev) => [
-              ...prev,
-              { kind: "error", text: `graph build failed: ${err instanceof Error ? err.message : String(err)}` },
-            ]);
-          });
-        return;
-      }
       // Registry-backed commands, plus the unknown-command error: slash
       // input never reaches the model. The context is built per dispatch so
       // command handlers always see fresh state (see APP_REFACTOR_PLAN.md).
@@ -1506,7 +1239,12 @@ export function App({
             changeModel: onChangeModel,
             exit,
             setContextStatus,
-            setCompacting,
+            setCompacting: (on) => {
+              setCompacting(on);
+              setCompactStartedAt(on ? Date.now() : null);
+            },
+            setMcpConfig: onMcpConfigChange,
+            persistSession,
           },
         };
         await dispatchCommand(text, commandRegistry, ctx);
@@ -1523,7 +1261,7 @@ export function App({
       setInput("");
       await runTurn(expanded);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, openMcpPanel, commandRegistry, onChangeModel],
+    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, openMcpPanel, commandRegistry, onChangeModel, onMcpConfigChange, persistSession],
   );
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);

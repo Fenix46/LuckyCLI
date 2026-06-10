@@ -95,6 +95,32 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
       },
     },
     {
+      name: "/resume",
+      description: "Pick a saved session to resume",
+      run(args, ctx) {
+        if (args) {
+          unknownCommand(ctx, `/resume ${args}`);
+          return;
+        }
+        if (deps.listSessions().length === 0) {
+          ctx.emit({ kind: "error", text: "no saved sessions to resume" });
+          return;
+        }
+        ctx.ui.triggerResume();
+      },
+    },
+    {
+      name: "/agents",
+      description: "Manage sub-agent profiles (provider/model per role)",
+      run(args, ctx) {
+        if (args) {
+          unknownCommand(ctx, `/agents ${args}`);
+          return;
+        }
+        ctx.ui.openAgentsPanel();
+      },
+    },
+    {
       name: "/sessions",
       description: "List saved sessions",
       hidden: true,
