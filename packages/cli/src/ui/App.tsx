@@ -1,10 +1,8 @@
 import { Box, Text, useApp, useWindowSize } from "../vendor/ink-compat.js";
 import React, { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import {
-  OfficialMcpRegistryCatalog,
   PROVIDER_CATALOG,
   type Agent,
-  type CatalogServerSummary,
   type ContextStatus,
   type Message,
   type McpManager,
@@ -29,28 +27,19 @@ import {
   getReasoningEffort,
   getActiveTaskListId,
   getThinkingEnabled,
-  isProviderId,
-  listProfiles,
-  saveProfile,
-  deleteProfile,
-  seedDefaultProfiles,
   listTasks,
   loadStoredConfig,
   onTasksUpdated,
   saveReasoningEffort,
   saveSession,
   saveStoredConfig,
-  withMcpServer,
-  withoutMcpServer,
   type CodexModel,
   type Task,
-  type AgentProfile,
 } from "@luckycli/core";
 import { applyUpdateNow, checkForUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { messagesToItems, patchLastTool } from "./lib/items.js";
-import { buildInstalledMcpRows } from "./lib/mcp-rows.js";
 import {
   getModelPickerState,
   getThemePickerState,
@@ -63,10 +52,11 @@ import {
   type PastedContents,
 } from "./lib/paste.js";
 import { formatStatusFooter } from "./lib/status.js";
-import { installCatalogServer } from "./commands/mcp.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import type { CommandContext } from "./commands/types.js";
+import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
+import { useMcpPanel } from "./hooks/useMcpPanel.js";
 import { useModalRouter, type ModalHandler } from "./hooks/useModalRouter.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
@@ -75,13 +65,8 @@ import { PickerHint } from "./components/PickerHint.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { AgentUsagePanel } from "./components/AgentUsagePanel.js";
 import { TranscriptList } from "./components/Transcript.js";
-import { McpPanel, type McpPanelTab } from "./components/McpPanel.js";
-import {
-  AgentsPanel,
-  AGENT_DRAFT_FIELDS,
-  type AgentDraft,
-  type AgentsPanelView,
-} from "./components/AgentsPanel.js";
+import { McpPanel } from "./components/McpPanel.js";
+import { AgentsPanel } from "./components/AgentsPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
 import type {
@@ -366,120 +351,15 @@ export function App({
   const filteredCommands = menuEntries.filter((cmd) =>
     cmd.name.startsWith(input)
   );
-  const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
-  const [mcpPanelTab, setMcpPanelTab] = useState<McpPanelTab>("installed");
-  const [mcpPanelQuery, setMcpPanelQuery] = useState("");
-  const [mcpPanelResults, setMcpPanelResults] = useState<CatalogServerSummary[]>([]);
-  const [mcpPanelLoading, setMcpPanelLoading] = useState(false);
-  const [mcpPanelError, setMcpPanelError] = useState<string | null>(null);
-  const [selectedInstalledMcpIndex, setSelectedInstalledMcpIndex] = useState(0);
-  const [selectedSearchMcpIndex, setSelectedSearchMcpIndex] = useState(0);
-
-  // /agents control panel: list of profiles + an inline editor for create/edit.
-  const [agentsPanelOpen, setAgentsPanelOpen] = useState(false);
-  const [agentsView, setAgentsView] = useState<AgentsPanelView>("list");
-  const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
-  const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
-  const [agentDraft, setAgentDraft] = useState<AgentDraft | null>(null);
-  const [agentFieldIndex, setAgentFieldIndex] = useState(0);
-  const [agentsPanelError, setAgentsPanelError] = useState<string | null>(null);
-  // Providers the user is logged into, recomputed when the panel opens.
-  const loggedInProviders = useMemo(() => {
-    const creds = loadStoredConfig().credentials ?? {};
-    return new Set(
-      Object.keys(creds).filter(isProviderId) as ProviderId[],
-    );
-    // Recompute when the panel toggles so a fresh login is reflected.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentsPanelOpen]);
-
-  function refreshAgentProfiles(): AgentProfile[] {
-    const profiles = listProfiles();
-    setAgentProfiles(profiles);
-    return profiles;
-  }
-
-  function openAgentsPanel(): void {
-    // Seed example profiles the first time so the list isn't blank.
-    seedDefaultProfiles();
-    refreshAgentProfiles();
-    setAgentsView("list");
-    setSelectedAgentIndex(0);
-    setAgentDraft(null);
-    setAgentFieldIndex(0);
-    setAgentsPanelError(null);
-    setAgentsPanelOpen(true);
-  }
-
-  /** Models available for a provider, from the live catalog. */
-  function modelsFor(provider: ProviderId): string[] {
-    return PROVIDER_CATALOG[provider]?.availableModels ?? [];
-  }
-
-  /** Cycle the draft's provider (and reset its model to that provider's default). */
-  function cycleDraftProvider(dir: 1 | -1): void {
-    setAgentDraft((prev) => {
-      if (!prev) return prev;
-      const ids = Object.keys(PROVIDER_CATALOG) as ProviderId[];
-      const i = ids.indexOf(prev.provider);
-      const nextProvider = ids[(i + dir + ids.length) % ids.length] ?? prev.provider;
-      const models = modelsFor(nextProvider);
-      return {
-        ...prev,
-        provider: nextProvider,
-        model: models[0] ?? prev.model,
-      };
-    });
-  }
-
-  /** Cycle the draft's model within its current provider. */
-  function cycleDraftModel(dir: 1 | -1): void {
-    setAgentDraft((prev) => {
-      if (!prev) return prev;
-      const models = modelsFor(prev.provider);
-      if (models.length === 0) return prev;
-      const i = Math.max(0, models.indexOf(prev.model));
-      return { ...prev, model: models[(i + dir + models.length) % models.length] ?? prev.model };
-    });
-  }
-
-  /** Validate and persist the current draft, then return to the list. */
-  function commitAgentDraft(): void {
-    const draft = agentDraft;
-    if (!draft) return;
-    const name = draft.name.trim();
-    if (!name) {
-      setAgentsPanelError("Name is required.");
-      return;
-    }
-    // Block a rename/create that would collide with a different existing profile.
-    const collision = agentProfiles.find(
-      (p) => p.name === name && p.name !== draft.original,
-    );
-    if (collision) {
-      setAgentsPanelError(`A sub-agent named "${name}" already exists.`);
-      return;
-    }
-    try {
-      // On rename, remove the old file so it doesn't linger as a duplicate.
-      if (draft.original && draft.original !== name) deleteProfile(draft.original);
-      saveProfile({
-        name,
-        description: draft.description.trim(),
-        provider: draft.provider,
-        model: draft.model,
-      });
-    } catch (err) {
-      setAgentsPanelError(err instanceof Error ? err.message : "failed to save sub-agent");
-      return;
-    }
-    const profiles = refreshAgentProfiles();
-    setAgentsView("list");
-    setAgentDraft(null);
-    setAgentsPanelError(null);
-    const idx = profiles.findIndex((p) => p.name === name);
-    setSelectedAgentIndex(idx >= 0 ? idx : 0);
-  }
+  // Panel state machines (state + keys + actions) live in their hooks; App
+  // keeps the open() calls, the modal-chain slots and the render slots.
+  const mcpPanel = useMcpPanel({
+    mcpConfig,
+    mcpStatus: mcpManager?.status() ?? {},
+    onMcpConfigChange,
+    emit: (item) => setItems((prev) => [...prev, item]),
+  });
+  const agentsPanel = useAgentsPanel();
   // Live Codex model catalog (openai-oauth only), fetched on demand and cached
   // for the session. The picker reads these slugs instead of a hardcoded list.
   const codexCacheRef = useRef<CodexModelCache | null>(null);
@@ -522,14 +402,6 @@ export function App({
     setSelectedQuestionOptionIndex(0);
   }, [userQuestionRequest]);
 
-  useEffect(() => {
-    setSelectedInstalledMcpIndex(0);
-  }, [mcpPanelOpen, mcpPanelTab, mcpConfig]);
-
-  useEffect(() => {
-    setSelectedSearchMcpIndex(0);
-  }, [mcpPanelOpen, mcpPanelTab, mcpPanelQuery, mcpPanelResults.length]);
-
   const footerEffort =
     meta.provider === "openai-oauth" || meta.provider === "claude"
       ? getReasoningEffort(loadStoredConfig(), meta.provider)
@@ -540,52 +412,6 @@ export function App({
         ? "adaptive"
         : "off"
       : undefined;
-
-  useEffect(() => {
-    if (!mcpPanelOpen || mcpPanelTab !== "search") return;
-    const query = mcpPanelQuery.trim();
-    if (!query) {
-      setMcpPanelResults([]);
-      setMcpPanelLoading(false);
-      setMcpPanelError(null);
-      return;
-    }
-    let cancelled = false;
-    setMcpPanelLoading(true);
-    setMcpPanelError(null);
-    const timer = setTimeout(() => {
-      void new OfficialMcpRegistryCatalog()
-        .search(query)
-        .then((result) => {
-          if (cancelled) return;
-          setMcpPanelResults(result.items);
-          setMcpPanelLoading(false);
-        })
-        .catch((error) => {
-          if (cancelled) return;
-          setMcpPanelResults([]);
-          setMcpPanelLoading(false);
-          setMcpPanelError(error instanceof Error ? error.message : "failed to search MCP catalog");
-        });
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [mcpPanelOpen, mcpPanelTab, mcpPanelQuery]);
-
-  const installedMcpRows = buildInstalledMcpRows(mcpConfig, mcpManager?.status() ?? {});
-
-  const openMcpPanel = useCallback((tab: McpPanelTab, query = "") => {
-    setMcpPanelOpen(true);
-    setMcpPanelTab(tab);
-    setMcpPanelQuery(query);
-    setMcpPanelError(null);
-    if (tab === "installed") {
-      setMcpPanelResults([]);
-      setMcpPanelLoading(false);
-    }
-  }, []);
 
   // All modal keyboard handling goes through one useInput (the router). The
   // array order IS the precedence chain, top = highest priority. Handlers
@@ -670,184 +496,10 @@ export function App({
         return true; // swallow everything else while the question is open
       },
     },
-    // 2.5 MCP control panel (state machine moves to useMcpPanel in task 7)
-    {
-      active: mcpPanelOpen,
-      onInput(_in, key) {
-        if (key.escape) {
-          setMcpPanelOpen(false);
-          setMcpPanelError(null);
-          return true;
-        }
-        if (key.leftArrow || key.rightArrow || key.tab) {
-          setMcpPanelTab((prev) => (prev === "installed" ? "search" : "installed"));
-          return true;
-        }
-        if (mcpPanelTab === "installed") {
-          if (installedMcpRows.length > 0 && key.downArrow) {
-            setSelectedInstalledMcpIndex((prev) => (prev + 1) % installedMcpRows.length);
-            return true;
-          }
-          if (installedMcpRows.length > 0 && key.upArrow) {
-            setSelectedInstalledMcpIndex((prev) => (prev - 1 + installedMcpRows.length) % installedMcpRows.length);
-            return true;
-          }
-          const selected = installedMcpRows[selectedInstalledMcpIndex];
-          if (key.return && selected) {
-            toggleInstalledServer(selected.name);
-            return true;
-          }
-          if ((_in === "d" || _in === "D") && selected) {
-            removeInstalledServer(selected.name);
-            return true;
-          }
-          if (_in === "r" || _in === "R") {
-            onMcpConfigChange(mcpConfig);
-            setItems((prev) => [
-              ...prev,
-              { kind: "command", title: "MCP Reload", rows: [{ label: "status", value: "reloading configured MCP servers" }] },
-            ]);
-          }
-          return true;
-        }
-        if (mcpPanelResults.length > 0 && key.downArrow) {
-          setSelectedSearchMcpIndex((prev) => (prev + 1) % mcpPanelResults.length);
-          return true;
-        }
-        if (mcpPanelResults.length > 0 && key.upArrow) {
-          setSelectedSearchMcpIndex((prev) => (prev - 1 + mcpPanelResults.length) % mcpPanelResults.length);
-          return true;
-        }
-        if (key.backspace || key.delete) {
-          if (mcpPanelQuery.length > 0) setMcpPanelQuery((prev) => prev.slice(0, -1));
-          return true;
-        }
-        if (key.return) {
-          const selected = mcpPanelResults[selectedSearchMcpIndex];
-          if (!selected) return true;
-          setMcpPanelLoading(true);
-          setMcpPanelError(null);
-          void installCatalogServer(selected.name, onMcpConfigChange, (item) =>
-            setItems((prev) => [...prev, item]),
-          )
-            .then(() => {
-              setMcpPanelLoading(false);
-              setMcpPanelTab("installed");
-              setMcpPanelQuery("");
-            })
-            .catch((error) => {
-              setMcpPanelLoading(false);
-              setMcpPanelError(error instanceof Error ? error.message : "failed to add MCP server");
-            });
-          return true;
-        }
-        if (!key.ctrl && !key.meta && !key.return && _in) {
-          setMcpPanelQuery((prev) => prev + _in);
-        }
-        return true; // panel owns the keyboard while open
-      },
-    },
-    // 2.6 Sub-agents (/agents) control panel (moves to useAgentsPanel in task 7)
-    {
-      active: agentsPanelOpen,
-      onInput(_in, key) {
-        if (agentsView === "list") {
-          if (key.escape) {
-            setAgentsPanelOpen(false);
-            setAgentsPanelError(null);
-            return true;
-          }
-          if (agentProfiles.length > 0 && key.downArrow) {
-            setSelectedAgentIndex((prev) => (prev + 1) % agentProfiles.length);
-            return true;
-          }
-          if (agentProfiles.length > 0 && key.upArrow) {
-            setSelectedAgentIndex((prev) => (prev - 1 + agentProfiles.length) % agentProfiles.length);
-            return true;
-          }
-          if (_in === "n" || _in === "N") {
-            const provider = (Object.keys(PROVIDER_CATALOG) as ProviderId[])[0] ?? "claude";
-            setAgentDraft({
-              original: null,
-              name: "",
-              description: "",
-              provider,
-              model: modelsFor(provider)[0] ?? PROVIDER_CATALOG[provider].defaultModel,
-            });
-            setAgentFieldIndex(0);
-            setAgentsPanelError(null);
-            setAgentsView("edit");
-            return true;
-          }
-          const selected = agentProfiles[selectedAgentIndex];
-          if ((_in === "e" || _in === "E") && selected) {
-            setAgentDraft({
-              original: selected.name,
-              name: selected.name,
-              description: selected.description,
-              provider: selected.provider,
-              model: selected.model,
-            });
-            setAgentFieldIndex(0);
-            setAgentsPanelError(null);
-            setAgentsView("edit");
-            return true;
-          }
-          if ((_in === "d" || _in === "D") && selected) {
-            deleteProfile(selected.name);
-            const profiles = refreshAgentProfiles();
-            setSelectedAgentIndex((prev) => Math.max(0, Math.min(prev, profiles.length - 1)));
-          }
-          return true;
-        }
-
-        // edit view
-        if (key.escape) {
-          setAgentsView("list");
-          setAgentDraft(null);
-          setAgentsPanelError(null);
-          return true;
-        }
-        if (key.downArrow || key.tab) {
-          setAgentFieldIndex((prev) => (prev + 1) % AGENT_DRAFT_FIELDS.length);
-          return true;
-        }
-        if (key.upArrow) {
-          setAgentFieldIndex((prev) => (prev - 1 + AGENT_DRAFT_FIELDS.length) % AGENT_DRAFT_FIELDS.length);
-          return true;
-        }
-        if (key.return) {
-          commitAgentDraft();
-          return true;
-        }
-        const field = AGENT_DRAFT_FIELDS[agentFieldIndex];
-        if (field === "provider") {
-          if (key.leftArrow) cycleDraftProvider(-1);
-          else if (key.rightArrow) cycleDraftProvider(1);
-          return true;
-        }
-        if (field === "model") {
-          if (key.leftArrow) cycleDraftModel(-1);
-          else if (key.rightArrow) cycleDraftModel(1);
-          return true;
-        }
-        // name / description: free text editing
-        const textField: "name" | "description" =
-          field === "description" ? "description" : "name";
-        if (key.backspace || key.delete) {
-          setAgentDraft((prev) =>
-            prev ? { ...prev, [textField]: prev[textField].slice(0, -1) } : prev,
-          );
-          return true;
-        }
-        if (!key.ctrl && !key.meta && _in) {
-          setAgentDraft((prev) =>
-            prev ? { ...prev, [textField]: prev[textField] + _in } : prev,
-          );
-        }
-        return true; // panel owns the keyboard while open
-      },
-    },
+    // 2.5 MCP control panel
+    mcpPanel.handler,
+    // 2.6 Sub-agents (/agents) control panel
+    agentsPanel.handler,
     // 3a. Effort picker (second step of /model, provider-specific)
     {
       active: Boolean(effortPicker),
@@ -1174,43 +826,6 @@ export function App({
     [applyTheme],
   );
 
-  function toggleInstalledServer(name: string) {
-    const cfg = loadStoredConfig();
-    const current = cfg.mcp?.[name];
-    if (!current) return;
-    const next = withMcpServer(cfg, name, {
-      ...current,
-      enabled: current.enabled === false ? true : false,
-    });
-    saveStoredConfig(next);
-    onMcpConfigChange(next.mcp ?? {});
-    setItems((prev) => [
-      ...prev,
-      {
-        kind: "command",
-        title: "MCP Updated",
-        rows: [
-          { label: "server", value: name },
-          { label: "enabled", value: next.mcp?.[name]?.enabled === false ? "false" : "true" },
-        ],
-      },
-    ]);
-  }
-
-  function removeInstalledServer(name: string) {
-    const cfg = loadStoredConfig();
-    const next = withoutMcpServer(cfg, name);
-    saveStoredConfig(next);
-    onMcpConfigChange(next.mcp ?? {});
-    setItems((prev) => [
-      ...prev,
-      {
-        kind: "command",
-        title: "MCP Removed",
-        rows: [{ label: "server", value: name }],
-      },
-    ]);
-  }
 
   const submit = useCallback(
     async (value: string) => {
@@ -1244,8 +859,8 @@ export function App({
             contextStatus,
           },
           ui: {
-            openMcpPanel,
-            openAgentsPanel,
+            openMcpPanel: mcpPanel.open,
+            openAgentsPanel: agentsPanel.open,
             triggerSetup: onTriggerSetup,
             triggerResume: onTriggerResume,
             applyTheme: selectTheme,
@@ -1275,7 +890,7 @@ export function App({
       setInput("");
       await runTurn(expanded);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, openMcpPanel, commandRegistry, onChangeModel, onMcpConfigChange, persistSession],
+    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession],
   );
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);
@@ -1362,12 +977,12 @@ export function App({
       onPaste={handlePaste}
       nextPasteId={allocatePasteId}
       width={inputWidth}
-      active={!mcpPanelOpen && !agentsPanelOpen}
+      active={!mcpPanel.isOpen && !agentsPanel.isOpen}
       history={promptHistory}
       historyEnabled={historyEnabled}
       submitEnabled={
-        !mcpPanelOpen &&
-        !agentsPanelOpen &&
+        !mcpPanel.isOpen &&
+        !agentsPanel.isOpen &&
         !modelPicker.open &&
         !themePicker.open &&
         // Block submit only while the slash menu still has a pending
@@ -1492,31 +1107,10 @@ export function App({
           </Box>
           <PickerHint theme={activeTheme} />
         </Box>
-      ) : mcpPanelOpen ? (
-        <McpPanel
-          theme={activeTheme}
-          width={messageWidth}
-          tab={mcpPanelTab}
-          installedRows={installedMcpRows}
-          selectedInstalledIndex={selectedInstalledMcpIndex}
-          query={mcpPanelQuery}
-          results={mcpPanelResults}
-          selectedSearchIndex={selectedSearchMcpIndex}
-          loading={mcpPanelLoading}
-          error={mcpPanelError}
-        />
-      ) : agentsPanelOpen ? (
-        <AgentsPanel
-          theme={activeTheme}
-          width={messageWidth}
-          view={agentsView}
-          profiles={agentProfiles}
-          selectedIndex={selectedAgentIndex}
-          draft={agentDraft}
-          fieldIndex={agentFieldIndex}
-          loggedInProviders={loggedInProviders}
-          error={agentsPanelError}
-        />
+      ) : mcpPanel.isOpen ? (
+        <McpPanel theme={activeTheme} width={messageWidth} {...mcpPanel.panelProps} />
+      ) : agentsPanel.isOpen ? (
+        <AgentsPanel theme={activeTheme} width={messageWidth} {...agentsPanel.panelProps} />
       ) : null}
 
       {/* Input frame: a single rounded border instead of full-width rules.
