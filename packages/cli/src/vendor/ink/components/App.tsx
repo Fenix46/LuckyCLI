@@ -149,7 +149,7 @@ export default class App extends PureComponent<Props, State> {
 
   // Determines if TTY is supported on the provided stdin
   isRawModeSupported(): boolean {
-    return this.props.stdin.isTTY;
+    return !!(this.props.stdin.isTTY || process.stdin.isTTY || process.stdout.isTTY || (this.props.stdin as any).setRawMode);
   }
   override render() {
     return <TerminalSizeContext.Provider value={{
@@ -211,11 +211,7 @@ export default class App extends PureComponent<Props, State> {
       stdin
     } = this.props;
     if (!this.isRawModeSupported()) {
-      if (stdin === process.stdin) {
-        throw new Error('Raw mode is not supported on the current process.stdin, which Ink uses as input stream by default.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported');
-      } else {
-        throw new Error('Raw mode is not supported on the stdin provided to Ink.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported');
-      }
+      return; // Do nothing if raw mode is not supported instead of throwing.
     }
     stdin.setEncoding('utf8');
     if (isEnabled) {
