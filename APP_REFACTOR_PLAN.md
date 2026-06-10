@@ -4,8 +4,24 @@ Plan for breaking up `packages/cli/src/ui/App.tsx` (currently ~2,100 lines).
 Same discipline as `MCP_TASKLIST.md` / `SKILLS_GRAPH_PLAN.md`: one task =
 test(s) + a focused commit, the app stays shippable after every step.
 
-> **Status: not started.** This is task #12 of the session task list and a
-> prerequisite for the `/skill` panel (SKILLS_GRAPH_PLAN.md, task 6).
+> **Status: done** (tasks 1–7 landed as one commit each; task 8 notes below).
+> App.tsx went from ~2,100 to ~1,200 lines; everything command/modal/panel
+> shaped now lives in `ui/commands/` and `ui/hooks/`. This unblocks the
+> `/skill` panel (SKILLS_GRAPH_PLAN.md, task 6).
+>
+> Deviations from the plan, decided during implementation:
+> - `/resume` and `/agents` (unassigned in tasks 2–4) migrated into
+>   `basic.ts`.
+> - `ctx.ui` gained `selectModel` (validate + effort picker) next to
+>   `changeModel` (raw rebuild): `/thinking` must rebuild on the same model
+>   without re-opening the picker.
+> - `ctx.ui` also gained `setMcpConfig` + `persistSession`; `ctx` carries a
+>   read-only `state` snapshot and the `registry` (for `/help`).
+> - The registry sorts visible commands by an explicit `MENU_ORDER` so the
+>   slash menu kept its pre-refactor order.
+> - The ~400–500 line target was optimistic: the remaining bulk is render
+>   JSX, the launch update-check effect and the codex/antigravity model
+>   loaders. Extracting those is optional follow-up, not part of this plan.
 
 ## Why
 
