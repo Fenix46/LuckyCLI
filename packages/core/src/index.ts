@@ -231,6 +231,13 @@ export {
 } from "./skills/graph.js";
 export type { DiscoveredSkill } from "./skills/graph.js";
 export {
+  installSkillFromPath,
+  setSkillEnabled,
+  toggleSkillEnabled,
+  uninstallSkill,
+} from "./skills/install.js";
+export type { InstallResult } from "./skills/install.js";
+export {
   ACTIVATION_BUDGET,
   matchSkills,
   renderSkillInjection,
