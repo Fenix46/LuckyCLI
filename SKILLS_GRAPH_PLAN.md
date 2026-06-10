@@ -4,7 +4,20 @@ Implementation plan for LuckyCLI's skill system. Same discipline as
 `MCP_TASKLIST.md` and `MCP_GRAPH_INTEGRATION.md`: one task = test(s) + a
 focused commit.
 
-> **Status: not started.** Design agreed; implementation deferred.
+> **Status: done.** All 7 tasks implemented on branch `feat/skills-graph`,
+> one commit per task, full suite green. Deviations from the plan:
+> - Task 2: skill graph uses a **parallel** zod schema (`skills/types.ts`),
+>   as the plan's default; disabled state lives in a separate `disabled.json`
+>   so toggling never rewrites a user's `skill.md`.
+> - Task 6: per the user, the Search tab installs from a **remote catalog**
+>   (`skills/catalog.ts`, a static `index.json` + bodies, base URL overridable
+>   via `LUCKY_SKILL_CATALOG_URL`), not just a local pack; `lucky skill add`
+>   also accepts a local path. Uninstall is **confirm-then-delete** (`d` then
+>   y/n) rather than immediate.
+> - Task 7: the starter pack is **embedded as TS string literals**
+>   (`skills/starter.ts`, mirroring `seedDefaultProfiles`) instead of files
+>   under `assets/skills/`, so resolution is trivial in the standalone binary.
+>   Seeded on first `/skill` use; never clobbers user edits.
 
 ## Why this design (and not a Claude Code clone)
 
