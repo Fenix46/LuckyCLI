@@ -58,6 +58,7 @@ import type { CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useMcpPanel } from "./hooks/useMcpPanel.js";
+import { useSkillPanel } from "./hooks/useSkillPanel.js";
 import { useModalRouter, type ModalHandler } from "./hooks/useModalRouter.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
@@ -67,6 +68,7 @@ import { TaskPanel } from "./components/TaskPanel.js";
 import { AgentUsagePanel } from "./components/AgentUsagePanel.js";
 import { TranscriptList } from "./components/Transcript.js";
 import { McpPanel } from "./components/McpPanel.js";
+import { SkillPanel } from "./components/SkillPanel.js";
 import { AgentsPanel } from "./components/AgentsPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
@@ -364,6 +366,9 @@ export function App({
     onMcpConfigChange,
     emit: (item) => setItems((prev) => [...prev, item]),
   });
+  const skillPanel = useSkillPanel({
+    emit: (item) => setItems((prev) => [...prev, item]),
+  });
   const agentsPanel = useAgentsPanel();
   // Live Codex model catalog (openai-oauth only), fetched on demand and cached
   // for the session. The picker reads these slugs instead of a hardcoded list.
@@ -503,6 +508,8 @@ export function App({
     },
     // 2.5 MCP control panel
     mcpPanel.handler,
+    // 2.55 Skills (/skill) control panel
+    skillPanel.handler,
     // 2.6 Sub-agents (/agents) control panel
     agentsPanel.handler,
     // 3a. Effort picker (second step of /model, provider-specific)
@@ -865,6 +872,7 @@ export function App({
           },
           ui: {
             openMcpPanel: mcpPanel.open,
+            openSkillPanel: skillPanel.open,
             openAgentsPanel: agentsPanel.open,
             triggerSetup: onTriggerSetup,
             triggerResume: onTriggerResume,
@@ -895,7 +903,7 @@ export function App({
       setInput("");
       await runTurn(expanded);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession],
+    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession],
   );
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);
@@ -982,11 +990,12 @@ export function App({
       onPaste={handlePaste}
       nextPasteId={allocatePasteId}
       width={inputWidth}
-      active={!mcpPanel.isOpen && !agentsPanel.isOpen}
+      active={!mcpPanel.isOpen && !skillPanel.isOpen && !agentsPanel.isOpen}
       history={promptHistory}
       historyEnabled={historyEnabled}
       submitEnabled={
         !mcpPanel.isOpen &&
+        !skillPanel.isOpen &&
         !agentsPanel.isOpen &&
         !modelPicker.open &&
         !themePicker.open &&
@@ -1114,6 +1123,8 @@ export function App({
         </Box>
       ) : mcpPanel.isOpen ? (
         <McpPanel theme={activeTheme} width={messageWidth} {...mcpPanel.panelProps} />
+      ) : skillPanel.isOpen ? (
+        <SkillPanel theme={activeTheme} width={messageWidth} {...skillPanel.panelProps} />
       ) : agentsPanel.isOpen ? (
         <AgentsPanel theme={activeTheme} width={messageWidth} {...agentsPanel.panelProps} />
       ) : null}

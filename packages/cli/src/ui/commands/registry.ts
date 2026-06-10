@@ -3,6 +3,7 @@ import { unknownCommand } from "./helpers.js";
 import { maintenanceCommands } from "./maintenance.js";
 import { mcpCommands } from "./mcp.js";
 import { providerCommands } from "./provider.js";
+import { skillCommands } from "./skill.js";
 import type { Command, CommandContext } from "./types.js";
 
 // Presentation order of the visible commands in the slash menu and /help
@@ -12,6 +13,7 @@ const MENU_ORDER = [
   "/model",
   "/thinking",
   "/mcp",
+  "/skill",
   "/agents",
   "/status",
   "/update",
@@ -34,6 +36,7 @@ export function buildCommandRegistry(): Command[] {
     ...providerCommands(),
     ...maintenanceCommands(),
     ...mcpCommands(),
+    ...skillCommands(),
   ];
   const rank = (c: Command) => {
     const i = MENU_ORDER.indexOf(c.name);

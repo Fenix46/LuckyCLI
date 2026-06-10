@@ -1,6 +1,7 @@
 import type { Agent, ContextStatus, McpServerConfig, ProviderId } from "@luckycli/core";
 import type { Item } from "../lib/items.js";
 import type { McpPanelTab } from "../components/McpPanel.js";
+import type { SkillPanelTab } from "../components/SkillPanel.js";
 
 /**
  * Everything a slash command may touch. Commands never reach into React
@@ -25,6 +26,7 @@ export interface CommandContext {
   /** Imperative surface into App: open panels/pickers, change model, exit… */
   ui: {
     openMcpPanel(tab: McpPanelTab, query?: string): void;
+    openSkillPanel(tab: SkillPanelTab, query?: string): void;
     openAgentsPanel(): void;
     triggerSetup(): void;
     triggerResume(): void;

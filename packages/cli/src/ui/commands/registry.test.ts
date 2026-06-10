@@ -100,6 +100,7 @@ describe("slashMenuEntries", () => {
       "/model",
       "/thinking",
       "/mcp",
+      "/skill",
       "/agents",
       "/status",
       "/update",
