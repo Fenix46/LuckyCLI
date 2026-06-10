@@ -53,6 +53,12 @@ export interface ToolContext {
    * without the model having to ask. Fire-and-forget; never throws.
    */
   onFilesChanged?: (paths: string[]) => void;
+  /**
+   * Notify the host that a skill was explicitly loaded by the model (via
+   * skill_load), so the host can mark it active for the session and the
+   * automatic matcher won't re-inject it. Fire-and-forget; never throws.
+   */
+  onSkillLoaded?: (id: string) => void;
 }
 
 /**

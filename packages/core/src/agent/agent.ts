@@ -72,6 +72,8 @@ export interface AgentConfig {
   ) => Promise<SpawnAgentResult>;
   /** Optional hook fired after a tool reports changed files (for graph upkeep). */
   onFilesChanged?: (paths: string[]) => void;
+  /** Optional hook fired when the model loads a skill via skill_load. */
+  onSkillLoaded?: (id: string) => void;
   /** Prior conversation to resume from. Copied into the history on construction. */
   messages?: Message[];
 }
@@ -114,6 +116,7 @@ export class Agent {
   private readonly presentPlan: ((plan: PlanProposal) => Promise<PlanDecision>) | undefined;
   private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
+  private readonly onSkillLoaded: ((id: string) => void) | undefined;
   private lastUsage: TokenUsage | undefined;
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   private readonly history: Message[] = [];
@@ -144,6 +147,7 @@ export class Agent {
     this.presentPlan = cfg.presentPlan;
     this.runSubAgent = cfg.runSubAgent;
     this.onFilesChanged = cfg.onFilesChanged;
+    this.onSkillLoaded = cfg.onSkillLoaded;
     if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
 
@@ -358,6 +362,7 @@ export class Agent {
             ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
             ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
             ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
+            ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
           });
         }
 

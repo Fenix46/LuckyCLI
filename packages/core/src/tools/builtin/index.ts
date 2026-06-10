@@ -12,6 +12,7 @@ import { presentPlanTool } from "./plan.js";
 import { powerShellTool } from "./powershell.js";
 import { projectMemoryTool } from "./project-memory.js";
 import { readFileTool } from "./read-file.js";
+import { skillLoadTool, skillSearchTool } from "./skills.js";
 import { spawnAgentTool } from "./spawn-agent.js";
 import {
   taskCreateTool,
@@ -43,6 +44,8 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(projectMemoryTool)
     .register(graphQueryTool)
     .register(graphOverviewTool)
+    .register(skillSearchTool)
+    .register(skillLoadTool)
     .register(askUserTool);
 }
 
@@ -66,5 +69,7 @@ export {
   projectMemoryTool,
   graphQueryTool,
   graphOverviewTool,
+  skillSearchTool,
+  skillLoadTool,
   askUserTool,
 };

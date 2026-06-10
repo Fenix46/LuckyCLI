@@ -10,6 +10,7 @@ import {
   graphFilePath,
   hasInstalledSkills,
   listProfiles,
+  SkillActivator,
   nonInteractiveMcpOAuthProvider,
   resetProvider,
   updateGraphForFiles,
@@ -94,6 +95,12 @@ export interface BuildAgentOptions {
   toolRegistry?: RuntimeToolRegistry;
   /** Prior conversation to resume from (e.g. a loaded session). */
   messages?: Message[];
+  /**
+   * Session skill activator. Shared between the agent (so skill_load marks a
+   * skill active) and the UI turn loop (so it augments the user turn). When
+   * omitted, buildAgent creates one.
+   */
+  skillActivator?: SkillActivator;
 }
 
 type RuntimeToolRegistry = ReturnType<typeof defaultToolRegistry>;
@@ -129,6 +136,8 @@ export interface BuildAgentRuntimeOptions extends BuildAgentOptions {
 
 export interface BuiltAgentRuntime {
   agent: Agent;
+  /** Session skill activator, shared with the agent (skill_load) and UI turn loop. */
+  skillActivator: SkillActivator;
   mcpManager?: McpManager;
   /**
    * Resolves once the background MCP connection has settled and any tools have
@@ -148,6 +157,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const cwd = process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
+  const skillActivator = opts.skillActivator ?? new SkillActivator();
 
   // Optionally recompose the system prompt from this session's context so the
   // conditional sections react to it. A custom LUCKY_SYSTEM always wins, so we
@@ -180,6 +190,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.presentPlan ? { presentPlan: opts.presentPlan } : {}),
     ...(opts.runSubAgent ? { runSubAgent: opts.runSubAgent } : {}),
     onFilesChanged: createGraphMaintainer(cwd),
+    onSkillLoaded: (id) => skillActivator.markActive(id),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
@@ -200,9 +211,10 @@ export async function buildAgentRuntime(
   // are picked up without rebuilding. This keeps session startup instant even
   // when a server is slow (e.g. first-run `npx` downloads) or wedged.
   const registry = createRuntimeToolRegistry(opts.extraTools);
-  const agent = buildAgent({ ...opts, toolRegistry: registry });
+  const skillActivator = opts.skillActivator ?? new SkillActivator();
+  const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator });
 
-  if (Object.keys(mcp).length === 0) return { agent };
+  if (Object.keys(mcp).length === 0) return { agent, skillActivator };
 
   const mcpManager = new McpManager({
     cwd,
@@ -224,5 +236,5 @@ export async function buildAgentRuntime(
       // misbehaving server break the session.
     });
 
-  return { agent, mcpManager, mcpReady };
+  return { agent, skillActivator, mcpManager, mcpReady };
 }

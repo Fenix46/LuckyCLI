@@ -57,6 +57,8 @@ export {
   projectMemoryTool,
   graphQueryTool,
   graphOverviewTool,
+  skillSearchTool,
+  skillLoadTool,
   askUserTool,
 } from "./tools/builtin/index.js";
 export type { PlanProposal, PlanDecision, PlanTask } from "./agent/plan.js";

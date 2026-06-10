@@ -27,6 +27,7 @@ import {
   getProfile,
   resolveCredentials,
   runSubAgent as runSubAgentCore,
+  type SkillActivator,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
 import { buildAgentRuntime } from "../runtime.js";
@@ -48,6 +49,7 @@ interface ActiveRuntime {
   provider: ProviderId;
   model: string;
   credentials: ProviderCredentials;
+  skillActivator: SkillActivator;
   mcpManager?: McpManager;
 }
 
@@ -330,6 +332,7 @@ export function Root({
         provider: next.provider,
         model: next.model,
         credentials: next.credentials,
+        skillActivator: built.skillActivator,
         ...(built.mcpManager ? { mcpManager: built.mcpManager } : {}),
       };
     });
@@ -490,6 +493,7 @@ export function Root({
     <App
       key={resumeSession.id}
       agent={runtime.agent}
+      skillActivator={runtime.skillActivator}
       meta={{ provider: runtime.provider, model: runtime.model }}
       approvalRequest={approvalRequest}
       setApprovalRequest={setApprovalRequest}

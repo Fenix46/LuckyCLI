@@ -33,7 +33,7 @@ import {
   saveReasoningEffort,
   saveSession,
   saveStoredConfig,
-  SkillActivator,
+  type SkillActivator,
   type CodexModel,
   type Task,
 } from "@luckycli/core";
@@ -93,6 +93,8 @@ export type {
 
 interface AppProps {
   agent: Agent;
+  /** Session skill activator, shared with the agent (skill_load marks active). */
+  skillActivator: SkillActivator;
   meta: AppMeta;
   approvalRequest: ApprovalRequest | null;
   setApprovalRequest: (req: ApprovalRequest | null) => void;
@@ -117,6 +119,7 @@ interface AppProps {
 
 export function App({
   agent,
+  skillActivator,
   meta,
   approvalRequest,
   setApprovalRequest,
@@ -258,9 +261,6 @@ export function App({
     [],
   );
   const onUsage = useCallback((_usage: TokenUsage) => {}, []);
-  // One activator per session: holds the active set and reads the skill graph
-  // fresh each turn, so a skill installed mid-session is immediately live.
-  const skillActivator = useMemo(() => new SkillActivator(), []);
   const { busy, startedAt, streaming, reasoning, abort, runTurn } = useTurnRunner({
     agent,
     appendItems,
