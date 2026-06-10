@@ -185,6 +185,56 @@ export {
   tryLoadGraph,
 } from "./graph/store.js";
 
+// Skills on the knowledge graph.
+export {
+  normalizeSkillName,
+  parseSkillFile,
+  SkillFrontmatterSchema,
+} from "./skills/skill-file.js";
+export type { SkillFile, SkillFrontmatter } from "./skills/skill-file.js";
+export {
+  SKILL_GRAPH_FORMAT_VERSION,
+  SKILL_NODE_KINDS,
+  SKILL_RELATIONS,
+  emptySkillGraph,
+  keywordNodeId,
+  parseSkillGraph,
+  skillNodeId,
+  validateSkillGraph,
+} from "./skills/types.js";
+export type {
+  SkillAttrs,
+  SkillEdge,
+  SkillGraph,
+  SkillGraphMeta,
+  SkillNode,
+  SkillNodeKind,
+  SkillRelation,
+} from "./skills/types.js";
+export {
+  SKILL_FILE_NAME,
+  buildSkillGraph,
+  discoverSkills,
+  loadDisabledSet,
+  loadSkillGraph,
+  rebuildSkillGraph,
+  saveDisabledSet,
+  saveSkillGraph,
+  skillDirPath,
+  skillFilePath,
+  skillGraphFilePath,
+  skillsRootDir,
+  tryLoadSkillGraph,
+} from "./skills/graph.js";
+export type { DiscoveredSkill } from "./skills/graph.js";
+export {
+  ACTIVATION_BUDGET,
+  matchSkills,
+  renderSkillInjection,
+} from "./skills/matcher.js";
+export type { SkillActivation } from "./skills/matcher.js";
+export { SkillActivator } from "./skills/activator.js";
+
 // Configuration.
 export {
   credentialsFromEnv,

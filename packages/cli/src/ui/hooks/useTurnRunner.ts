@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Agent, ContextStatus, TokenUsage, ToolResultMetadata } from "@luckycli/core";
+import type {
+  Agent,
+  ContextStatus,
+  SkillActivator,
+  TokenUsage,
+  ToolResultMetadata,
+} from "@luckycli/core";
 import type { Item } from "../lib/items.js";
 import { formatNumber } from "../lib/format.js";
 import { humanizeError } from "../lib/errors.js";
@@ -29,6 +35,12 @@ interface TurnRunnerDeps {
   onUsage: (usage: TokenUsage) => void;
   /** Persist the session once the turn settles. */
   persist: () => void;
+  /**
+   * Automatic skill activation. When present, the user message is augmented
+   * with matched skills' instruction blocks before `agent.send`, and the
+   * active set is cleared on compaction. Absent = skills disabled.
+   */
+  skills?: SkillActivator;
 }
 
 export interface TurnRunner {
@@ -59,6 +71,7 @@ export function useTurnRunner({
   onContext,
   onUsage,
   persist,
+  skills,
 }: TurnRunnerDeps): TurnRunner {
   const [busy, setBusy] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -117,10 +130,21 @@ export function useTurnRunner({
         appendItems([{ kind: "assistant", text: buffered }]);
       };
 
+      // Automatic skill activation: append matched skills' instruction blocks
+      // to the user turn (at the tail, so the cached prefix is untouched).
+      let sendText = text;
+      if (skills) {
+        try {
+          sendText = await skills.augment(text);
+        } catch {
+          // Skill activation is best-effort; never block a turn on it.
+        }
+      }
+
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        for await (const event of agent.send(text, controller.signal)) {
+        for await (const event of agent.send(sendText, controller.signal)) {
           handleEvent(event, {
             onText: (delta) => {
               setReasoning(false);
@@ -146,6 +170,9 @@ export function useTurnRunner({
             },
             onContext: (status) => onContext(status),
             onCompacted: (result) => {
+              // The injected skill blocks may have been summarized away — clear
+              // the active set so they can re-activate when next relevant.
+              skills?.onCompacted();
               appendItems([
                 {
                   kind: "command",
@@ -186,7 +213,7 @@ export function useTurnRunner({
         persist();
       }
     },
-    [agent, appendItems, patchTool, onContext, onUsage, persist],
+    [agent, appendItems, patchTool, onContext, onUsage, persist, skills],
   );
 
   return { busy, startedAt, streaming, reasoning, abort, runTurn };
