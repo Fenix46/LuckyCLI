@@ -34,6 +34,8 @@ export interface PromptContext {
   hasGraph?: boolean;
   /** Whether any sub-agent profiles exist (gates the delegation guidance). */
   hasSubAgents?: boolean;
+  /** Whether any skill is installed (gates the skills protocol blurb). */
+  hasSkills?: boolean;
   /** Environment variables, for per-section overrides (LUCKY_PROMPT_*). */
   env: NodeJS.ProcessEnv;
 }

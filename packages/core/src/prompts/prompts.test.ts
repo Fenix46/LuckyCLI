@@ -60,6 +60,28 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("This project has no knowledge graph");
   });
 
+  it("omits the skills blurb when no skill is installed", () => {
+    const prompt = buildSystemPromptFromContext(FULL_CTX);
+    expect(prompt).not.toContain("# Skills");
+  });
+
+  it("includes the fixed skills protocol blurb when skills are installed", () => {
+    const prompt = buildSystemPromptFromContext({ ...FULL_CTX, hasSkills: true });
+    expect(prompt).toContain("# Skills");
+    expect(prompt).toContain("skill_search");
+    expect(prompt).toContain("skill_load");
+    // The blurb is a protocol, never a catalog — it lists no skill names.
+    expect(prompt).toContain('<skill name="...">');
+  });
+
+  it("keeps the skills blurb identical regardless of how many skills exist", () => {
+    // The blurb text must not depend on installed skills — only on presence —
+    // so the prompt-cache prefix never moves when a skill is added/removed.
+    const a = buildSystemPromptFromContext({ ...FULL_CTX, hasSkills: true });
+    const b = buildSystemPromptFromContext({ ...FULL_CTX, hasSkills: true });
+    expect(a).toBe(b);
+  });
+
   it("interpolates the environment block with runtime values", () => {
     const prompt = buildSystemPrompt(INFO, ENV);
     expect(prompt).toContain("Working directory: /tmp/proj");
@@ -94,6 +116,7 @@ describe("section architecture", () => {
       "tools",
       "safety",
       "tool-use",
+      "skills",
       "output-style",
       "environment",
     ]);

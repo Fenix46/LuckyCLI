@@ -8,6 +8,7 @@ import {
   ensureProjectMemoryFile,
   getProvider,
   graphFilePath,
+  hasInstalledSkills,
   listProfiles,
   nonInteractiveMcpOAuthProvider,
   resetProvider,
@@ -163,6 +164,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
           enabledTools: new Set(tools.definitions().map((d) => d.name)),
           hasGraph: existsSync(graphFilePath(cwd)),
           hasSubAgents: listProfiles().length > 0,
+          hasSkills: hasInstalledSkills(),
           env: process.env,
         })
       : opts.system;

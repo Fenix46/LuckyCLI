@@ -10,6 +10,7 @@
  * Persistence mirrors graph/store.ts: validate-before-write, validate-after-read,
  * versioned pretty JSON, so a hand-edited or corrupt graph fails loudly.
  */
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -47,6 +48,32 @@ export function skillDirPath(name: string, root = skillsRootDir()): string {
 /** Absolute path of a skill's `skill.md`. */
 export function skillFilePath(name: string, root = skillsRootDir()): string {
   return join(skillDirPath(name, root), SKILL_FILE_NAME);
+}
+
+/**
+ * Cheap synchronous presence check: is at least one `skill.md` installed?
+ * Used to gate the skills protocol blurb in the system prompt (a *presence*
+ * check, never a catalog, so the cached prompt prefix is stable). Tolerates a
+ * missing root and unreadable entries.
+ */
+export function hasInstalledSkills(root = skillsRootDir()): boolean {
+  if (!existsSync(root)) return false;
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return false;
+  }
+  for (const entry of entries) {
+    if (entry === SKILL_GRAPH_DIR) continue;
+    const filePath = join(root, entry, SKILL_FILE_NAME);
+    try {
+      if (statSync(filePath).isFile()) return true;
+    } catch {
+      // not a directory / no skill.md — keep scanning
+    }
+  }
+  return false;
 }
 
 /** A parsed skill discovered on disk, before graph assembly. */

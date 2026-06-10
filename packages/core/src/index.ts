@@ -215,6 +215,7 @@ export {
   SKILL_FILE_NAME,
   buildSkillGraph,
   discoverSkills,
+  hasInstalledSkills,
   loadDisabledSet,
   loadSkillGraph,
   rebuildSkillGraph,
