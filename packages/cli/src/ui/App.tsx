@@ -41,7 +41,6 @@ import {
   listTasks,
   loadStoredConfig,
   onTasksUpdated,
-  resetTaskList,
   recordGraphBuilt,
   saveReasoningEffort,
   saveThinkingEnabled,
@@ -76,6 +75,9 @@ import {
   contextRows,
   formatStatusFooter,
 } from "./lib/status.js";
+import { buildCommandRegistry, dispatchCommand } from "./commands/registry.js";
+import { ALL_SLASH_COMMANDS } from "./commands/slash-menu.js";
+import type { CommandContext } from "./commands/types.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
@@ -137,21 +139,6 @@ interface AppProps {
   resumed?: Session;
 }
 
-const ALL_SLASH_COMMANDS = [
-  { name: "/model", desc: "Switch model for the active provider" },
-  { name: "/thinking", desc: "Toggle Claude adaptive thinking (/thinking on|off)" },
-  { name: "/mcp", desc: "Open the interactive MCP control panel" },
-  { name: "/agents", desc: "Manage sub-agent profiles (provider/model per role)" },
-  { name: "/status", desc: "Show provider auth, account, quota and context status" },
-  { name: "/update", desc: "Check for updates (/update apply, /update auto <mode>)" },
-  { name: "/compact", desc: "Summarize older chat history now" },
-  { name: "/resume", desc: "Pick a saved session to resume" },
-  { name: "/provider", desc: "Switch provider and authenticate" },
-  { name: "/theme", desc: "Choose terminal UI colors" },
-  { name: "/graph", desc: "Build/refresh the project knowledge graph" },
-  { name: "/task", desc: "View the work task list (/task clear to empty it)" },
-  { name: "/exit", desc: "Exit the lucky agent session" },
-];
 
 export function App({
   agent,
@@ -1240,6 +1227,9 @@ export function App({
     ]);
   }
 
+  // Static command list; per-dispatch state travels in the CommandContext.
+  const commandRegistry = useMemo(() => buildCommandRegistry(), []);
+
   const submit = useCallback(
     async (value: string) => {
       const text = value.trim();
@@ -1254,84 +1244,6 @@ export function App({
 
       if (!text || busy || compacting) return;
 
-      if (text === "/exit" || text === "/quit") {
-        exit();
-        return;
-      }
-      if (text === "/theme" || text.startsWith("/theme ")) {
-        const requestedTheme = text.slice("/theme".length).trim();
-        if (requestedTheme) {
-          selectTheme(requestedTheme);
-          return;
-        }
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "Themes",
-            rows: THEMES.map((theme) => ({
-              label: theme.id === activeTheme.id ? "active" : "theme",
-              value: `${theme.id} (${theme.name})`,
-            })),
-          },
-        ]);
-        setInput("");
-        return;
-      }
-      if (text === "/sessions") {
-        const sessions = listSessions().slice(0, 12);
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "Sessions",
-            rows:
-              sessions.length === 0
-                ? [{ label: "none", value: "no saved sessions yet" }]
-                : sessions.map((s) => ({
-                    label: s.id === sessionIdRef.current ? "current" : s.id,
-                    value: `${s.messageCount} msgs · ${s.title ?? "(untitled)"}`,
-                  })),
-          },
-        ]);
-        setInput("");
-        return;
-      }
-      if (text === "/task" || text === "/task clear") {
-        if (text === "/task clear") {
-          resetTaskList(taskListId);
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: "Tasks",
-              rows: [{ label: "cleared", value: "the task list is now empty" }],
-            },
-          ]);
-          setInput("");
-          return;
-        }
-        const tasks = listTasks(taskListId);
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "Tasks",
-            rows:
-              tasks.length === 0
-                ? [{ label: "none", value: "no tasks yet — ask lucky to plan some work" }]
-                : tasks.map((t) => ({
-                    label: `#${t.id} ${t.status}`,
-                    value:
-                      t.status === "in_progress" && t.activeForm
-                        ? `${t.subject} (${t.activeForm})`
-                        : t.subject,
-                  })),
-          },
-        ]);
-        setInput("");
-        return;
-      }
       if (text === "/resume") {
         if (listSessions().length === 0) {
           setItems((prev) => [
@@ -1678,52 +1590,6 @@ export function App({
         setInput("");
         return;
       }
-      if (text === "/help") {
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "Commands",
-            rows: ALL_SLASH_COMMANDS.map((cmd) => ({
-              label: cmd.name,
-              value: cmd.desc,
-            })),
-          },
-        ]);
-        setInput("");
-        return;
-      }
-      if (text === "/config") {
-        const providerInfo = PROVIDER_CATALOG[meta.provider];
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "Config",
-            rows: [
-              { label: "provider", value: `${providerInfo.displayName} (${meta.provider})` },
-              { label: "model", value: meta.model },
-              ...(meta.provider === "openai-oauth" || meta.provider === "claude"
-                ? [{ label: "effort", value: getReasoningEffort(loadStoredConfig(), meta.provider) }]
-                : []),
-              ...(meta.provider === "claude"
-                ? [{ label: "thinking", value: getThinkingEnabled(loadStoredConfig(), meta.provider) ? "adaptive" : "disabled" }]
-                : []),
-              {
-                label: "context",
-                value: contextStatus?.contextWindow
-                  ? `${formatNumber(contextStatus.contextWindow)} tokens`
-                  : "unknown",
-              },
-              { label: "streaming", value: providerInfo.supportsStreaming ? "yes" : "no" },
-              { label: "tools", value: providerInfo.supportsTools ? "yes" : "no" },
-              { label: "vision", value: providerInfo.supportsVision ? "yes" : "no" },
-            ],
-          },
-        ]);
-        setInput("");
-        return;
-      }
       if (text === "/graph" || text === "/graph build" || text === "/graph rebuild") {
         setInput("");
         setItems((prev) => [
@@ -1753,16 +1619,35 @@ export function App({
           });
         return;
       }
-      // Unknown slash command: never forward it to the model.
+      // Registry-backed commands, plus the unknown-command error: slash
+      // input never reaches the model. The context is built per dispatch so
+      // command handlers always see fresh state (see APP_REFACTOR_PLAN.md).
       if (text.startsWith("/")) {
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "error",
-            text: `unknown command: ${text}. Try /help.`,
-          },
-        ]);
         setInput("");
+        const ctx: CommandContext = {
+          agent,
+          meta,
+          emit: (...newItems) => setItems((prev) => [...prev, ...newItems]),
+          setInput,
+          state: {
+            activeThemeId: activeTheme.id,
+            sessionId: sessionIdRef.current,
+            taskListId,
+            contextStatus,
+          },
+          ui: {
+            openMcpPanel,
+            openAgentsPanel,
+            triggerSetup: onTriggerSetup,
+            triggerResume: onTriggerResume,
+            applyTheme: selectTheme,
+            changeModel: selectModel,
+            exit,
+            setContextStatus,
+            setCompacting,
+          },
+        };
+        await dispatchCommand(text, commandRegistry, ctx);
         return;
       }
 
@@ -1776,7 +1661,7 @@ export function App({
       setInput("");
       await runTurn(expanded);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest],
+    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, openMcpPanel, commandRegistry],
   );
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);

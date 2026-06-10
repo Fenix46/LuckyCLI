@@ -1,14 +1,15 @@
+import { basicCommands } from "./basic.js";
 import type { Command, CommandContext } from "./types.js";
 
 /**
  * The single source of truth for slash commands. The slash menu, /help and
  * dispatch all derive from this list; order here is menu order.
  *
- * Command groups land here as they migrate out of App.tsx's submit()
- * (APP_REFACTOR_PLAN.md tasks 2–4).
+ * Remaining command groups land here as they migrate out of App.tsx's
+ * submit() (APP_REFACTOR_PLAN.md tasks 3–4).
  */
 export function buildCommandRegistry(): Command[] {
-  return [];
+  return [...basicCommands()];
 }
 
 function matchCommand(text: string, registry: Command[]): { command: Command; args: string } | null {

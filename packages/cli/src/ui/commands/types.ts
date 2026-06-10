@@ -13,6 +13,13 @@ export interface CommandContext {
   /** Append transcript items (the only way commands produce output). */
   emit(...items: Item[]): void;
   setInput(value: string): void;
+  /** Read-only snapshot of the App state commands render from. */
+  state: {
+    activeThemeId: string;
+    sessionId: string | null;
+    taskListId: string;
+    contextStatus: ContextStatus | null;
+  };
   /** Imperative surface into App: open panels/pickers, change model, exit… */
   ui: {
     openMcpPanel(tab: McpPanelTab, query?: string): void;
