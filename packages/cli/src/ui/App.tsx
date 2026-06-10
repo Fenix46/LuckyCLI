@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput, useWindowSize } from "../vendor/ink-compat.js";
+import { Box, Text, useApp, useWindowSize } from "../vendor/ink-compat.js";
 import React, { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import {
   OfficialMcpRegistryCatalog,
@@ -67,6 +67,7 @@ import { installCatalogServer } from "./commands/mcp.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import type { CommandContext } from "./commands/types.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
+import { useModalRouter, type ModalHandler } from "./hooks/useModalRouter.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { APP_VERSION } from "./components/constants.js";
 import { ChatInput } from "./components/ChatInput.js";
@@ -586,403 +587,416 @@ export function App({
     }
   }, []);
 
-  // Ctrl+C exits when idle. Support autocomplete and tool approval.
-  useInput((_in, key) => {
-    // 0. Shift+Tab cycles the session permission mode. Intercept it before any
-    // other branch so it never triggers a plain-Tab action (option cycling,
-    // slash-command completion). Ignore it while a modal/picker owns the keys.
-    if (key.tab && key.shift) {
-      const modalActive =
-        Boolean(approvalRequest) ||
-        Boolean(userQuestionRequest) ||
-        mcpPanelOpen ||
-        agentsPanelOpen ||
-        modelPicker.open ||
-        Boolean(effortPicker) ||
-        themePicker.open ||
-        showSlashMenu;
-      if (!modalActive) onCyclePermissionMode();
-      return;
-    }
-
-    // Scrolling is handled natively by the terminal: the transcript renders
-    // into the normal screen (not an alt-screen ScrollBox), so PageUp/PageDown,
-    // the wheel and the scrollbar all drive the terminal's own scrollback. We
-    // intentionally do NOT intercept those keys here.
-
+  // All modal keyboard handling goes through one useInput (the router). The
+  // array order IS the precedence chain, top = highest priority. Handlers
+  // close over this render's state; "return true" consumes the key within
+  // App's chain (ChatInput keeps its own useInput and still sees every key).
+  //
+  // Scrolling is handled natively by the terminal: the transcript renders
+  // into the normal screen (not an alt-screen ScrollBox), so PageUp/PageDown,
+  // the wheel and the scrollbar all drive the terminal's own scrollback. We
+  // intentionally do NOT intercept those keys here.
+  const modalHandlers: ModalHandler[] = [
     // 1. Tool safety approval has highest precedence
-    if (approvalRequest) {
-      if (key.ctrl && _in === "c") {
-        approvalRequest.resolve("deny");
-        setApprovalRequest(null);
-        abort();
-        return;
-      }
-      if (key.leftArrow || key.upArrow || _in === "h" || _in === "k") {
-        setSelectedApprovalIndex(
-          (prev) => (prev - 1 + approvalOptions.length) % approvalOptions.length,
-        );
-        return;
-      }
-      if (key.rightArrow || key.downArrow || _in === "l" || _in === "j" || key.tab) {
-        setSelectedApprovalIndex((prev) => (prev + 1) % approvalOptions.length);
-        return;
-      }
-      if (key.return) {
-        const decision = approvalOptions[selectedApprovalIndex] ?? "deny";
-        approvalRequest.resolve(decision);
-        setApprovalRequest(null);
-        // Refusing a tool stops the whole turn, like Esc — the model does not
-        // get to react to the denial and keep working.
-        if (decision === "deny") abort();
-        return;
-      }
-      if (key.escape) {
-        approvalRequest.resolve("deny");
-        setApprovalRequest(null);
-        abort();
-      }
-      return;
-    }
-
-    // 2. User question from ask_user tool
-    if (userQuestionRequest) {
-      const options = userQuestionRequest.options ?? [];
-      if (key.ctrl && _in === "c") {
-        userQuestionRequest.resolve("User cancelled the question.");
-        setUserQuestionRequest(null);
-        abort();
-        return;
-      }
-      if (options.length > 0 && (key.leftArrow || key.upArrow || _in === "h" || _in === "k")) {
-        setSelectedQuestionOptionIndex(
-          (prev) => (prev - 1 + options.length) % options.length,
-        );
-        return;
-      }
-      if (options.length > 0 && (key.rightArrow || key.downArrow || _in === "l" || _in === "j" || key.tab)) {
-        setSelectedQuestionOptionIndex((prev) => (prev + 1) % options.length);
-        return;
-      }
-      if (key.return && options.length > 0 && !userQuestionRequest.allowFreeText) {
-        userQuestionRequest.resolve(options[selectedQuestionOptionIndex] ?? options[0] ?? "");
-        setUserQuestionRequest(null);
-        return;
-      }
-      if (key.escape) {
-        userQuestionRequest.resolve("User skipped the question.");
-        setUserQuestionRequest(null);
-        abort();
-        return;
-      }
-      return;
-    }
-
-    // 2.5 MCP control panel
-    if (mcpPanelOpen) {
-      if (key.escape) {
-        setMcpPanelOpen(false);
-        setMcpPanelError(null);
-        return;
-      }
-      if (key.leftArrow || key.rightArrow || key.tab) {
-        setMcpPanelTab((prev) => (prev === "installed" ? "search" : "installed"));
-        return;
-      }
-      if (mcpPanelTab === "installed") {
-        if (installedMcpRows.length > 0 && key.downArrow) {
-          setSelectedInstalledMcpIndex((prev) => (prev + 1) % installedMcpRows.length);
-          return;
+    {
+      active: Boolean(approvalRequest),
+      onInput(_in, key) {
+        if (!approvalRequest) return false;
+        if (key.ctrl && _in === "c") {
+          approvalRequest.resolve("deny");
+          setApprovalRequest(null);
+          abort();
+          return true;
         }
-        if (installedMcpRows.length > 0 && key.upArrow) {
-          setSelectedInstalledMcpIndex((prev) => (prev - 1 + installedMcpRows.length) % installedMcpRows.length);
-          return;
+        if (key.leftArrow || key.upArrow || _in === "h" || _in === "k") {
+          setSelectedApprovalIndex(
+            (prev) => (prev - 1 + approvalOptions.length) % approvalOptions.length,
+          );
+          return true;
         }
-        const selected = installedMcpRows[selectedInstalledMcpIndex];
-        if (key.return && selected) {
-          toggleInstalledServer(selected.name);
-          return;
+        if (key.rightArrow || key.downArrow || _in === "l" || _in === "j" || key.tab) {
+          setSelectedApprovalIndex((prev) => (prev + 1) % approvalOptions.length);
+          return true;
         }
-        if ((_in === "d" || _in === "D") && selected) {
-          removeInstalledServer(selected.name);
-          return;
+        if (key.return) {
+          const decision = approvalOptions[selectedApprovalIndex] ?? "deny";
+          approvalRequest.resolve(decision);
+          setApprovalRequest(null);
+          // Refusing a tool stops the whole turn, like Esc — the model does
+          // not get to react to the denial and keep working.
+          if (decision === "deny") abort();
+          return true;
         }
-        if (_in === "r" || _in === "R") {
-          onMcpConfigChange(mcpConfig);
-          setItems((prev) => [
-            ...prev,
-            { kind: "command", title: "MCP Reload", rows: [{ label: "status", value: "reloading configured MCP servers" }] },
-          ]);
-          return;
-        }
-        return;
-      }
-      if (mcpPanelResults.length > 0 && key.downArrow) {
-        setSelectedSearchMcpIndex((prev) => (prev + 1) % mcpPanelResults.length);
-        return;
-      }
-      if (mcpPanelResults.length > 0 && key.upArrow) {
-        setSelectedSearchMcpIndex((prev) => (prev - 1 + mcpPanelResults.length) % mcpPanelResults.length);
-        return;
-      }
-      if (key.backspace || key.delete) {
-        if (mcpPanelQuery.length > 0) setMcpPanelQuery((prev) => prev.slice(0, -1));
-        return;
-      }
-      if (key.return) {
-        const selected = mcpPanelResults[selectedSearchMcpIndex];
-        if (!selected) return;
-        setMcpPanelLoading(true);
-        setMcpPanelError(null);
-        void installCatalogServer(selected.name, onMcpConfigChange, (item) =>
-          setItems((prev) => [...prev, item]),
-        )
-          .then(() => {
-            setMcpPanelLoading(false);
-            setMcpPanelTab("installed");
-            setMcpPanelQuery("");
-          })
-          .catch((error) => {
-            setMcpPanelLoading(false);
-            setMcpPanelError(error instanceof Error ? error.message : "failed to add MCP server");
-          });
-        return;
-      }
-      if (!key.ctrl && !key.meta && !key.return && _in) {
-        setMcpPanelQuery((prev) => prev + _in);
-        return;
-      }
-      return;
-    }
-
-    // 2.6 Sub-agents (/agents) control panel
-    if (agentsPanelOpen) {
-      if (agentsView === "list") {
         if (key.escape) {
-          setAgentsPanelOpen(false);
+          approvalRequest.resolve("deny");
+          setApprovalRequest(null);
+          abort();
+        }
+        return true; // swallow everything else while the approval is open
+      },
+    },
+    // 2. User question from ask_user tool
+    {
+      active: Boolean(userQuestionRequest),
+      onInput(_in, key) {
+        if (!userQuestionRequest) return false;
+        const options = userQuestionRequest.options ?? [];
+        if (key.ctrl && _in === "c") {
+          userQuestionRequest.resolve("User cancelled the question.");
+          setUserQuestionRequest(null);
+          abort();
+          return true;
+        }
+        if (options.length > 0 && (key.leftArrow || key.upArrow || _in === "h" || _in === "k")) {
+          setSelectedQuestionOptionIndex(
+            (prev) => (prev - 1 + options.length) % options.length,
+          );
+          return true;
+        }
+        if (options.length > 0 && (key.rightArrow || key.downArrow || _in === "l" || _in === "j" || key.tab)) {
+          setSelectedQuestionOptionIndex((prev) => (prev + 1) % options.length);
+          return true;
+        }
+        if (key.return && options.length > 0 && !userQuestionRequest.allowFreeText) {
+          userQuestionRequest.resolve(options[selectedQuestionOptionIndex] ?? options[0] ?? "");
+          setUserQuestionRequest(null);
+          return true;
+        }
+        if (key.escape) {
+          userQuestionRequest.resolve("User skipped the question.");
+          setUserQuestionRequest(null);
+          abort();
+        }
+        return true; // swallow everything else while the question is open
+      },
+    },
+    // 2.5 MCP control panel (state machine moves to useMcpPanel in task 7)
+    {
+      active: mcpPanelOpen,
+      onInput(_in, key) {
+        if (key.escape) {
+          setMcpPanelOpen(false);
+          setMcpPanelError(null);
+          return true;
+        }
+        if (key.leftArrow || key.rightArrow || key.tab) {
+          setMcpPanelTab((prev) => (prev === "installed" ? "search" : "installed"));
+          return true;
+        }
+        if (mcpPanelTab === "installed") {
+          if (installedMcpRows.length > 0 && key.downArrow) {
+            setSelectedInstalledMcpIndex((prev) => (prev + 1) % installedMcpRows.length);
+            return true;
+          }
+          if (installedMcpRows.length > 0 && key.upArrow) {
+            setSelectedInstalledMcpIndex((prev) => (prev - 1 + installedMcpRows.length) % installedMcpRows.length);
+            return true;
+          }
+          const selected = installedMcpRows[selectedInstalledMcpIndex];
+          if (key.return && selected) {
+            toggleInstalledServer(selected.name);
+            return true;
+          }
+          if ((_in === "d" || _in === "D") && selected) {
+            removeInstalledServer(selected.name);
+            return true;
+          }
+          if (_in === "r" || _in === "R") {
+            onMcpConfigChange(mcpConfig);
+            setItems((prev) => [
+              ...prev,
+              { kind: "command", title: "MCP Reload", rows: [{ label: "status", value: "reloading configured MCP servers" }] },
+            ]);
+          }
+          return true;
+        }
+        if (mcpPanelResults.length > 0 && key.downArrow) {
+          setSelectedSearchMcpIndex((prev) => (prev + 1) % mcpPanelResults.length);
+          return true;
+        }
+        if (mcpPanelResults.length > 0 && key.upArrow) {
+          setSelectedSearchMcpIndex((prev) => (prev - 1 + mcpPanelResults.length) % mcpPanelResults.length);
+          return true;
+        }
+        if (key.backspace || key.delete) {
+          if (mcpPanelQuery.length > 0) setMcpPanelQuery((prev) => prev.slice(0, -1));
+          return true;
+        }
+        if (key.return) {
+          const selected = mcpPanelResults[selectedSearchMcpIndex];
+          if (!selected) return true;
+          setMcpPanelLoading(true);
+          setMcpPanelError(null);
+          void installCatalogServer(selected.name, onMcpConfigChange, (item) =>
+            setItems((prev) => [...prev, item]),
+          )
+            .then(() => {
+              setMcpPanelLoading(false);
+              setMcpPanelTab("installed");
+              setMcpPanelQuery("");
+            })
+            .catch((error) => {
+              setMcpPanelLoading(false);
+              setMcpPanelError(error instanceof Error ? error.message : "failed to add MCP server");
+            });
+          return true;
+        }
+        if (!key.ctrl && !key.meta && !key.return && _in) {
+          setMcpPanelQuery((prev) => prev + _in);
+        }
+        return true; // panel owns the keyboard while open
+      },
+    },
+    // 2.6 Sub-agents (/agents) control panel (moves to useAgentsPanel in task 7)
+    {
+      active: agentsPanelOpen,
+      onInput(_in, key) {
+        if (agentsView === "list") {
+          if (key.escape) {
+            setAgentsPanelOpen(false);
+            setAgentsPanelError(null);
+            return true;
+          }
+          if (agentProfiles.length > 0 && key.downArrow) {
+            setSelectedAgentIndex((prev) => (prev + 1) % agentProfiles.length);
+            return true;
+          }
+          if (agentProfiles.length > 0 && key.upArrow) {
+            setSelectedAgentIndex((prev) => (prev - 1 + agentProfiles.length) % agentProfiles.length);
+            return true;
+          }
+          if (_in === "n" || _in === "N") {
+            const provider = (Object.keys(PROVIDER_CATALOG) as ProviderId[])[0] ?? "claude";
+            setAgentDraft({
+              original: null,
+              name: "",
+              description: "",
+              provider,
+              model: modelsFor(provider)[0] ?? PROVIDER_CATALOG[provider].defaultModel,
+            });
+            setAgentFieldIndex(0);
+            setAgentsPanelError(null);
+            setAgentsView("edit");
+            return true;
+          }
+          const selected = agentProfiles[selectedAgentIndex];
+          if ((_in === "e" || _in === "E") && selected) {
+            setAgentDraft({
+              original: selected.name,
+              name: selected.name,
+              description: selected.description,
+              provider: selected.provider,
+              model: selected.model,
+            });
+            setAgentFieldIndex(0);
+            setAgentsPanelError(null);
+            setAgentsView("edit");
+            return true;
+          }
+          if ((_in === "d" || _in === "D") && selected) {
+            deleteProfile(selected.name);
+            const profiles = refreshAgentProfiles();
+            setSelectedAgentIndex((prev) => Math.max(0, Math.min(prev, profiles.length - 1)));
+          }
+          return true;
+        }
+
+        // edit view
+        if (key.escape) {
+          setAgentsView("list");
+          setAgentDraft(null);
           setAgentsPanelError(null);
-          return;
+          return true;
         }
-        if (agentProfiles.length > 0 && key.downArrow) {
-          setSelectedAgentIndex((prev) => (prev + 1) % agentProfiles.length);
-          return;
+        if (key.downArrow || key.tab) {
+          setAgentFieldIndex((prev) => (prev + 1) % AGENT_DRAFT_FIELDS.length);
+          return true;
         }
-        if (agentProfiles.length > 0 && key.upArrow) {
-          setSelectedAgentIndex((prev) => (prev - 1 + agentProfiles.length) % agentProfiles.length);
-          return;
+        if (key.upArrow) {
+          setAgentFieldIndex((prev) => (prev - 1 + AGENT_DRAFT_FIELDS.length) % AGENT_DRAFT_FIELDS.length);
+          return true;
         }
-        if (_in === "n" || _in === "N") {
-          const provider = (Object.keys(PROVIDER_CATALOG) as ProviderId[])[0] ?? "claude";
-          setAgentDraft({
-            original: null,
-            name: "",
-            description: "",
-            provider,
-            model: modelsFor(provider)[0] ?? PROVIDER_CATALOG[provider].defaultModel,
-          });
-          setAgentFieldIndex(0);
-          setAgentsPanelError(null);
-          setAgentsView("edit");
-          return;
+        if (key.return) {
+          commitAgentDraft();
+          return true;
         }
-        const selected = agentProfiles[selectedAgentIndex];
-        if ((_in === "e" || _in === "E") && selected) {
-          setAgentDraft({
-            original: selected.name,
-            name: selected.name,
-            description: selected.description,
-            provider: selected.provider,
-            model: selected.model,
-          });
-          setAgentFieldIndex(0);
-          setAgentsPanelError(null);
-          setAgentsView("edit");
-          return;
+        const field = AGENT_DRAFT_FIELDS[agentFieldIndex];
+        if (field === "provider") {
+          if (key.leftArrow) cycleDraftProvider(-1);
+          else if (key.rightArrow) cycleDraftProvider(1);
+          return true;
         }
-        if ((_in === "d" || _in === "D") && selected) {
-          deleteProfile(selected.name);
-          const profiles = refreshAgentProfiles();
-          setSelectedAgentIndex((prev) => Math.max(0, Math.min(prev, profiles.length - 1)));
-          return;
+        if (field === "model") {
+          if (key.leftArrow) cycleDraftModel(-1);
+          else if (key.rightArrow) cycleDraftModel(1);
+          return true;
         }
-        return;
-      }
-
-      // edit view
-      if (key.escape) {
-        setAgentsView("list");
-        setAgentDraft(null);
-        setAgentsPanelError(null);
-        return;
-      }
-      if (key.downArrow || key.tab) {
-        setAgentFieldIndex((prev) => (prev + 1) % AGENT_DRAFT_FIELDS.length);
-        return;
-      }
-      if (key.upArrow) {
-        setAgentFieldIndex((prev) => (prev - 1 + AGENT_DRAFT_FIELDS.length) % AGENT_DRAFT_FIELDS.length);
-        return;
-      }
-      if (key.return) {
-        commitAgentDraft();
-        return;
-      }
-      const field = AGENT_DRAFT_FIELDS[agentFieldIndex];
-      if (field === "provider") {
-        if (key.leftArrow) return cycleDraftProvider(-1);
-        if (key.rightArrow) return cycleDraftProvider(1);
-        return;
-      }
-      if (field === "model") {
-        if (key.leftArrow) return cycleDraftModel(-1);
-        if (key.rightArrow) return cycleDraftModel(1);
-        return;
-      }
-      // name / description: free text editing
-      const textField: "name" | "description" =
-        field === "description" ? "description" : "name";
-      if (key.backspace || key.delete) {
-        setAgentDraft((prev) =>
-          prev ? { ...prev, [textField]: prev[textField].slice(0, -1) } : prev,
-        );
-        return;
-      }
-      if (!key.ctrl && !key.meta && _in) {
-        setAgentDraft((prev) =>
-          prev ? { ...prev, [textField]: prev[textField] + _in } : prev,
-        );
-        return;
-      }
-      return;
-    }
-
-    // 3a. Interactive effort picker navigation (second step, provider-specific)
-    if (effortPicker) {
-      if (key.escape) {
-        setEffortPicker(null);
-        setSelectedEffortIndex(0);
-        return;
-      }
-      if (effortPicker.levels.length === 0) return;
-      if (key.downArrow) {
-        setSelectedEffortIndex((prev) => (prev + 1) % effortPicker.levels.length);
-        return;
-      }
-      if (key.upArrow) {
-        setSelectedEffortIndex(
-          (prev) => (prev - 1 + effortPicker.levels.length) % effortPicker.levels.length,
-        );
-        return;
-      }
-      if (key.return) {
-        const effort = effortPicker.levels[selectedEffortIndex];
-        if (effort) applyEffort(effortPicker.model, effort);
-        return;
-      }
-      return; // swallow other keys while the effort step is open
-    }
-
-    // 3. Interactive model picker navigation
-    if (modelPicker.open) {
-      if (key.escape) {
-        setInput("");
-        setSelectedModelIndex(0);
-        return;
-      }
-      if (modelPicker.items.length === 0) return;
-      if (key.downArrow) {
-        setSelectedModelIndex((prev) => (prev + 1) % modelPicker.items.length);
-        return;
-      }
-      if (key.upArrow) {
-        setSelectedModelIndex(
-          (prev) => (prev - 1 + modelPicker.items.length) % modelPicker.items.length,
-        );
-        return;
-      }
-      if (key.return) {
-        const selected = modelPicker.items[selectedModelIndex];
-        if (selected) selectModel(selected);
-        return;
-      }
-    }
-
-    // 3. Interactive theme picker navigation
-    if (themePicker.open) {
-      if (key.escape) {
-        setInput("");
-        setSelectedThemeIndex(0);
-        return;
-      }
-      if (themePicker.items.length === 0) return;
-      if (key.downArrow) {
-        setSelectedThemeIndex((prev) => (prev + 1) % themePicker.items.length);
-        return;
-      }
-      if (key.upArrow) {
-        setSelectedThemeIndex(
-          (prev) => (prev - 1 + themePicker.items.length) % themePicker.items.length,
-        );
-        return;
-      }
-      if (key.return) {
-        const selected = themePicker.items[selectedThemeIndex];
-        if (selected) selectTheme(selected.id);
-        return;
-      }
-    }
-
-    // 4. Interactive Slash Commands menu navigation
-    if (
-      !modelPicker.open &&
-      !themePicker.open &&
-      showSlashMenu
-    ) {
-      if (key.escape) {
-        setInput("");
-        setSelectedCommandIndex(0);
-        return;
-      }
-      if (filteredCommands.length === 0) return;
-      if (key.downArrow) {
-        setSelectedCommandIndex((prev) => (prev + 1) % filteredCommands.length);
-        return;
-      }
-      if (key.upArrow) {
-        setSelectedCommandIndex(
-          (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length,
-        );
-        return;
-      }
-      if (key.tab || (key.return && input !== filteredCommands[selectedCommandIndex]?.name)) {
-        const completed = filteredCommands[selectedCommandIndex]?.name;
-        if (completed) {
-          setInput(completed);
+        // name / description: free text editing
+        const textField: "name" | "description" =
+          field === "description" ? "description" : "name";
+        if (key.backspace || key.delete) {
+          setAgentDraft((prev) =>
+            prev ? { ...prev, [textField]: prev[textField].slice(0, -1) } : prev,
+          );
+          return true;
+        }
+        if (!key.ctrl && !key.meta && _in) {
+          setAgentDraft((prev) =>
+            prev ? { ...prev, [textField]: prev[textField] + _in } : prev,
+          );
+        }
+        return true; // panel owns the keyboard while open
+      },
+    },
+    // 3a. Effort picker (second step of /model, provider-specific)
+    {
+      active: Boolean(effortPicker),
+      onInput(_in, key) {
+        if (!effortPicker) return false;
+        if (key.escape) {
+          setEffortPicker(null);
+          setSelectedEffortIndex(0);
+          return true;
+        }
+        if (effortPicker.levels.length === 0) return true;
+        if (key.downArrow) {
+          setSelectedEffortIndex((prev) => (prev + 1) % effortPicker.levels.length);
+          return true;
+        }
+        if (key.upArrow) {
+          setSelectedEffortIndex(
+            (prev) => (prev - 1 + effortPicker.levels.length) % effortPicker.levels.length,
+          );
+          return true;
+        }
+        if (key.return) {
+          const effort = effortPicker.levels[selectedEffortIndex];
+          if (effort) applyEffort(effortPicker.model, effort);
+          return true;
+        }
+        return true; // swallow other keys while the effort step is open
+      },
+    },
+    // 3. Model picker: unhandled keys fall through so typing filters the list
+    {
+      active: modelPicker.open,
+      onInput(_in, key) {
+        if (key.escape) {
+          setInput("");
+          setSelectedModelIndex(0);
+          return true;
+        }
+        if (modelPicker.items.length === 0) return true;
+        if (key.downArrow) {
+          setSelectedModelIndex((prev) => (prev + 1) % modelPicker.items.length);
+          return true;
+        }
+        if (key.upArrow) {
+          setSelectedModelIndex(
+            (prev) => (prev - 1 + modelPicker.items.length) % modelPicker.items.length,
+          );
+          return true;
+        }
+        if (key.return) {
+          const selected = modelPicker.items[selectedModelIndex];
+          if (selected) selectModel(selected);
+          return true;
+        }
+        return false;
+      },
+    },
+    // 3. Theme picker: same fall-through contract as the model picker
+    {
+      active: themePicker.open,
+      onInput(_in, key) {
+        if (key.escape) {
+          setInput("");
+          setSelectedThemeIndex(0);
+          return true;
+        }
+        if (themePicker.items.length === 0) return true;
+        if (key.downArrow) {
+          setSelectedThemeIndex((prev) => (prev + 1) % themePicker.items.length);
+          return true;
+        }
+        if (key.upArrow) {
+          setSelectedThemeIndex(
+            (prev) => (prev - 1 + themePicker.items.length) % themePicker.items.length,
+          );
+          return true;
+        }
+        if (key.return) {
+          const selected = themePicker.items[selectedThemeIndex];
+          if (selected) selectTheme(selected.id);
+          return true;
+        }
+        return false;
+      },
+    },
+    // 4. Slash commands menu (suppressed while a picker refines the command)
+    {
+      active: showSlashMenu && !modelPicker.open && !themePicker.open,
+      onInput(_in, key) {
+        if (key.escape) {
+          setInput("");
           setSelectedCommandIndex(0);
+          return true;
         }
+        if (filteredCommands.length === 0) return true;
+        if (key.downArrow) {
+          setSelectedCommandIndex((prev) => (prev + 1) % filteredCommands.length);
+          return true;
+        }
+        if (key.upArrow) {
+          setSelectedCommandIndex(
+            (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length,
+          );
+          return true;
+        }
+        if (key.tab || (key.return && input !== filteredCommands[selectedCommandIndex]?.name)) {
+          const completed = filteredCommands[selectedCommandIndex]?.name;
+          if (completed) {
+            setInput(completed);
+            setSelectedCommandIndex(0);
+          }
+          return true;
+        }
+        return false;
+      },
+    },
+  ];
+
+  const { anyModalActive } = useModalRouter(modalHandlers, {
+    // 0. Shift+Tab cycles the session permission mode. Intercept it before
+    // any handler so it never triggers a plain-Tab action (option cycling,
+    // slash-command completion). Ignore it while a modal/picker owns the keys.
+    pre: (_in, key, modalActive) => {
+      if (key.tab && key.shift) {
+        if (!modalActive) onCyclePermissionMode();
+        return true;
+      }
+      return false;
+    },
+    fallthrough: (_in, key) => {
+      // 5. Esc interrupts the running turn (like other coding agents).
+      if (key.escape && busy) {
+        abort();
         return;
       }
-    }
-
-    // 5. Esc interrupts the running turn (like other coding agents).
-    if (key.escape && busy) {
-      abort();
-      return;
-    }
-
-    // 6. Ctrl+C: while busy, abort the turn; a second press within 2s force
-    // quits, guaranteeing an escape hatch even if the turn ignores the abort.
-    if (key.ctrl && _in === "c" && busy) {
-      const now = Date.now();
-      if (now - lastBusyCtrlCRef.current < 2000) {
-        exit();
+      // 6. Ctrl+C: while busy, abort the turn; a second press within 2s force
+      // quits, guaranteeing an escape hatch even if the turn ignores the abort.
+      if (key.ctrl && _in === "c" && busy) {
+        const now = Date.now();
+        if (now - lastBusyCtrlCRef.current < 2000) {
+          exit();
+          return;
+        }
+        lastBusyCtrlCRef.current = now;
+        abort();
         return;
       }
-      lastBusyCtrlCRef.current = now;
-      abort();
-      return;
-    }
-    if (key.ctrl && _in === "c" && !busy) exit();
+      if (key.ctrl && _in === "c" && !busy) exit();
+    },
   });
 
   // Fetch the live Codex catalog (memoized for the session). Returns [] on
@@ -1336,13 +1350,9 @@ export function App({
     [items],
   );
   // Recall must never collide with a picker/menu that owns the arrow keys.
-  const historyEnabled =
-    !showSlashMenu &&
-    !modelPicker.open &&
-    !themePicker.open &&
-    !effortPicker &&
-    !approvalRequest &&
-    !userQuestionRequest;
+  // (anyModalActive also covers the MCP/agents panels; while those are open
+  // ChatInput is inactive anyway, so the gate is equivalent to the old list.)
+  const historyEnabled = !anyModalActive;
 
   const chatInput = (
     <ChatInput
