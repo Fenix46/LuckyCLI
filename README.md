@@ -39,6 +39,11 @@ model mid-session without losing your conversation.
   querying instead of re-reading files, renders to interactive HTML, and keeps
   itself current automatically as the agent edits. Early real-LLM results in
   [How much does it help?](#how-much-does-it-help-).
+- **Skills on a second graph.** Reusable instructions (cutting a release, your
+  commit conventions, …) live as `skill.md` files indexed in their own keyword
+  graph. A deterministic matcher activates the relevant one for a message — with
+  zero token cost when nothing matches — so installed skills never bloat the
+  system prompt or move the prompt-cache prefix. See [Skills](#skills).
 - **Safety built in.** Side-effecting tools prompt for approval, the shell tool
   refuses destructive commands, file tools are sandboxed to the working
   directory, and `http_fetch` blocks private/SSRF targets.
@@ -241,6 +246,7 @@ each turn.
 | `/theme` | Choose terminal UI colors |
 | `/graph` | Build or refresh the project knowledge graph |
 | `/mcp` | Open the MCP control panel: browse the registry, install, enable/disable servers |
+| `/skill` | Open the skills panel: search a catalog, install, enable/disable, remove (alias: `/skills`) |
 | `/update` | Check for updates; `/update apply` installs, `/update auto <mode>` sets the policy |
 | `/exit` | Quit (alias: `/quit`) |
 
@@ -263,6 +269,8 @@ side-effecting ones prompt for approval.
 | `project_memory` | allow | Read/write durable per-project notes the agent recalls later |
 | `graph_query` | allow | Query the knowledge graph: find a symbol, its callers/callees, neighbors, or a file's symbols |
 | `graph_overview` | allow | Summarize the graph: counts, most-connected symbols, most-imported modules |
+| `skill_search` | allow | Search installed skills by name/description/keyword (metadata only, never bodies) |
+| `skill_load` | allow | Load an installed skill's full instructions by name |
 | `ask_user` | allow | Ask you a clarifying question and wait for the answer |
 | `write_file` | ask | Write UTF-8 text to a file |
 | `edit_file` | ask | Replace an exact snippet in a file (fuzzy snippet matching) |
@@ -422,6 +430,65 @@ and `id` anchors). More are added behind the same extractor interface over time.
 The graph engine is adapted from the
 open-source [graphify](https://github.com/safishamsi/graphify) project, rewritten
 natively in TypeScript in LuckyCLI's own style.
+
+## Skills
+
+A **skill** is a reusable chunk of operative instructions — how you cut a
+release, your commit conventions, how to review a diff — written as a plain
+`skill.md` with a little frontmatter:
+
+```markdown
+---
+name: release-flow
+description: Cut a versioned release with a changelog and a tag
+keywords: [release, version bump, changelog, tag]
+related: [conventional-commits]
+---
+
+1. Decide the next version from the changes since the last tag (semver)…
+```
+
+Skills live globally under `~/.luckycli/skills/<name>/skill.md`. Unlike the
+flat "paste every skill's name + description into the system prompt" approach,
+LuckyCLI indexes them in a **second knowledge graph** (skill ↔ keyword) and
+activates them at runtime:
+
+- **Automatic.** Before each message is sent, a deterministic matcher checks it
+  against the keyword index and appends the matched skill's instructions to that
+  turn (top 2 per turn, de-duplicated across the session). It costs **zero
+  tokens when nothing matches**.
+- **On demand.** When the model knows it needs help but no keyword fired, the
+  `skill_search` / `skill_load` tools let it find and pull in a skill itself.
+- **Cache-friendly.** The system prompt only ever carries a short, fixed
+  protocol blurb — identical whether you have 0 or 500 skills installed — so
+  installing or removing a skill never moves the prompt-cache prefix.
+
+### Managing skills
+
+`/skill` opens an interactive panel with two tabs:
+
+- **Installed** — every skill with its description and keywords; `enter` toggles
+  a skill on/off (disabled skills stay on disk but drop out of the trigger
+  index), `d` then `y/n` removes it from disk.
+- **Search** — live search of a remote skill catalog; `enter` installs the
+  selected skill into `~/.luckycli/skills`.
+
+Non-interactively:
+
+```bash
+/skill list                 # installed skills + state
+/skill search <query>       # search the catalog
+/skill add <name>           # install from the catalog
+/skill add ./path/to/skill  # install from a local file or directory
+/skill enable  <name>
+/skill disable <name>
+/skill remove  <name>
+```
+
+The catalog base URL defaults to LuckyCLI's own and can be overridden with
+`LUCKY_SKILL_CATALOG_URL`. The first time you open `/skill`, a small **starter
+pack** (`conventional-commits`, `release-flow`, `code-review`) is seeded so you
+have something to try — it never overwrites a skill you've edited.
 
 ## Sessions
 
