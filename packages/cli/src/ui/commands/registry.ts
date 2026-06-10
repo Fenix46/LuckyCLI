@@ -1,4 +1,6 @@
 import { basicCommands } from "./basic.js";
+import { unknownCommand } from "./helpers.js";
+import { providerCommands } from "./provider.js";
 import type { Command, CommandContext } from "./types.js";
 
 /**
@@ -9,7 +11,7 @@ import type { Command, CommandContext } from "./types.js";
  * submit() (APP_REFACTOR_PLAN.md tasks 3–4).
  */
 export function buildCommandRegistry(): Command[] {
-  return [...basicCommands()];
+  return [...basicCommands(), ...providerCommands()];
 }
 
 function matchCommand(text: string, registry: Command[]): { command: Command; args: string } | null {
@@ -38,7 +40,7 @@ export async function dispatchCommand(
   if (!text.startsWith("/")) return false;
   const match = matchCommand(text, registry);
   if (!match) {
-    ctx.emit({ kind: "error", text: `unknown command: ${text}. Try /help.` });
+    unknownCommand(ctx, text);
     return true;
   }
   await match.command.run(match.args, ctx);

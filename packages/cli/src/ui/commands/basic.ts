@@ -9,8 +9,9 @@ import {
 } from "@luckycli/core";
 import { THEMES } from "../themes.js";
 import { formatNumber } from "../lib/format.js";
+import { unknownCommand } from "./helpers.js";
 import { ALL_SLASH_COMMANDS } from "./slash-menu.js";
-import type { Command, CommandContext } from "./types.js";
+import type { Command } from "./types.js";
 
 /** Store/config access, injectable so tests never touch the real disk. */
 export interface BasicCommandDeps {
@@ -26,12 +27,6 @@ const defaultDeps: BasicCommandDeps = {
   resetTaskList,
   loadConfig: loadStoredConfig,
 };
-
-// Commands that took no args kept falling through to the unknown-command
-// error before the registry existed; preserve that exact behavior.
-function unknownCommand(ctx: CommandContext, text: string): void {
-  ctx.emit({ kind: "error", text: `unknown command: ${text}. Try /help.` });
-}
 
 export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
   return [

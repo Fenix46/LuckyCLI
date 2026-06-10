@@ -43,7 +43,6 @@ import {
   onTasksUpdated,
   recordGraphBuilt,
   saveReasoningEffort,
-  saveThinkingEnabled,
   saveSession,
   saveStoredConfig,
   withAutoUpdatePolicy,
@@ -61,7 +60,6 @@ import { buildInstalledMcpRows } from "./lib/mcp-rows.js";
 import {
   getModelPickerState,
   getThemePickerState,
-  getAvailableModels,
   validateModel,
 } from "./lib/model-picker.js";
 import { formatNumber } from "./lib/format.js";
@@ -71,10 +69,7 @@ import {
   type PastedContent,
   type PastedContents,
 } from "./lib/paste.js";
-import {
-  contextRows,
-  formatStatusFooter,
-} from "./lib/status.js";
+import { formatStatusFooter } from "./lib/status.js";
 import { buildCommandRegistry, dispatchCommand } from "./commands/registry.js";
 import { ALL_SLASH_COMMANDS } from "./commands/slash-menu.js";
 import type { CommandContext } from "./commands/types.js";
@@ -1257,57 +1252,6 @@ export function App({
         setInput("");
         return;
       }
-      if (text === "/context") {
-        try {
-          const status = await agent.contextStatus();
-          setContextStatus(status);
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: "Context",
-              rows: contextRows(status),
-            },
-          ]);
-        } catch (error) {
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "error",
-              text: error instanceof Error ? error.message : "failed to read context status",
-            },
-          ]);
-        }
-        setInput("");
-        return;
-      }
-      if (text === "/status") {
-        try {
-          const [providerStatus, status] = await Promise.all([
-            agent.providerStatus(),
-            agent.contextStatus(),
-          ]);
-          setContextStatus(status);
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "status",
-              provider: providerStatus,
-              context: status,
-            },
-          ]);
-        } catch (error) {
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "error",
-              text: error instanceof Error ? error.message : "failed to read provider status",
-            },
-          ]);
-        }
-        setInput("");
-        return;
-      }
       if (text === "/mcp" || text === "/mcp status" || text === "/mcp list") {
         openMcpPanel("installed");
         setInput("");
@@ -1507,89 +1451,6 @@ export function App({
         }
         return;
       }
-      if (text === "/setup" || text === "/provider") {
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "Provider",
-            rows: [{ label: "action", value: "opening provider switcher" }],
-          },
-        ]);
-        onTriggerSetup();
-        setInput("");
-        return;
-      }
-      if (text === "/model" || text.startsWith("/model ")) {
-        const requestedModel = text.slice("/model".length).trim();
-        if (requestedModel) {
-          selectModel(requestedModel);
-          return;
-        }
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "Models",
-            rows: getAvailableModels(meta.provider).map((model) => ({
-              label: model === meta.model ? "active" : "model",
-              value: model,
-            })),
-          },
-        ]);
-        setInput("");
-        return;
-      }
-      if (text === "/thinking" || text === "/thinking on" || text === "/thinking off") {
-        if (meta.provider !== "claude") {
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "error",
-              text: "/thinking is currently only supported for Claude.",
-            },
-          ]);
-          setInput("");
-          return;
-        }
-        const arg = text.slice("/thinking".length).trim().toLowerCase();
-        if (!arg) {
-          const enabled = getThinkingEnabled(loadStoredConfig(), meta.provider);
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: "Thinking",
-              rows: [
-                { label: "provider", value: "Claude" },
-                { label: "adaptive", value: enabled ? "enabled" : "disabled" },
-              ],
-            },
-          ]);
-          setInput("");
-          return;
-        }
-        if (arg !== "on" && arg !== "off") {
-          setItems((prev) => [
-            ...prev,
-            { kind: "error", text: "Usage: /thinking on | /thinking off" },
-          ]);
-          setInput("");
-          return;
-        }
-        const enabled = arg === "on";
-        saveThinkingEnabled(meta.provider, enabled);
-        onChangeModel(meta.model);
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "assistant",
-            text: `Claude thinking ${enabled ? "enabled" : "disabled"}.`,
-          },
-        ]);
-        setInput("");
-        return;
-      }
       if (text === "/graph" || text === "/graph build" || text === "/graph rebuild") {
         setInput("");
         setItems((prev) => [
@@ -1641,7 +1502,8 @@ export function App({
             triggerSetup: onTriggerSetup,
             triggerResume: onTriggerResume,
             applyTheme: selectTheme,
-            changeModel: selectModel,
+            selectModel,
+            changeModel: onChangeModel,
             exit,
             setContextStatus,
             setCompacting,
@@ -1661,7 +1523,7 @@ export function App({
       setInput("");
       await runTurn(expanded);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, openMcpPanel, commandRegistry],
+    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, openMcpPanel, commandRegistry, onChangeModel],
   );
   const streamingPreview = streaming;
   const messageWidth = Math.max(32, terminalSize.width - 4);

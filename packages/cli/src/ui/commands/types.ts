@@ -27,6 +27,9 @@ export interface CommandContext {
     triggerSetup(): void;
     triggerResume(): void;
     applyTheme(id: string): void;
+    /** Validate + pick: may open the effort picker before switching. */
+    selectModel(model: string): void;
+    /** Rebuild the agent on the given model immediately (no picker). */
     changeModel(model: string): void;
     exit(): void;
     setContextStatus(status: ContextStatus): void;
