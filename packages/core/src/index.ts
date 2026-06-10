@@ -238,6 +238,12 @@ export {
 } from "./skills/install.js";
 export type { InstallResult } from "./skills/install.js";
 export {
+  CatalogSkillSchema,
+  SkillCatalog,
+  installCatalogSkill,
+} from "./skills/catalog.js";
+export type { CatalogSkill } from "./skills/catalog.js";
+export {
   ACTIVATION_BUDGET,
   matchSkills,
   renderSkillInjection,
