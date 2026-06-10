@@ -10,6 +10,8 @@ import type { McpPanelTab } from "../components/McpPanel.js";
 export interface CommandContext {
   agent: Agent;
   meta: { provider: ProviderId; model: string };
+  /** The full command registry, for commands that render it (/help). */
+  registry: Command[];
   /** Append transcript items (the only way commands produce output). */
   emit(...items: Item[]): void;
   setInput(value: string): void;

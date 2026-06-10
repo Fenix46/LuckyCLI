@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Task } from "@luckycli/core";
 import { basicCommands, type BasicCommandDeps } from "./basic.js";
-import { ALL_SLASH_COMMANDS } from "./slash-menu.js";
 import type { Command, CommandContext } from "./types.js";
 import type { Item } from "../lib/items.js";
 
@@ -17,6 +16,7 @@ function harness(overrides: {
   state?: Partial<CommandContext["state"]>;
   meta?: CommandContext["meta"];
   deps?: Partial<BasicCommandDeps>;
+  registry?: Command[];
 } = {}): Harness {
   const emitted: Item[] = [];
   const ui = { applyTheme: vi.fn(), exit: vi.fn() };
@@ -30,6 +30,7 @@ function harness(overrides: {
   const ctx = {
     agent: {},
     meta: overrides.meta ?? { provider: "claude", model: "claude-sonnet-4-6" },
+    registry: overrides.registry ?? [],
     emit: (...items: Item[]) => emitted.push(...items),
     setInput: () => {},
     state: {
@@ -168,15 +169,17 @@ describe("/sessions", () => {
 });
 
 describe("/help", () => {
-  it("lists the slash-menu catalog", () => {
-    const h = harness();
+  it("lists the visible registry commands", () => {
+    const registry: Command[] = [
+      { name: "/visible", description: "a visible command", run: () => {} },
+      { name: "/secret", description: "a hidden command", hidden: true, run: () => {} },
+    ];
+    const h = harness({ registry });
     h.run("/help");
     const item = h.emitted[0]!;
     if (item.kind !== "command") throw new Error("expected command item");
     expect(item.title).toBe("Commands");
-    expect(item.rows).toEqual(
-      ALL_SLASH_COMMANDS.map((cmd) => ({ label: cmd.name, value: cmd.desc })),
-    );
+    expect(item.rows).toEqual([{ label: "/visible", value: "a visible command" }]);
   });
 });
 

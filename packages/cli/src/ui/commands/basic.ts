@@ -10,7 +10,6 @@ import {
 import { THEMES } from "../themes.js";
 import { formatNumber } from "../lib/format.js";
 import { unknownCommand } from "./helpers.js";
-import { ALL_SLASH_COMMANDS } from "./slash-menu.js";
 import type { Command } from "./types.js";
 
 /** Store/config access, injectable so tests never touch the real disk. */
@@ -155,10 +154,9 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
         ctx.emit({
           kind: "command",
           title: "Commands",
-          rows: ALL_SLASH_COMMANDS.map((cmd) => ({
-            label: cmd.name,
-            value: cmd.desc,
-          })),
+          rows: ctx.registry
+            .filter((command) => !command.hidden)
+            .map((command) => ({ label: command.name, value: command.description })),
         });
       },
     },

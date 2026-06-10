@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dispatchCommand } from "./registry.js";
+import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./registry.js";
 import type { Command, CommandContext } from "./types.js";
 import type { Item } from "../lib/items.js";
 
@@ -90,5 +90,35 @@ describe("dispatchCommand", () => {
     await dispatchCommand("/slow", [slow], ctx);
     order.push("after");
     expect(order).toEqual(["ran", "after"]);
+  });
+});
+
+describe("slashMenuEntries", () => {
+  it("keeps the pre-registry menu order and hides hidden commands", () => {
+    const entries = slashMenuEntries(buildCommandRegistry());
+    expect(entries.map((e) => e.name)).toEqual([
+      "/model",
+      "/thinking",
+      "/mcp",
+      "/agents",
+      "/status",
+      "/update",
+      "/compact",
+      "/resume",
+      "/provider",
+      "/theme",
+      "/graph",
+      "/task",
+      "/exit",
+    ]);
+    expect(entries.every((e) => e.desc.length > 0)).toBe(true);
+  });
+
+  it("filters by prefix the way the menu does", () => {
+    const entries = slashMenuEntries(buildCommandRegistry());
+    expect(entries.filter((e) => e.name.startsWith("/m")).map((e) => e.name)).toEqual([
+      "/model",
+      "/mcp",
+    ]);
   });
 });

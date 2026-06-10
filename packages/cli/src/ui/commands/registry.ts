@@ -5,17 +5,48 @@ import { mcpCommands } from "./mcp.js";
 import { providerCommands } from "./provider.js";
 import type { Command, CommandContext } from "./types.js";
 
+// Presentation order of the visible commands in the slash menu and /help
+// (the pre-registry menu order). Hidden and unlisted commands sort after,
+// keeping their group order; dispatch is order-independent.
+const MENU_ORDER = [
+  "/model",
+  "/thinking",
+  "/mcp",
+  "/agents",
+  "/status",
+  "/update",
+  "/compact",
+  "/resume",
+  "/provider",
+  "/theme",
+  "/graph",
+  "/task",
+  "/exit",
+];
+
 /**
  * The single source of truth for slash commands. The slash menu, /help and
  * dispatch all derive from this list; order here is menu order.
  */
 export function buildCommandRegistry(): Command[] {
-  return [
+  const commands = [
     ...basicCommands(),
     ...providerCommands(),
     ...maintenanceCommands(),
     ...mcpCommands(),
   ];
+  const rank = (c: Command) => {
+    const i = MENU_ORDER.indexOf(c.name);
+    return i === -1 ? MENU_ORDER.length : i;
+  };
+  return commands.sort((a, b) => rank(a) - rank(b));
+}
+
+/** Visible commands shaped for the slash menu (and /help), in menu order. */
+export function slashMenuEntries(registry: Command[]): { name: string; desc: string }[] {
+  return registry
+    .filter((command) => !command.hidden)
+    .map((command) => ({ name: command.name, desc: command.description }));
 }
 
 function matchCommand(text: string, registry: Command[]): { command: Command; args: string } | null {

@@ -64,8 +64,7 @@ import {
 } from "./lib/paste.js";
 import { formatStatusFooter } from "./lib/status.js";
 import { installCatalogServer } from "./commands/mcp.js";
-import { buildCommandRegistry, dispatchCommand } from "./commands/registry.js";
-import { ALL_SLASH_COMMANDS } from "./commands/slash-menu.js";
+import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import type { CommandContext } from "./commands/types.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
@@ -357,10 +356,13 @@ export function App({
     };
   }, []);
 
-  // Slash commands navigation
+  // Slash commands: static registry; per-dispatch state travels in the
+  // CommandContext. The menu and /help derive from the same list.
+  const commandRegistry = useMemo(() => buildCommandRegistry(), []);
+  const menuEntries = useMemo(() => slashMenuEntries(commandRegistry), [commandRegistry]);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const showSlashMenu = input.startsWith("/");
-  const filteredCommands = ALL_SLASH_COMMANDS.filter((cmd) =>
+  const filteredCommands = menuEntries.filter((cmd) =>
     cmd.name.startsWith(input)
   );
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
@@ -1196,9 +1198,6 @@ export function App({
     ]);
   }
 
-  // Static command list; per-dispatch state travels in the CommandContext.
-  const commandRegistry = useMemo(() => buildCommandRegistry(), []);
-
   const submit = useCallback(
     async (value: string) => {
       const text = value.trim();
@@ -1221,6 +1220,7 @@ export function App({
         const ctx: CommandContext = {
           agent,
           meta,
+          registry: commandRegistry,
           emit: (...newItems) => setItems((prev) => [...prev, ...newItems]),
           setInput,
           state: {
