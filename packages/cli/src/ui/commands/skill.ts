@@ -3,6 +3,7 @@ import {
   discoverSkills,
   installCatalogSkill,
   installSkillFromPath,
+  seedStarterSkills,
   setSkillEnabled,
   uninstallSkill,
   type CatalogSkill,
@@ -23,6 +24,7 @@ export interface SkillCommandDeps {
   installFromCatalog: typeof installCatalogSkill;
   uninstall: typeof uninstallSkill;
   setEnabled: typeof setSkillEnabled;
+  seedStarter: typeof seedStarterSkills;
 }
 
 const defaultDeps: SkillCommandDeps = {
@@ -32,6 +34,7 @@ const defaultDeps: SkillCommandDeps = {
   installFromCatalog: installCatalogSkill,
   uninstall: uninstallSkill,
   setEnabled: setSkillEnabled,
+  seedStarter: seedStarterSkills,
 };
 
 function skillRow(s: DiscoveredSkill): { label: string; value: string } {
@@ -77,6 +80,18 @@ export function skillCommands(deps: SkillCommandDeps = defaultDeps): Command[] {
       description: "Open the interactive skills panel (install, search, enable/disable)",
       aliases: ["/skills"],
       async run(args, ctx) {
+        // First-run convenience: drop the starter pack in before doing anything,
+        // so a brand-new user sees skills to try. Never clobbers edits; cheap and
+        // idempotent after the first time. Best-effort — never block the command.
+        const seeded = await deps.seedStarter().catch(() => [] as string[]);
+        if (seeded.length > 0) {
+          ctx.emit({
+            kind: "command",
+            title: "Starter skills installed",
+            rows: seeded.map((name) => ({ label: name, value: "enabled" })),
+          });
+        }
+
         const [sub, ...rest] = args.split(/\s+/).filter(Boolean);
         const tail = rest.join(" ");
 

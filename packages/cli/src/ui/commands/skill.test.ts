@@ -24,6 +24,7 @@ function fakeDeps(overrides: Partial<SkillCommandDeps> = {}): SkillCommandDeps {
     installFromCatalog: vi.fn(async () => ({ name: "docker-build", dir: "/x" })),
     uninstall: vi.fn(async () => true),
     setEnabled: vi.fn(async () => true),
+    seedStarter: vi.fn(async () => []),
     ...overrides,
   } as SkillCommandDeps;
 }
@@ -54,6 +55,19 @@ describe("/skill", () => {
     const h = harness();
     await h.run("");
     expect(h.ui.openSkillPanel).toHaveBeenCalledWith("installed");
+  });
+
+  it("seeds the starter pack on first run and reports what was written", async () => {
+    const deps = fakeDeps({
+      seedStarter: vi.fn(async () => ["release-flow", "code-review"]) as SkillCommandDeps["seedStarter"],
+    });
+    const h = harness(deps);
+    await h.run("");
+    expect(deps.seedStarter).toHaveBeenCalledOnce();
+    const item = h.emitted[0]!;
+    if (item.kind !== "command") throw new Error("expected command item");
+    expect(item.title).toBe("Starter skills installed");
+    expect(item.rows.map((r) => r.label)).toEqual(["release-flow", "code-review"]);
   });
 
   it("lists installed skills inline for `list`", async () => {

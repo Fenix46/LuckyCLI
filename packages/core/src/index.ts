@@ -243,6 +243,8 @@ export {
   installCatalogSkill,
 } from "./skills/catalog.js";
 export type { CatalogSkill } from "./skills/catalog.js";
+export { STARTER_SKILLS, seedStarterSkills } from "./skills/starter.js";
+export type { StarterSkill } from "./skills/starter.js";
 export {
   ACTIVATION_BUDGET,
   matchSkills,
