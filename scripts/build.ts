@@ -68,6 +68,11 @@ for (const name of selected) {
     entrypoints: [entry],
     plugins,
     define: {
+      // Force the production React build into the binary: the dev reconciler
+      // emits an unbounded performance.measure() per component render (the
+      // RAM leak fixed in env.ts). Baking it in also dead-code-eliminates the
+      // dev branches instead of deciding at runtime.
+      "process.env.NODE_ENV": JSON.stringify("production"),
       __LUCKY_VERSION__: JSON.stringify(version),
       __LUCKY_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(googleOAuthClientId),
       __LUCKY_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(googleOAuthClientSecret),

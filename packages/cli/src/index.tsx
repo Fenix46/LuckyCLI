@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import "dotenv/config";
+// Keep this before any React-importing module — see env.ts (dev React leaks
+// PerformanceMeasure entries on every render; production build does not).
+import "./env.js";
 import { parseArgs } from "node:util";
 import render from "./vendor/ink/root.js";
 import React from "react";
