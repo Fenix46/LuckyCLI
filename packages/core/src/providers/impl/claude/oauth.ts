@@ -442,16 +442,21 @@ export function claudeEffortLevelsForModel(model: string): ClaudeEffortLevel[] {
 
 export function claudeModelSupportsEffort(model: string): boolean {
   const canonical = model.toLowerCase();
-  return canonical.includes("sonnet-4-6") || canonical.includes("opus-4-6") || canonical.includes("opus-4-8");
+  return (
+    canonical.includes("sonnet-4-6") ||
+    canonical.includes("opus-4-6") ||
+    canonical.includes("opus-4-8") ||
+    canonical.includes("fable")
+  );
 }
 
 export function claudeModelSupportsAdaptiveThinking(model: string): boolean {
-  const canonical = model.toLowerCase();
-  return canonical.includes("sonnet-4-6") || canonical.includes("opus-4-6") || canonical.includes("opus-4-8");
+  return claudeModelSupportsEffort(model);
 }
 
 export function claudeModelSupportsMaxEffort(model: string): boolean {
-  return model.toLowerCase().includes("opus-4");
+  const canonical = model.toLowerCase();
+  return canonical.includes("opus-4") || canonical.includes("fable");
 }
 
 export function normalizeClaudeEffort(
