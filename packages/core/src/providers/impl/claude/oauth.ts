@@ -291,7 +291,7 @@ export async function fetchClaudeOAuthUsage(accessToken: string): Promise<Claude
     headers: authHeaders(accessToken, {
       "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER,
       "Content-Type": "application/json",
-      "User-Agent": "claude-cli/2.1.158 (external, cli)",
+      "User-Agent": "claude-cli/2.1.175 (external, cli)",
     }),
   }, "Claude OAuth usage");
   if (!res.ok) {
@@ -317,7 +317,7 @@ export async function fetchClaudeOAuthReferralEligibility(
         "anthropic-client-platform": "claude_code_cli",
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
-        "User-Agent": "claude-cli/2.1.158 (external, cli)",
+        "User-Agent": "claude-cli/2.1.175 (external, cli)",
         "x-organization-uuid": organizationUuid,
       }),
     },

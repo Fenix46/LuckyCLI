@@ -47,7 +47,7 @@ const CLAUDE_CODE_BETA_HEADER = [
   "advanced-tool-use-2025-11-20",
 ].join(",");
 const CLAUDE_CODE_BILLING_SYSTEM =
-  "x-anthropic-billing-header: cc_version=2.1.158.cea; cc_entrypoint=cli; cch=d1656;";
+  "x-anthropic-billing-header: cc_version=2.1.175.cea; cc_entrypoint=cli; cch=d1656;";
 // Small/fast model used for OAuth token-count probes (see countTokensViaProbe).
 const CLAUDE_COUNT_PROBE_MODEL = "claude-haiku-4-5-20251001";
 // Ephemeral prompt-cache marker. Placed on the stable prefix of every request
@@ -363,7 +363,7 @@ export class ClaudeProvider implements IProvider {
           "anthropic-beta": CLAUDE_CODE_BETA_HEADER,
           "anthropic-dangerous-direct-browser-access": "true",
           "anthropic-version": "2023-06-01",
-          "User-Agent": "claude-cli/2.1.158 (external, cli)",
+          "User-Agent": "claude-cli/2.1.175 (external, cli)",
           "x-app": "cli",
         },
       });
