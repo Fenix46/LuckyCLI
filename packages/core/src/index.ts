@@ -20,6 +20,7 @@ export type { AgentEvent, CompactionResult, ContextStatus } from "./agent/types.
 export { ToolRegistry } from "./tools/registry.js";
 export {
   DEFAULT_TOOL_PERMISSION_POLICY,
+  commandPrefix,
   matchesWildcard,
   parseToolPermissionPolicyEnv,
   resolveToolPermission,

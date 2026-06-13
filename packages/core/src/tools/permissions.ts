@@ -81,6 +81,68 @@ export function parseToolPermissionPolicyEnv(
   return Object.keys(policy).length > 0 ? policy : undefined;
 }
 
+// Leading `VAR=value` env assignments to skip when finding a command's prefix,
+// so `NODE_ENV=prod npm run build` still resolves to `npm run`.
+const ENV_VAR_ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+// Programs whose mode is selected by a SHORT FLAG rather than a word
+// subcommand: `python -m`, `node -e`, `go -…`. For these, the flag is treated
+// as the subcommand so `python -m py_compile a.py` and `…b.py` share one scope.
+// Everything else (ls, cat, rm) requires a word subcommand, so a bare flag like
+// `-la`/`-rf` never broadens into a prefix rule.
+const FLAG_SUBCOMMAND_PROGRAMS = new Set([
+  "python",
+  "python3",
+  "node",
+  "go",
+  "cargo",
+  "deno",
+  "bun",
+  "ruby",
+]);
+
+/**
+ * Extract a stable "command + subcommand" prefix from a shell command, used to
+ * remember an "always" approval at a useful granularity instead of the exact
+ * string. Ported from Claude Code's getSimpleCommandPrefix.
+ *
+ *   "git status -s"            → "git status"
+ *   "NODE_ENV=prod npm run x"  → "npm run"
+ *   "python -m py_compile a"   → "python -m"  (python is flag-selected)
+ *   "ls -la"                   → null  (bare flag, not a subcommand)
+ *   "cat file.txt"             → null  (filename, not a subcommand)
+ *
+ * Returns null when there's no clear subcommand, so the caller falls back to an
+ * exact match — never broadening a bare `ls`/`cat`/`rm` into a prefix rule.
+ * The subcommand token must be a lowercase word (git style) OR — only for the
+ * flag-selected programs above — a single short flag like `-m`/`-e`.
+ */
+export function commandPrefix(command: string): string | null {
+  const tokens = command.trim().split(/\s+/).filter(Boolean);
+
+  // Skip leading env-var assignments.
+  let i = 0;
+  while (i < tokens.length && ENV_VAR_ASSIGN_RE.test(tokens[i]!)) i++;
+
+  const remaining = tokens.slice(i);
+  if (remaining.length < 2) return null;
+
+  const program = remaining[0]!;
+  // The program must be a bare command name (git, npm, python), not a path
+  // (./deploy.sh, /usr/bin/x): a script invoked by path takes positional args,
+  // not subcommands, so `./deploy.sh staging` must not auto-allow
+  // `./deploy.sh production`.
+  if (/[/.]/.test(program)) return null;
+
+  const subcmd = remaining[1]!;
+  const isWordSubcommand = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(subcmd);
+  const isFlagSubcommand =
+    FLAG_SUBCOMMAND_PROGRAMS.has(program) && /^-[a-z]{1,3}$/i.test(subcmd);
+  if (!isWordSubcommand && !isFlagSubcommand) return null;
+
+  return remaining.slice(0, 2).join(" ");
+}
+
 export function matchesWildcard(pattern: string, value: string): boolean {
   if (pattern === "*") return true;
   const escaped = pattern
