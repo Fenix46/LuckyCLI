@@ -12,6 +12,7 @@ import {
 import { SPINNER_FRAMES } from "./constants.js";
 import { DiffView } from "./DiffView.js";
 import { Markdown } from "../markdown/Markdown.js";
+import { StreamingMarkdown } from "../markdown/StreamingMarkdown.js";
 import { IntroBanner } from "./IntroBanner.js";
 import { PromptBlock } from "./PromptBlock.js";
 import { StatusView } from "./StatusView.js";
@@ -224,7 +225,7 @@ export function ItemView({
             <Text color={theme.muted}> › </Text>
           </Box>
           <Box paddingLeft={2}>
-            <Markdown text={item.text} theme={theme} />
+            <StreamingMarkdown text={item.text} theme={theme} />
           </Box>
         </Box>
       );
