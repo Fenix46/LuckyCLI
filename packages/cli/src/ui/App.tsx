@@ -57,6 +57,7 @@ import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./comma
 import type { CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
+import { useStableActivity } from "./hooks/useStableActivity.js";
 import { useMcpPanel } from "./hooks/useMcpPanel.js";
 import { useSkillPanel } from "./hooks/useSkillPanel.js";
 import { useModalRouter, type ModalHandler } from "./hooks/useModalRouter.js";
@@ -67,6 +68,7 @@ import { PickerHint } from "./components/PickerHint.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { AgentUsagePanel } from "./components/AgentUsagePanel.js";
 import { TranscriptList } from "./components/Transcript.js";
+import { ActivityIndicator } from "./components/ActivityIndicator.js";
 import { McpPanel } from "./components/McpPanel.js";
 import { SkillPanel } from "./components/SkillPanel.js";
 import { AgentsPanel } from "./components/AgentsPanel.js";
@@ -906,6 +908,10 @@ export function App({
     [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession],
   );
   const streamingPreview = streaming;
+  // Hold the streaming/thinking phase for a minimum window so the brief gaps in
+  // a turn (a tool call committing the narration block, a silent pause between
+  // deltas) don't make the "lucky thinking" header flicker or appear to stall.
+  const { phase: activityPhase } = useStableActivity(busy, streamingPreview.length > 0);
   const messageWidth = Math.max(32, terminalSize.width - 4);
   // Content width inside the bordered input frame: the frame consumes 4 more
   // columns (left/right border + paddingX) on top of the root's paddingX.
@@ -930,19 +936,13 @@ export function App({
         },
       ];
     }
-    if (compacting) {
-      return [
-        ...items,
-        { kind: "thinking", elapsedSeconds, frame: activityFrame, label: "compacting" },
-      ];
-    }
-    if (busy && !approvalRequest && !userQuestionRequest) {
-      return [
-        ...items,
-        streamingPreview
-          ? { kind: "streaming", text: streamingPreview }
-          : { kind: "thinking", elapsedSeconds, frame: activityFrame, reasoning },
-      ];
+    // The live streaming reply still rides at the tail of the transcript so it
+    // grows in place. The "working" indicator is NO LONGER a transcript item —
+    // it's fixed chrome above the input frame (see ActivityIndicator below), so
+    // it stays visible regardless of how far the transcript has scrolled and
+    // never appears to stall behind a tool result or the task panel.
+    if (busy && !compacting && !approvalRequest && !userQuestionRequest && streamingPreview) {
+      return [...items, { kind: "streaming", text: streamingPreview }];
     }
     return items;
   }, [
@@ -952,9 +952,6 @@ export function App({
     approvalRequest,
     userQuestionRequest,
     streamingPreview,
-    elapsedSeconds,
-    activityFrame,
-    reasoning,
   ]);
 
   // The transcript ScrollBox uses flexGrow={1}, so it yields height to whatever
@@ -1127,6 +1124,26 @@ export function App({
         <SkillPanel theme={activeTheme} width={messageWidth} {...skillPanel.panelProps} />
       ) : agentsPanel.isOpen ? (
         <AgentsPanel theme={activeTheme} width={messageWidth} {...agentsPanel.panelProps} />
+      ) : null}
+
+      {/* Persistent "working" indicator, fixed here above the input frame so it
+          stays visible for the whole turn no matter what the model is doing.
+          Hidden while the user must act (approval / question) — then they're
+          not waiting on the model. */}
+      {(busy || compacting) && !approvalRequest && !userQuestionRequest ? (
+        <ActivityIndicator
+          theme={activeTheme}
+          elapsedSeconds={elapsedSeconds}
+          frame={activityFrame}
+          phase={
+            activityPhase === "streaming"
+              ? "responding"
+              : reasoning
+                ? "reasoning"
+                : "thinking"
+          }
+          {...(compacting ? { label: "compacting" } : {})}
+        />
       ) : null}
 
       {/* Input frame: a single rounded border instead of full-width rules.

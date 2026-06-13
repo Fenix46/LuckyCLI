@@ -16,7 +16,6 @@ import { StreamingMarkdown } from "../markdown/StreamingMarkdown.js";
 import { IntroBanner } from "./IntroBanner.js";
 import { PromptBlock } from "./PromptBlock.js";
 import { StatusView } from "./StatusView.js";
-import { ThinkingStatus } from "./ThinkingStatus.js";
 
 /**
  * The whole scrollback transcript as a plain, freely-growing column.
@@ -227,18 +226,6 @@ export function ItemView({
           <Box paddingLeft={2}>
             <StreamingMarkdown text={item.text} theme={theme} />
           </Box>
-        </Box>
-      );
-    case "thinking":
-      return (
-        <Box flexDirection="column">
-          <ThinkingStatus
-            theme={theme}
-            elapsedSeconds={item.elapsedSeconds}
-            frame={item.frame}
-            reasoning={item.reasoning}
-            {...(item.label ? { label: item.label } : {})}
-          />
         </Box>
       );
     case "hint":

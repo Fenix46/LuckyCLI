@@ -4,6 +4,30 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+/**
+ * Format an elapsed-time readout for the thinking indicator.
+ *
+ * Under a minute it stays in plain seconds ("42s"); from a minute on it rolls
+ * over into minutes (and hours) so a long-running turn reads as "2m 05s"
+ * instead of an ever-growing "125s". The seconds segment is zero-padded once
+ * minutes appear so the width is stable as it ticks.
+ */
+export function formatElapsed(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  if (total < 60) return `${total}s`;
+
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  const ss = String(secs).padStart(2, "0");
+
+  if (hours > 0) {
+    const mm = String(minutes).padStart(2, "0");
+    return `${hours}h ${mm}m ${ss}s`;
+  }
+  return `${minutes}m ${ss}s`;
+}
+
 export function preview(value: unknown, max = 120): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
   const flat = s.replace(/\s+/g, " ").trim();
