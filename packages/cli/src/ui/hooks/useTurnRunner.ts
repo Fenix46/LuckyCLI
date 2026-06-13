@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   Agent,
+  ContentPart,
   ContextStatus,
   SkillActivator,
   TokenUsage,
@@ -54,8 +55,8 @@ export interface TurnRunner {
   reasoning: boolean;
   /** Abort the active turn, if any. */
   abort: () => void;
-  /** Run one agent turn for the given user text. */
-  runTurn: (text: string) => Promise<void>;
+  /** Run one agent turn for the given user input (text, or multimodal parts). */
+  runTurn: (input: string | ContentPart[]) => Promise<void>;
 }
 
 /**
@@ -92,7 +93,7 @@ export function useTurnRunner({
   }, []);
 
   const runTurn = useCallback(
-    async (text: string) => {
+    async (input: string | ContentPart[]) => {
       setBusy(true);
       setStartedAt(Date.now());
 
@@ -130,12 +131,26 @@ export function useTurnRunner({
         appendItems([{ kind: "assistant", text: buffered }]);
       };
 
-      // Automatic skill activation: append matched skills' instruction blocks
-      // to the user turn (at the tail, so the cached prefix is untouched).
-      let sendText = text;
+      // Automatic skill activation augments the user's TEXT with matched skills'
+      // instruction blocks. For a multimodal turn (ContentPart[]) we augment the
+      // text part in place and leave the images untouched; a plain string turn
+      // augments directly.
+      let payload: string | ContentPart[] = input;
       if (skills) {
         try {
-          sendText = await skills.augment(text);
+          if (typeof input === "string") {
+            payload = await skills.augment(input);
+          } else {
+            const textIdx = input.findIndex((p) => p.type === "text");
+            const baseText = textIdx >= 0 ? (input[textIdx] as { text: string }).text : "";
+            const augmented = await skills.augment(baseText);
+            if (augmented !== baseText) {
+              const next = [...input];
+              if (textIdx >= 0) next[textIdx] = { type: "text", text: augmented };
+              else next.unshift({ type: "text", text: augmented });
+              payload = next;
+            }
+          }
         } catch {
           // Skill activation is best-effort; never block a turn on it.
         }
@@ -144,7 +159,7 @@ export function useTurnRunner({
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        for await (const event of agent.send(sendText, controller.signal)) {
+        for await (const event of agent.send(payload, controller.signal)) {
           handleEvent(event, {
             onText: (delta) => {
               setReasoning(false);

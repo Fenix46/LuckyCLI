@@ -201,13 +201,14 @@ export class Agent {
 
   /** Run one user turn to completion, yielding events as work progresses. */
   async *send(
-    userInput: string,
+    userInput: string | ContentPart[],
     signal?: AbortSignal,
   ): AsyncIterable<AgentEvent> {
-    this.history.push({
-      role: "user",
-      content: [{ type: "text", text: userInput }],
-    });
+    // A plain string is the common case (text turn); an explicit ContentPart[]
+    // lets callers mix text with images and other parts for multimodal turns.
+    const content: ContentPart[] =
+      typeof userInput === "string" ? [{ type: "text", text: userInput }] : userInput;
+    this.history.push({ role: "user", content });
 
     // Use the cheap, already-known context size for the routine pre-turn check.
     // The previous stream's final usage measured the full transcript we sent, so

@@ -52,6 +52,13 @@ import {
   type PastedContent,
   type PastedContents,
 } from "./lib/paste.js";
+import {
+  buildTurnContent,
+  formatImageRef,
+  loadImage,
+  pruneOrphanedImages,
+  type AttachedImages,
+} from "./lib/image-input.js";
 import { formatStatusFooter } from "./lib/status.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import type { CommandContext } from "./commands/types.js";
@@ -211,6 +218,10 @@ export function App({
   // input effects; only ever read synchronously at paste/submit time.
   const pastedContentsRef = useRef<PastedContents>({});
   const nextPasteIdRef = useRef<number>(1);
+  // Images dropped/pasted into the prompt, stashed behind `[Image #N]`
+  // placeholders and expanded into ImageParts at submit (see image-input.ts).
+  const attachedImagesRef = useRef<AttachedImages>({});
+  const nextImageIdRef = useRef<number>(1);
   // Timestamp of the last Ctrl+C while busy, so a quick second press can force
   // quit even if the running turn is wedged and won't honor the abort.
   const lastBusyCtrlCRef = useRef<number>(0);
@@ -910,9 +921,14 @@ export function App({
       const expanded = expandPastedRefs(text, pastedContentsRef.current);
       pastedContentsRef.current = {};
       nextPasteIdRef.current = 1;
+      // Expand `[Image #N]` placeholders into ImageParts; a turn with no images
+      // collapses back to a plain string. Clear the stash for the next prompt.
+      const content = buildTurnContent(expanded, attachedImagesRef.current);
+      attachedImagesRef.current = {};
+      nextImageIdRef.current = 1;
       setItems((prev) => [...prev, { kind: "user", text }]);
       setInput("");
-      await runTurn(expanded);
+      await runTurn(content);
     },
     [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession],
   );
@@ -968,15 +984,43 @@ export function App({
   // budgeting needed (unlike the old fixed-height ScrollViewport).
 
   const handleInputChange = useCallback((next: string) => {
-    // If the user edited away a `[Pasted text #N]` placeholder, drop the
-    // matching stashed content so it isn't spliced into a later submit.
+    // If the user edited away a `[Pasted text #N]` or `[Image #N]` placeholder,
+    // drop the matching stash so it isn't spliced into a later submit.
     pastedContentsRef.current = pruneOrphanedPastes(next, pastedContentsRef.current);
+    attachedImagesRef.current = pruneOrphanedImages(next, attachedImagesRef.current);
     setInput(next);
   }, []);
   const handlePaste = useCallback((content: PastedContent) => {
     pastedContentsRef.current = { ...pastedContentsRef.current, [content.id]: content };
   }, []);
   const allocatePasteId = useCallback(() => nextPasteIdRef.current++, []);
+
+  // Load dropped/pasted image paths, stash them, and return the placeholder
+  // text to insert. Unreadable/unsupported files surface as an error item and
+  // are skipped, so a bad path never silently disappears.
+  const handleAttachImages = useCallback(
+    (paths: string[]): string => {
+      const placeholders: string[] = [];
+      for (const path of paths) {
+        const id = nextImageIdRef.current;
+        try {
+          attachedImagesRef.current = {
+            ...attachedImagesRef.current,
+            [id]: loadImage(path, id),
+          };
+          placeholders.push(formatImageRef(id));
+          nextImageIdRef.current += 1;
+        } catch (err) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: `Could not attach image ${path}: ${(err as Error).message}` },
+          ]);
+        }
+      }
+      return placeholders.join(" ");
+    },
+    [],
+  );
 
   // Prompts already sent this session (oldest first), for arrow-up recall.
   const promptHistory = useMemo(
@@ -994,6 +1038,7 @@ export function App({
       onChange={handleInputChange}
       onSubmit={submit}
       onPaste={handlePaste}
+      onAttachImages={handleAttachImages}
       nextPasteId={allocatePasteId}
       width={inputWidth}
       active={!mcpPanel.isOpen && !skillPanel.isOpen && !agentsPanel.isOpen}

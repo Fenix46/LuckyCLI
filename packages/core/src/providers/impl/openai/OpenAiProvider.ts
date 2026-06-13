@@ -222,6 +222,7 @@ function toOpenAiMessages(
 
     // user / tool turns
     const textParts: string[] = [];
+    const imageParts: OpenAI.Chat.ChatCompletionContentPartImage[] = [];
     for (const part of msg.content) {
       if (part.type === "tool_result") {
         out.push({
@@ -231,9 +232,21 @@ function toOpenAiMessages(
         });
       } else if (part.type === "text") {
         textParts.push(part.text);
+      } else if (part.type === "image") {
+        imageParts.push({
+          type: "image_url",
+          image_url: { url: `data:${part.mimeType};base64,${part.data}` },
+        });
       }
     }
-    if (textParts.length > 0) {
+    if (imageParts.length > 0) {
+      // Multimodal user turn: an array of content parts (text first, then the
+      // images) is required — a bare string can't carry images.
+      const parts: OpenAI.Chat.ChatCompletionContentPart[] = [];
+      if (textParts.length > 0) parts.push({ type: "text", text: textParts.join("") });
+      parts.push(...imageParts);
+      out.push({ role: "user", content: parts });
+    } else if (textParts.length > 0) {
       out.push({ role: "user", content: textParts.join("") });
     }
   }

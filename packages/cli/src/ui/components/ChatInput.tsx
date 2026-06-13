@@ -8,12 +8,14 @@ import {
   shouldStashPaste,
   type PastedContent,
 } from "../lib/paste.js";
+import { extractImagePaths } from "../lib/image-input.js";
 
 export function ChatInput({
   value,
   onChange,
   onSubmit,
   onPaste,
+  onAttachImages,
   nextPasteId,
   width,
   active,
@@ -26,6 +28,11 @@ export function ChatInput({
   onSubmit: (value: string) => void;
   /** Stash a large paste; the placeholder id is allocated via nextPasteId. */
   onPaste?: (content: PastedContent) => void;
+  /**
+   * Load dropped/pasted image file paths and return the placeholder text to
+   * insert (e.g. "[Image #1]"). App owns the id allocation and the stash.
+   */
+  onAttachImages?: (paths: string[]) => string;
   /** Allocates the next placeholder id (kept in App state with the stash). */
   nextPasteId?: () => number;
   width: number;
@@ -163,6 +170,22 @@ export function ChatInput({
     if (key.isPasted && onPaste && nextPasteId) {
       setHistoryIndex(null);
       const cleaned = input.replace(/\r\n?/g, "\n");
+
+      // Dragging an image file onto the terminal pastes its path. Pull out the
+      // image paths, attach them as `[Image #N]` placeholders, and only treat
+      // whatever's left as text. A paste with no image paths skips this.
+      if (onAttachImages) {
+        const { images, rest } = extractImagePaths(cleaned);
+        if (images.length > 0) {
+          const placeholders = onAttachImages(images);
+          const insertText = rest ? `${rest} ${placeholders}` : placeholders;
+          const nextValue = insertAt(value, cursorOffset, insertText);
+          onChange(nextValue);
+          setCursorOffset(cursorOffset + insertText.length);
+          return;
+        }
+      }
+
       if (shouldStashPaste(cleaned)) {
         const id = nextPasteId();
         onPaste({ id, content: cleaned });
