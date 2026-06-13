@@ -3,6 +3,7 @@ import React from "react";
 import type { Task, TaskStatus } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import { truncateSingleLine } from "../lib/format.js";
+import { selectTaskWindow, formatHiddenSummary } from "../lib/task-window.js";
 
 /**
  * The live work task list, rendered as a checklist anchored in the bottom
@@ -18,10 +19,13 @@ export function TaskPanel({
   tasks,
   theme,
   width,
+  expanded = false,
 }: {
   tasks: Task[];
   theme: Theme;
   width: number;
+  /** Ctrl+O expands the panel to the full list instead of a rolling window. */
+  expanded?: boolean;
 }): React.JSX.Element | null {
   if (tasks.length === 0) return null;
 
@@ -50,16 +54,25 @@ export function TaskPanel({
   // Leave room for the two-space indent, the icon + space, and a little slack.
   const maxSubject = Math.max(15, width - 8);
 
+  // Compact by default: show a rolling window so a long plan doesn't eat the
+  // screen. Ctrl+O expands to the whole list (limit 0 = no truncation).
+  const { visible, hidden, hiddenCount } = selectTaskWindow(tasks, expanded ? 0 : undefined);
+
   return (
     <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
       <Text color={theme.muted}>
         Tasks (<Text bold>{tasks.length}</Text>: {headerParts.join(", ")})
       </Text>
       <Box flexDirection="column">
-        {tasks.map((task) => (
+        {visible.map((task) => (
           <TaskRow key={task.id} task={task} theme={theme} maxSubject={maxSubject} />
         ))}
       </Box>
+      {hiddenCount > 0 ? (
+        <Text color={theme.muted} dimColor>
+          … +{formatHiddenSummary(hidden)} · ctrl+o to expand
+        </Text>
+      ) : null}
     </Box>
   );
 }

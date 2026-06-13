@@ -157,6 +157,9 @@ export function App({
   // chat shows an empty panel and a resumed session shows its own tasks.
   const taskListId = resumed?.id ?? getActiveTaskListId();
   const [tasks, setTasks] = useState<Task[]>(() => listTasks(taskListId));
+  // Ctrl+O toggles the task panel between the compact rolling window and the
+  // full list. Off by default so a long plan never floods the screen.
+  const [tasksExpanded, setTasksExpanded] = useState(false);
   useEffect(() => {
     const refresh = (changedId: string) => {
       if (changedId === taskListId) setTasks(listTasks(taskListId));
@@ -644,6 +647,12 @@ export function App({
       return false;
     },
     fallthrough: (_in, key) => {
+      // Ctrl+O toggles the expanded task view (Claude Code's expand shortcut).
+      // Only meaningful when there's a task list to expand.
+      if (key.ctrl && _in === "o" && tasks.length > 0) {
+        setTasksExpanded((prev) => !prev);
+        return;
+      }
       // 5. Esc interrupts the running turn (like other coding agents).
       if (key.escape && busy) {
         abort();
@@ -1032,7 +1041,7 @@ export function App({
           as the transcript grows, the whole column grows and older rows scroll
           into the terminal's scrollback. */}
       <Box flexDirection="column" flexShrink={0} width="100%">
-      <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} />
+      <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} expanded={tasksExpanded} />
       <AgentUsagePanel usage={agentUsage} theme={activeTheme} width={messageWidth} />
       {effortPicker ? (
         <Box
