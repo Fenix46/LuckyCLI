@@ -117,6 +117,8 @@ export { fetchOllamaModels } from "./impl/ollama/models.js";
 export type { OllamaModel } from "./impl/ollama/models.js";
 export { normalizeOpenAiCompatibleBaseUrl } from "./impl/openai-compatible/OpenAiCompatibleProvider.js";
 export { fetchLlamaCppContextWindow } from "./impl/llamacpp/context.js";
+export { fetchOpenAiCompatibleModels } from "./impl/openai-models.js";
+export type { OpenAiCompatibleModel } from "./impl/openai-models.js";
 export {
   fetchVllmContextWindow,
   fetchVllmContextWindows,
