@@ -78,6 +78,32 @@ describe("OpenAiCompatibleProvider", () => {
   });
 });
 
+describe("manual context-window override", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("stamps the configured window onto the provider's model info", () => {
+    const llama = new LlamaCppProvider({
+      type: "llamacpp",
+      baseUrl: "http://localhost:8080",
+      contextWindow: 16384,
+    });
+    expect(llama.info.models?.[llama.info.defaultModel]?.contextWindow).toBe(16384);
+
+    const compat = new OpenAiCompatibleProvider({
+      type: "openai-compatible",
+      baseUrl: "http://localhost:9000",
+      apiKey: "k",
+      contextWindow: 200000,
+    });
+    expect(compat.info.models?.[compat.info.defaultModel]?.contextWindow).toBe(200000);
+  });
+
+  it("leaves the context window unset when not provided", () => {
+    const vllm = new VllmProvider({ type: "vllm", baseUrl: "http://localhost:8000" });
+    expect(vllm.info.models?.[vllm.info.defaultModel]?.contextWindow).toBeUndefined();
+  });
+});
+
 describe("normalizeOpenAiCompatibleBaseUrl", () => {
   it("appends /v1 to a bare origin", () => {
     expect(normalizeOpenAiCompatibleBaseUrl("https://api.example.com")).toBe(

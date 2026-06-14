@@ -9,13 +9,12 @@
  */
 
 import { providerInfo } from "../../catalog.js";
+import { withContextWindow } from "../../model-info.js";
 import type { LlamaCppCredentials, ProviderInfo } from "../../types.js";
 import { OpenAiProvider } from "../openai/OpenAiProvider.js";
 
-const INFO: ProviderInfo = providerInfo("llamacpp");
-
 export class LlamaCppProvider extends OpenAiProvider {
-  override readonly info: ProviderInfo = INFO;
+  override readonly info: ProviderInfo;
 
   constructor(credentials: LlamaCppCredentials) {
     const base = credentials.baseUrl.replace(/\/$/, "");
@@ -24,5 +23,6 @@ export class LlamaCppProvider extends OpenAiProvider {
       apiKey: credentials.apiKey || "llamacpp",
       baseUrl: `${base}/v1`,
     });
+    this.info = withContextWindow(providerInfo("llamacpp"), credentials.contextWindow);
   }
 }

@@ -4,6 +4,9 @@ import { TextField } from "./components/TextField.js";
 import React, { useEffect, useRef, useState } from "react";
 import {
   PROVIDER_CATALOG,
+  fetchLlamaCppContextWindow,
+  fetchVllmContextWindow,
+  isBaseUrlProvider,
   listProviders,
   loadStoredConfig,
   openBrowser,
@@ -33,7 +36,13 @@ interface SetupProps {
 }
 
 type Step = "theme" | "provider" | "auth" | "credential" | "model";
-type CredentialSubStep = "input" | "api_key" | "oauth_code" | "project" | "region";
+type CredentialSubStep =
+  | "input"
+  | "api_key"
+  | "context"
+  | "oauth_code"
+  | "project"
+  | "region";
 
 export function Setup({
   onComplete,
@@ -51,6 +60,10 @@ export function Setup({
   // Second secret for baseUrl providers that also need an API key (the custom
   // OpenAI-compatible one): `secret` holds the base URL, this holds the key.
   const [apiKeySecret, setApiKeySecret] = useState("");
+  // Context window (tokens) for local providers. Empty = let the agent learn it
+  // from observed usage. May be auto-prefilled from the server when reachable.
+  const [contextWindow, setContextWindow] = useState("");
+  const [contextDiscovering, setContextDiscovering] = useState(false);
   const [gcpProjectId, setGcpProjectId] = useState("");
   const [gcpRegion, setGcpRegion] = useState("us-central1");
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
@@ -225,6 +238,10 @@ export function Setup({
         setCredSubStep("input");
         return;
       }
+      if (credSubStep === "context") {
+        setCredSubStep(selectedAuthMethod?.requiresApiKey ? "api_key" : "input");
+        return;
+      }
       setSelectedAuthMethod(null);
       resetAuthState();
       setStep("auth");
@@ -250,6 +267,7 @@ export function Setup({
     setSelectedAuthMethod(method);
     setSecret(method.kind === "baseUrl" ? (method.defaultBaseUrl ?? "") : "");
     setApiKeySecret("");
+    setContextWindow("");
     resetAuthState();
     setStep("credential");
 
@@ -278,12 +296,43 @@ export function Setup({
       setCredSubStep("api_key");
       return;
     }
+    if (selectedAuthMethod?.kind === "baseUrl") {
+      enterContextStep();
+      return;
+    }
     setStep("model");
   }
 
   function onSubmitApiKey() {
     if (!apiKeySecret.trim()) return;
+    enterContextStep();
+  }
+
+  function onSubmitContext() {
     setStep("model");
+  }
+
+  // Move to the context-window step, auto-discovering a value to prefill from
+  // the server when the provider exposes an endpoint for it (llama.cpp, vLLM).
+  function enterContextStep() {
+    setCredSubStep("context");
+    if (!selectedProviderId) return;
+    const url = secret.trim();
+    const key = apiKeySecret.trim() || undefined;
+    const discover =
+      selectedProviderId === "llamacpp"
+        ? () => fetchLlamaCppContextWindow(url)
+        : selectedProviderId === "vllm"
+          ? () => fetchVllmContextWindow(url, key)
+          : null;
+    if (!discover) return;
+    setContextDiscovering(true);
+    void discover()
+      .then((n) => {
+        if (n && n > 0) setContextWindow(String(n));
+      })
+      .catch(() => {})
+      .finally(() => setContextDiscovering(false));
   }
 
   function onSubmitProject() {
@@ -311,6 +360,14 @@ export function Setup({
     provider: ProviderId,
     authMethod: AuthMethod,
   ): ProviderCredentials | undefined {
+    // Optional context-window override, shared by all base-url providers.
+    const ctxField = (): { contextWindow?: number } => {
+      const n = Number(contextWindow.trim());
+      return contextWindow.trim() && Number.isFinite(n) && n > 0
+        ? { contextWindow: n }
+        : {};
+    };
+
     if (provider === "claude") {
       if (authMethod.kind === "oauth") {
         if (!claudeOAuthTokens?.accessToken) return incompleteOAuth();
@@ -342,7 +399,7 @@ export function Setup({
     }
 
     if (provider === "ollama") {
-      return { type: "ollama", baseUrl: secret.trim() };
+      return { type: "ollama", baseUrl: secret.trim(), ...ctxField() };
     }
 
     if (provider === "llamacpp") {
@@ -350,6 +407,7 @@ export function Setup({
         type: "llamacpp",
         baseUrl: secret.trim(),
         ...(apiKeySecret.trim() ? { apiKey: apiKeySecret.trim() } : {}),
+        ...ctxField(),
       };
     }
 
@@ -358,6 +416,7 @@ export function Setup({
         type: "vllm",
         baseUrl: secret.trim(),
         ...(apiKeySecret.trim() ? { apiKey: apiKeySecret.trim() } : {}),
+        ...ctxField(),
       };
     }
 
@@ -366,6 +425,7 @@ export function Setup({
         type: "openai-compatible",
         baseUrl: secret.trim(),
         apiKey: apiKeySecret.trim(),
+        ...ctxField(),
       };
     }
 
@@ -514,6 +574,10 @@ export function Setup({
                 apiKeySecret={apiKeySecret}
                 setApiKeySecret={setApiKeySecret}
                 onSubmitApiKey={onSubmitApiKey}
+                contextWindow={contextWindow}
+                setContextWindow={setContextWindow}
+                onSubmitContext={onSubmitContext}
+                contextDiscovering={contextDiscovering}
                 projectId={gcpProjectId}
                 setProjectId={setGcpProjectId}
                 onSubmitProject={onSubmitProject}
@@ -621,6 +685,10 @@ function CredentialView({
   apiKeySecret,
   setApiKeySecret,
   onSubmitApiKey,
+  contextWindow,
+  setContextWindow,
+  onSubmitContext,
+  contextDiscovering,
   projectId,
   setProjectId,
   onSubmitProject,
@@ -641,6 +709,10 @@ function CredentialView({
   apiKeySecret: string;
   setApiKeySecret: (value: string) => void;
   onSubmitApiKey: () => void;
+  contextWindow: string;
+  setContextWindow: (value: string) => void;
+  onSubmitContext: () => void;
+  contextDiscovering: boolean;
   projectId: string;
   setProjectId: (value: string) => void;
   onSubmitProject: () => void;
@@ -696,6 +768,24 @@ function CredentialView({
         theme={theme}
         hint="API key for your server"
         mask="*"
+      />
+    );
+  }
+
+  if (subStep === "context") {
+    const hint = contextDiscovering
+      ? "detecting from server..."
+      : provider === "openai-compatible"
+        ? "tokens — set this so context tracking & auto-compaction work"
+        : "tokens — optional; Enter to skip (learned from usage)";
+    return (
+      <SetupInput
+        label="Context window"
+        value={contextWindow}
+        onChange={setContextWindow}
+        onSubmit={onSubmitContext}
+        theme={theme}
+        hint={hint}
       />
     );
   }

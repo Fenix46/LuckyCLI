@@ -10,10 +10,9 @@
  */
 
 import { providerInfo } from "../../catalog.js";
+import { withContextWindow } from "../../model-info.js";
 import type { OpenAiCompatibleCredentials, ProviderInfo } from "../../types.js";
 import { OpenAiProvider } from "../openai/OpenAiProvider.js";
-
-const INFO: ProviderInfo = providerInfo("openai-compatible");
 
 /**
  * Normalize a user-supplied base URL: strip the trailing slash, and append
@@ -32,7 +31,7 @@ export function normalizeOpenAiCompatibleBaseUrl(input: string): string {
 }
 
 export class OpenAiCompatibleProvider extends OpenAiProvider {
-  override readonly info: ProviderInfo = INFO;
+  override readonly info: ProviderInfo;
 
   constructor(credentials: OpenAiCompatibleCredentials) {
     super({
@@ -40,5 +39,9 @@ export class OpenAiCompatibleProvider extends OpenAiProvider {
       apiKey: credentials.apiKey,
       baseUrl: normalizeOpenAiCompatibleBaseUrl(credentials.baseUrl),
     });
+    this.info = withContextWindow(
+      providerInfo("openai-compatible"),
+      credentials.contextWindow,
+    );
   }
 }

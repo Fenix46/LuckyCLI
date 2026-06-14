@@ -11,20 +11,20 @@
  */
 
 import { providerInfo } from "../../catalog.js";
+import { withContextWindow } from "../../model-info.js";
 import type { OllamaCredentials, ProviderInfo } from "../../types.js";
 import { OpenAiProvider } from "../openai/OpenAiProvider.js";
 import { fetchOllamaModels, type OllamaModel } from "./models.js";
 
-const INFO: ProviderInfo = providerInfo("ollama");
-
 export class OllamaProvider extends OpenAiProvider {
-  override readonly info: ProviderInfo = INFO;
+  override readonly info: ProviderInfo;
   private readonly daemonUrl: string;
 
   constructor(credentials: OllamaCredentials) {
     const base = credentials.baseUrl.replace(/\/$/, "");
     super({ type: "openai", apiKey: "ollama", baseUrl: `${base}/v1` });
     this.daemonUrl = base;
+    this.info = withContextWindow(providerInfo("ollama"), credentials.contextWindow);
   }
 
   /** Discover installed models with context window and vision capability. */

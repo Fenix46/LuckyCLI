@@ -8,13 +8,12 @@
  */
 
 import { providerInfo } from "../../catalog.js";
+import { withContextWindow } from "../../model-info.js";
 import type { ProviderInfo, VllmCredentials } from "../../types.js";
 import { OpenAiProvider } from "../openai/OpenAiProvider.js";
 
-const INFO: ProviderInfo = providerInfo("vllm");
-
 export class VllmProvider extends OpenAiProvider {
-  override readonly info: ProviderInfo = INFO;
+  override readonly info: ProviderInfo;
 
   constructor(credentials: VllmCredentials) {
     const base = credentials.baseUrl.replace(/\/$/, "");
@@ -23,5 +22,6 @@ export class VllmProvider extends OpenAiProvider {
       apiKey: credentials.apiKey || "vllm",
       baseUrl: `${base}/v1`,
     });
+    this.info = withContextWindow(providerInfo("vllm"), credentials.contextWindow);
   }
 }

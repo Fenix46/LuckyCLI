@@ -268,6 +268,8 @@ export interface AntigravityCredentials {
 export interface OllamaCredentials {
   type: "ollama";
   baseUrl: string;
+  /** Manual context-window override (tokens). Auto-discovered when omitted. */
+  contextWindow?: number;
 }
 
 export interface LlamaCppCredentials {
@@ -275,6 +277,8 @@ export interface LlamaCppCredentials {
   baseUrl: string;
   /** Optional: llama-server can be started with --api-key. */
   apiKey?: string;
+  /** Manual context-window override (tokens). Auto-discovered when omitted. */
+  contextWindow?: number;
 }
 
 export interface VllmCredentials {
@@ -282,6 +286,8 @@ export interface VllmCredentials {
   baseUrl: string;
   /** Optional: vLLM can be started with --api-key. */
   apiKey?: string;
+  /** Manual context-window override (tokens). Auto-discovered when omitted. */
+  contextWindow?: number;
 }
 
 /**
@@ -292,6 +298,12 @@ export interface OpenAiCompatibleCredentials {
   type: "openai-compatible";
   baseUrl: string;
   apiKey: string;
+  /**
+   * Context window (tokens). There's no discovery endpoint we can rely on for
+   * an arbitrary server, so this is the primary way to set it — without it the
+   * context indicator and auto-compaction can't know the limit.
+   */
+  contextWindow?: number;
 }
 
 export type ProviderCredentials =
