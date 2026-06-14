@@ -181,6 +181,12 @@ export interface ProviderInfo {
   supportsStreaming: boolean;
   supportsVision: boolean;
   supportsTools: boolean;
+  /**
+   * Context window (tokens) to assume for any model id not found in `models`.
+   * Set by local providers when the user supplies a manual override, since
+   * their model name is arbitrary and not in the static catalog.
+   */
+  defaultContextWindow?: number;
 }
 
 export interface ModelInfo {

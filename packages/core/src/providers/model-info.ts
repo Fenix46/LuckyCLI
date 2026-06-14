@@ -25,7 +25,9 @@ export function withContextWindow(
     const existing = models[id] ?? { id };
     models[id] = { ...existing, contextWindow };
   }
-  return { ...info, models };
+  // Local providers have an arbitrary, user-typed model id that isn't in the
+  // catalog, so also record a provider-wide default the agent can fall back to.
+  return { ...info, models, defaultContextWindow: contextWindow };
 }
 
 /**

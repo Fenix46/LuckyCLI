@@ -81,13 +81,13 @@ describe("OpenAiCompatibleProvider", () => {
 describe("manual context-window override", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("stamps the configured window onto the provider's model info", () => {
+  it("exposes the configured window as a provider-wide default (arbitrary model id)", () => {
     const llama = new LlamaCppProvider({
       type: "llamacpp",
       baseUrl: "http://localhost:8080",
       contextWindow: 16384,
     });
-    expect(llama.info.models?.[llama.info.defaultModel]?.contextWindow).toBe(16384);
+    expect(llama.info.defaultContextWindow).toBe(16384);
 
     const compat = new OpenAiCompatibleProvider({
       type: "openai-compatible",
@@ -95,12 +95,12 @@ describe("manual context-window override", () => {
       apiKey: "k",
       contextWindow: 200000,
     });
-    expect(compat.info.models?.[compat.info.defaultModel]?.contextWindow).toBe(200000);
+    expect(compat.info.defaultContextWindow).toBe(200000);
   });
 
   it("leaves the context window unset when not provided", () => {
     const vllm = new VllmProvider({ type: "vllm", baseUrl: "http://localhost:8000" });
-    expect(vllm.info.models?.[vllm.info.defaultModel]?.contextWindow).toBeUndefined();
+    expect(vllm.info.defaultContextWindow).toBeUndefined();
   });
 });
 

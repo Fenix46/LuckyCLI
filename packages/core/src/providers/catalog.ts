@@ -278,11 +278,12 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     id: "llamacpp",
     displayName: "llama.cpp (local)",
     company: "llama.cpp",
-    // The real model list is whatever the server was launched with; this is a
-    // placeholder for the pre-connect dialog. Validation is permissive.
-    availableModels: ["local-model"],
-    models: modelEntries([{ id: "local-model", source: "local" }]),
-    defaultModel: "local-model",
+    // The model name depends on what the server was launched with, so there is
+    // no static list and no safe default: the user types it in. Validation is
+    // permissive and the setup model step is a free-text input.
+    availableModels: [],
+    models: {},
+    defaultModel: "",
     supportsStreaming: true,
     supportsVision: false,
     supportsTools: true,
@@ -300,9 +301,9 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     id: "vllm",
     displayName: "vLLM (local)",
     company: "vLLM",
-    availableModels: ["local-model"],
-    models: modelEntries([{ id: "local-model", source: "local" }]),
-    defaultModel: "local-model",
+    availableModels: [],
+    models: {},
+    defaultModel: "",
     supportsStreaming: true,
     supportsVision: false,
     supportsTools: true,
@@ -320,9 +321,9 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     id: "openai-compatible",
     displayName: "OpenAI-compatible (custom)",
     company: "Custom",
-    availableModels: ["local-model"],
-    models: modelEntries([{ id: "local-model", source: "local" }]),
-    defaultModel: "local-model",
+    availableModels: [],
+    models: {},
+    defaultModel: "",
     supportsStreaming: true,
     supportsVision: false,
     supportsTools: true,

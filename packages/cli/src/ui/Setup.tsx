@@ -64,6 +64,9 @@ export function Setup({
   // from observed usage. May be auto-prefilled from the server when reachable.
   const [contextWindow, setContextWindow] = useState("");
   const [contextDiscovering, setContextDiscovering] = useState(false);
+  // Free-text model name for providers with no static catalog (the user types
+  // whatever their server loaded). Used by the "model" step's text input.
+  const [modelText, setModelText] = useState("");
   const [gcpProjectId, setGcpProjectId] = useState("");
   const [gcpRegion, setGcpRegion] = useState("us-central1");
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
@@ -268,6 +271,7 @@ export function Setup({
     setSecret(method.kind === "baseUrl" ? (method.defaultBaseUrl ?? "") : "");
     setApiKeySecret("");
     setContextWindow("");
+    setModelText("");
     resetAuthState();
     setStep("credential");
 
@@ -342,6 +346,12 @@ export function Setup({
 
   function onSubmitRegion() {
     setStep("model");
+  }
+
+  function onSubmitModel() {
+    const model = modelText.trim();
+    if (!model) return;
+    onSelectModel({ value: model });
   }
 
   function onSelectModel(item: { value: string }) {
@@ -592,7 +602,7 @@ export function Setup({
             </SetupSection>
           )}
 
-          {step === "model" && catalogEntry && (
+          {step === "model" && catalogEntry && catalogEntry.availableModels.length > 0 && (
             <SetupSection
               title="Choose model"
               subtitle="Select the default model. You can switch later with /model."
@@ -606,6 +616,24 @@ export function Setup({
                 }))}
                 onSelect={onSelectModel}
                 theme={theme}
+              />
+              <SetupNavigationHint theme={theme} selectLabel="save" />
+            </SetupSection>
+          )}
+
+          {step === "model" && catalogEntry && catalogEntry.availableModels.length === 0 && (
+            <SetupSection
+              title="Model name"
+              subtitle="Type the exact model name your server serves. You can change it later with /model."
+              theme={theme}
+            >
+              <SetupInput
+                label="Model"
+                value={modelText}
+                onChange={setModelText}
+                onSubmit={onSubmitModel}
+                theme={theme}
+                hint="e.g. the name from your server's /v1/models"
               />
               <SetupNavigationHint theme={theme} selectLabel="save" />
             </SetupSection>

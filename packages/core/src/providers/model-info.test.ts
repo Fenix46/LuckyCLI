@@ -24,6 +24,10 @@ describe("withContextWindow", () => {
     expect(INFO.models?.["local-model"]?.contextWindow).toBeUndefined();
   });
 
+  it("records a provider-wide default for arbitrary model ids", () => {
+    expect(withContextWindow(INFO, 16384).defaultContextWindow).toBe(16384);
+  });
+
   it("is a no-op for undefined / non-positive windows", () => {
     expect(withContextWindow(INFO, undefined)).toBe(INFO);
     expect(withContextWindow(INFO, 0)).toBe(INFO);
