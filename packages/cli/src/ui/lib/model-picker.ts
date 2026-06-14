@@ -1,4 +1,4 @@
-import { PROVIDER_CATALOG, type ProviderId } from "@luckycli/core";
+import { PROVIDER_CATALOG, isBaseUrlProvider, type ProviderId } from "@luckycli/core";
 import { THEMES, type Theme } from "../themes.js";
 
 export function getModelPickerState(
@@ -87,7 +87,9 @@ export function validateModel(
   const knownModels = getAvailableModels(provider);
   if (knownModels.includes(model)) return { ok: true };
 
-  if (provider === "ollama") {
+  // Local / self-hosted servers load whatever model the user launched them
+  // with; we can't enumerate it ahead of time, so trust any non-empty id.
+  if (isBaseUrlProvider(provider)) {
     return { ok: true };
   }
 

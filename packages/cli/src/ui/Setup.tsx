@@ -33,7 +33,7 @@ interface SetupProps {
 }
 
 type Step = "theme" | "provider" | "auth" | "credential" | "model";
-type CredentialSubStep = "input" | "oauth_code" | "project" | "region";
+type CredentialSubStep = "input" | "api_key" | "oauth_code" | "project" | "region";
 
 export function Setup({
   onComplete,
@@ -48,6 +48,9 @@ export function Setup({
   const [selectedAuthMethod, setSelectedAuthMethod] = useState<AuthMethod | null>(null);
   const [credSubStep, setCredSubStep] = useState<CredentialSubStep>("input");
   const [secret, setSecret] = useState("");
+  // Second secret for baseUrl providers that also need an API key (the custom
+  // OpenAI-compatible one): `secret` holds the base URL, this holds the key.
+  const [apiKeySecret, setApiKeySecret] = useState("");
   const [gcpProjectId, setGcpProjectId] = useState("");
   const [gcpRegion, setGcpRegion] = useState("us-central1");
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
@@ -218,6 +221,10 @@ export function Setup({
         setCredSubStep("project");
         return;
       }
+      if (credSubStep === "api_key") {
+        setCredSubStep("input");
+        return;
+      }
       setSelectedAuthMethod(null);
       resetAuthState();
       setStep("auth");
@@ -241,7 +248,8 @@ export function Setup({
     setUseSavedCredentials(false);
     const method = item.value.method;
     setSelectedAuthMethod(method);
-    setSecret(method.kind === "baseUrl" ? "http://localhost:11434" : "");
+    setSecret(method.kind === "baseUrl" ? (method.defaultBaseUrl ?? "") : "");
+    setApiKeySecret("");
     resetAuthState();
     setStep("credential");
 
@@ -265,6 +273,16 @@ export function Setup({
 
   function onSubmitSecret() {
     if (!secret.trim()) return;
+    // baseUrl providers that also need a key collect it on a second step.
+    if (selectedAuthMethod?.kind === "baseUrl" && selectedAuthMethod.requiresApiKey) {
+      setCredSubStep("api_key");
+      return;
+    }
+    setStep("model");
+  }
+
+  function onSubmitApiKey() {
+    if (!apiKeySecret.trim()) return;
     setStep("model");
   }
 
@@ -325,6 +343,30 @@ export function Setup({
 
     if (provider === "ollama") {
       return { type: "ollama", baseUrl: secret.trim() };
+    }
+
+    if (provider === "llamacpp") {
+      return {
+        type: "llamacpp",
+        baseUrl: secret.trim(),
+        ...(apiKeySecret.trim() ? { apiKey: apiKeySecret.trim() } : {}),
+      };
+    }
+
+    if (provider === "vllm") {
+      return {
+        type: "vllm",
+        baseUrl: secret.trim(),
+        ...(apiKeySecret.trim() ? { apiKey: apiKeySecret.trim() } : {}),
+      };
+    }
+
+    if (provider === "openai-compatible") {
+      return {
+        type: "openai-compatible",
+        baseUrl: secret.trim(),
+        apiKey: apiKeySecret.trim(),
+      };
     }
 
     if (authMethod.kind === "oauth") {
@@ -469,6 +511,9 @@ export function Setup({
                 secret={secret}
                 setSecret={setSecret}
                 onSubmitSecret={onSubmitSecret}
+                apiKeySecret={apiKeySecret}
+                setApiKeySecret={setApiKeySecret}
+                onSubmitApiKey={onSubmitApiKey}
                 projectId={gcpProjectId}
                 setProjectId={setGcpProjectId}
                 onSubmitProject={onSubmitProject}
@@ -573,6 +618,9 @@ function CredentialView({
   secret,
   setSecret,
   onSubmitSecret,
+  apiKeySecret,
+  setApiKeySecret,
+  onSubmitApiKey,
   projectId,
   setProjectId,
   onSubmitProject,
@@ -590,6 +638,9 @@ function CredentialView({
   secret: string;
   setSecret: (value: string) => void;
   onSubmitSecret: () => void;
+  apiKeySecret: string;
+  setApiKeySecret: (value: string) => void;
+  onSubmitApiKey: () => void;
   projectId: string;
   setProjectId: (value: string) => void;
   onSubmitProject: () => void;
@@ -632,6 +683,20 @@ function CredentialView({
           <Text color={theme.muted}>Esc to go back</Text>
         </Box>
       </Box>
+    );
+  }
+
+  if (subStep === "api_key") {
+    return (
+      <SetupInput
+        label="API Key"
+        value={apiKeySecret}
+        onChange={setApiKeySecret}
+        onSubmit={onSubmitApiKey}
+        theme={theme}
+        hint="API key for your server"
+        mask="*"
+      />
     );
   }
 
@@ -751,6 +816,9 @@ function savedCredentialsLabel(creds: ProviderCredentials): string {
     case "antigravity":
       return "Google Antigravity Session";
     case "ollama":
+    case "llamacpp":
+    case "vllm":
+    case "openai-compatible":
       return `Local URL: ${creds.baseUrl}`;
     default:
       return "Saved Credentials";
@@ -765,6 +833,10 @@ function credentialSubtitle(provider: ProviderId | null, authMethod: AuthMethod)
     return "A browser window will open for Google OAuth login.";
   }
   if (authMethod.kind === "vertex") return "Use your Google Cloud project and region.";
-  if (authMethod.kind === "baseUrl") return "Use a local or remote Ollama endpoint.";
+  if (authMethod.kind === "baseUrl") {
+    return authMethod.requiresApiKey
+      ? "Enter your server's base URL, then its API key. Stored locally in ~/.luckycli/config.json."
+      : "Use a local or remote endpoint. Stored locally in ~/.luckycli/config.json.";
+  }
   return "Paste the provider API key. It will be stored locally in ~/.luckycli/config.json.";
 }

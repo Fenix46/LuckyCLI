@@ -184,6 +184,24 @@ export function credentialsFromEnv(
         type: "ollama",
         baseUrl: env.OLLAMA_BASE_URL ?? "http://localhost:11434",
       };
+    case "llamacpp":
+      return {
+        type: "llamacpp",
+        baseUrl: env.LLAMACPP_BASE_URL ?? "http://localhost:8080",
+        ...(env.LLAMACPP_API_KEY ? { apiKey: env.LLAMACPP_API_KEY } : {}),
+      };
+    case "vllm":
+      return {
+        type: "vllm",
+        baseUrl: env.VLLM_BASE_URL ?? "http://localhost:8000",
+        ...(env.VLLM_API_KEY ? { apiKey: env.VLLM_API_KEY } : {}),
+      };
+    case "openai-compatible":
+      return {
+        type: "openai-compatible",
+        baseUrl: requireEnv(env, "OPENAI_COMPATIBLE_BASE_URL"),
+        apiKey: requireEnv(env, "OPENAI_COMPATIBLE_API_KEY"),
+      };
   }
 }
 

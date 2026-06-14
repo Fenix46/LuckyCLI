@@ -132,7 +132,16 @@ export interface StreamChunk {
 
 // ─── Provider identity & capabilities ────────────────────────────────────────
 
-export type ProviderId = "claude" | "openai" | "openai-oauth" | "gemini" | "antigravity" | "ollama";
+export type ProviderId =
+  | "claude"
+  | "openai"
+  | "openai-oauth"
+  | "gemini"
+  | "antigravity"
+  | "ollama"
+  | "llamacpp"
+  | "vllm"
+  | "openai-compatible";
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   "claude",
@@ -141,7 +150,27 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   "gemini",
   "antigravity",
   "ollama",
+  "llamacpp",
+  "vllm",
+  "openai-compatible",
 ];
+
+/**
+ * Local / self-hosted providers reached over a user-supplied base URL. The CLI
+ * treats these uniformly: a default URL comes from the catalog, model ids are
+ * validated permissively (the real list is whatever the server has loaded), and
+ * vision/tool support can only be known once we talk to the endpoint.
+ */
+export const BASE_URL_PROVIDER_IDS: readonly ProviderId[] = [
+  "ollama",
+  "llamacpp",
+  "vllm",
+  "openai-compatible",
+];
+
+export function isBaseUrlProvider(id: ProviderId): boolean {
+  return (BASE_URL_PROVIDER_IDS as readonly string[]).includes(id);
+}
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -241,13 +270,40 @@ export interface OllamaCredentials {
   baseUrl: string;
 }
 
+export interface LlamaCppCredentials {
+  type: "llamacpp";
+  baseUrl: string;
+  /** Optional: llama-server can be started with --api-key. */
+  apiKey?: string;
+}
+
+export interface VllmCredentials {
+  type: "vllm";
+  baseUrl: string;
+  /** Optional: vLLM can be started with --api-key. */
+  apiKey?: string;
+}
+
+/**
+ * A user-run server that speaks the OpenAI HTTP API. Both the base URL and the
+ * API key are entered by hand — we make no assumptions about either.
+ */
+export interface OpenAiCompatibleCredentials {
+  type: "openai-compatible";
+  baseUrl: string;
+  apiKey: string;
+}
+
 export type ProviderCredentials =
   | ClaudeCredentials
   | OpenAiCredentials
   | OpenAiOAuthCredentials
   | GeminiCredentials
   | AntigravityCredentials
-  | OllamaCredentials;
+  | OllamaCredentials
+  | LlamaCppCredentials
+  | VllmCredentials
+  | OpenAiCompatibleCredentials;
 
 export function isProviderId(value: string): value is ProviderId {
   return (PROVIDER_IDS as readonly string[]).includes(value);

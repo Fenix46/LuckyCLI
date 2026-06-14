@@ -7,6 +7,9 @@ import { ClaudeProvider } from "./impl/claude/ClaudeProvider.js";
 import { AntigravityProvider } from "./impl/antigravity/AntigravityProvider.js";
 import { GeminiProvider } from "./impl/gemini/GeminiProvider.js";
 import { OllamaProvider } from "./impl/ollama/OllamaProvider.js";
+import { LlamaCppProvider } from "./impl/llamacpp/LlamaCppProvider.js";
+import { VllmProvider } from "./impl/vllm/VllmProvider.js";
+import { OpenAiCompatibleProvider } from "./impl/openai-compatible/OpenAiCompatibleProvider.js";
 import { OpenAiOAuthProvider } from "./impl/openai-oauth/OpenAiOAuthProvider.js";
 import { OpenAiProvider } from "./impl/openai/OpenAiProvider.js";
 import { registerProviderFactory } from "./registry.js";
@@ -16,6 +19,9 @@ import type {
   AntigravityCredentials,
   GeminiCredentials,
   OllamaCredentials,
+  LlamaCppCredentials,
+  VllmCredentials,
+  OpenAiCompatibleCredentials,
   OpenAiCredentials,
   OpenAiOAuthCredentials,
 } from "./types.js";
@@ -59,6 +65,15 @@ export function registerBuiltinProviders(): void {
   registerProviderFactory("ollama", (c) =>
     new OllamaProvider(c as OllamaCredentials),
   );
+  registerProviderFactory("llamacpp", (c) =>
+    new LlamaCppProvider(c as LlamaCppCredentials),
+  );
+  registerProviderFactory("vllm", (c) =>
+    new VllmProvider(c as VllmCredentials),
+  );
+  registerProviderFactory("openai-compatible", (c) =>
+    new OpenAiCompatibleProvider(c as OpenAiCompatibleCredentials),
+  );
 }
 
 // Register on import so consumers just `import "@luckycli/core"`.
@@ -98,6 +113,9 @@ export {
   antigravityModelLabel,
   antigravityVisibleModelIds,
 } from "./impl/antigravity/models.js";
+export { fetchOllamaModels } from "./impl/ollama/models.js";
+export type { OllamaModel } from "./impl/ollama/models.js";
+export { normalizeOpenAiCompatibleBaseUrl } from "./impl/openai-compatible/OpenAiCompatibleProvider.js";
 export {
   getProvider,
   getRegisteredProviderIds,
