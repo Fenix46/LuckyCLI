@@ -62,4 +62,14 @@ describe("validateModel", () => {
     const bad = validateModel("antigravity", "made-up", ["gemini-3.5-flash-low"]);
     expect(bad.ok).toBe(false);
   });
+
+  it("accepts any non-empty model id for base-url (local) providers", () => {
+    for (const provider of ["ollama", "llamacpp", "vllm", "openai-compatible"] as const) {
+      expect(validateModel(provider, "whatever-i-loaded").ok).toBe(true);
+    }
+  });
+
+  it("still rejects an empty model id for local providers", () => {
+    expect(validateModel("llamacpp", "").ok).toBe(false);
+  });
 });

@@ -132,7 +132,16 @@ export interface StreamChunk {
 
 // ─── Provider identity & capabilities ────────────────────────────────────────
 
-export type ProviderId = "claude" | "openai" | "openai-oauth" | "gemini" | "antigravity" | "ollama";
+export type ProviderId =
+  | "claude"
+  | "openai"
+  | "openai-oauth"
+  | "gemini"
+  | "antigravity"
+  | "ollama"
+  | "llamacpp"
+  | "vllm"
+  | "openai-compatible";
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   "claude",
@@ -141,7 +150,27 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   "gemini",
   "antigravity",
   "ollama",
+  "llamacpp",
+  "vllm",
+  "openai-compatible",
 ];
+
+/**
+ * Local / self-hosted providers reached over a user-supplied base URL. The CLI
+ * treats these uniformly: a default URL comes from the catalog, model ids are
+ * validated permissively (the real list is whatever the server has loaded), and
+ * vision/tool support can only be known once we talk to the endpoint.
+ */
+export const BASE_URL_PROVIDER_IDS: readonly ProviderId[] = [
+  "ollama",
+  "llamacpp",
+  "vllm",
+  "openai-compatible",
+];
+
+export function isBaseUrlProvider(id: ProviderId): boolean {
+  return (BASE_URL_PROVIDER_IDS as readonly string[]).includes(id);
+}
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -152,6 +181,12 @@ export interface ProviderInfo {
   supportsStreaming: boolean;
   supportsVision: boolean;
   supportsTools: boolean;
+  /**
+   * Context window (tokens) to assume for any model id not found in `models`.
+   * Set by local providers when the user supplies a manual override, since
+   * their model name is arbitrary and not in the static catalog.
+   */
+  defaultContextWindow?: number;
 }
 
 export interface ModelInfo {
@@ -239,6 +274,42 @@ export interface AntigravityCredentials {
 export interface OllamaCredentials {
   type: "ollama";
   baseUrl: string;
+  /** Manual context-window override (tokens). Auto-discovered when omitted. */
+  contextWindow?: number;
+}
+
+export interface LlamaCppCredentials {
+  type: "llamacpp";
+  baseUrl: string;
+  /** Optional: llama-server can be started with --api-key. */
+  apiKey?: string;
+  /** Manual context-window override (tokens). Auto-discovered when omitted. */
+  contextWindow?: number;
+}
+
+export interface VllmCredentials {
+  type: "vllm";
+  baseUrl: string;
+  /** Optional: vLLM can be started with --api-key. */
+  apiKey?: string;
+  /** Manual context-window override (tokens). Auto-discovered when omitted. */
+  contextWindow?: number;
+}
+
+/**
+ * A user-run server that speaks the OpenAI HTTP API. Both the base URL and the
+ * API key are entered by hand — we make no assumptions about either.
+ */
+export interface OpenAiCompatibleCredentials {
+  type: "openai-compatible";
+  baseUrl: string;
+  apiKey: string;
+  /**
+   * Context window (tokens). There's no discovery endpoint we can rely on for
+   * an arbitrary server, so this is the primary way to set it — without it the
+   * context indicator and auto-compaction can't know the limit.
+   */
+  contextWindow?: number;
 }
 
 export type ProviderCredentials =
@@ -247,7 +318,10 @@ export type ProviderCredentials =
   | OpenAiOAuthCredentials
   | GeminiCredentials
   | AntigravityCredentials
-  | OllamaCredentials;
+  | OllamaCredentials
+  | LlamaCppCredentials
+  | VllmCredentials
+  | OpenAiCompatibleCredentials;
 
 export function isProviderId(value: string): value is ProviderId {
   return (PROVIDER_IDS as readonly string[]).includes(value);

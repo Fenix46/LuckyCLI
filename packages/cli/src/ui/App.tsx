@@ -22,6 +22,7 @@ import {
   detectSelfUpdate,
   effortLevelsFor,
   fetchCodexModels,
+  fetchOllamaModels,
   getProvider,
   getAutoUpdatePolicy,
   getReasoningEffort,
@@ -392,12 +393,17 @@ export function App({
   const [codexModels, setCodexModels] = useState<CodexModel[]>([]);
   const antigravityModelsRef = useRef<Promise<string[]> | null>(null);
   const [antigravityModels, setAntigravityModels] = useState<string[]>([]);
+  // Installed Ollama models, discovered from the daemon (/api/tags).
+  const ollamaModelsRef = useRef<Promise<string[]> | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const liveModels =
     meta.provider === "openai-oauth"
       ? codexModels.map((m) => m.slug)
       : meta.provider === "antigravity"
         ? antigravityModels
-        : undefined;
+        : meta.provider === "ollama"
+          ? ollamaModels
+          : undefined;
 
   const modelPicker = getModelPickerState(input, meta.provider, meta.model, liveModels);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
@@ -748,6 +754,29 @@ export function App({
     [],
   );
 
+  // Discover installed Ollama models when the picker opens. Returns [] if the
+  // daemon is unreachable; the active model still works (validation is lenient).
+  const loadOllamaModels = useCallback(
+    async (refresh = false): Promise<string[]> => {
+      const creds = loadStoredConfig().credentials?.ollama;
+      if (!creds || creds.type !== "ollama") return [];
+      if (!ollamaModelsRef.current || refresh) {
+        ollamaModelsRef.current = fetchOllamaModels(creds.baseUrl)
+          .then((models) => {
+            const ids = models.map((m) => m.id);
+            setOllamaModels(ids);
+            return ids;
+          })
+          .catch(() => {
+            ollamaModelsRef.current = null;
+            return [];
+          });
+      }
+      return ollamaModelsRef.current;
+    },
+    [],
+  );
+
   // Fetch the live Codex catalog when the picker opens for openai-oauth, and
   // re-fetch on `/model --refresh`. Memoized for the session by the cache.
   useEffect(() => {
@@ -761,6 +790,12 @@ export function App({
     const refresh = input.slice("/model".length).trim() === "--refresh";
     void loadAntigravityModels(refresh);
   }, [modelPicker.open, meta.provider, input, loadAntigravityModels]);
+
+  useEffect(() => {
+    if (!modelPicker.open || meta.provider !== "ollama") return;
+    const refresh = input.slice("/model".length).trim() === "--refresh";
+    void loadOllamaModels(refresh);
+  }, [modelPicker.open, meta.provider, input, loadOllamaModels]);
 
   const applyEffort = useCallback(
     (model: string, effort: string) => {

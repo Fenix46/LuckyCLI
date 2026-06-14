@@ -162,7 +162,14 @@ export class Agent {
   }
 
   private currentModelInfo(): ModelInfo {
-    return this.provider.info.models?.[this.model] ?? this.modelInfo;
+    const known = this.provider.info.models?.[this.model] ?? this.modelInfo;
+    // For local providers the chosen model id is arbitrary and absent from the
+    // catalog, so apply the provider-wide manual context window when the
+    // resolved model info has none of its own.
+    if (known.contextWindow === undefined && this.provider.info.defaultContextWindow) {
+      return { ...known, contextWindow: this.provider.info.defaultContextWindow };
+    }
+    return known;
   }
 
   async contextStatus(): Promise<ContextStatus> {

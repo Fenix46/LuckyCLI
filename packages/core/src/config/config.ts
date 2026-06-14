@@ -183,8 +183,37 @@ export function credentialsFromEnv(
       return {
         type: "ollama",
         baseUrl: env.OLLAMA_BASE_URL ?? "http://localhost:11434",
+        ...ctxFromEnv(env.OLLAMA_CONTEXT_WINDOW),
+      };
+    case "llamacpp":
+      return {
+        type: "llamacpp",
+        baseUrl: env.LLAMACPP_BASE_URL ?? "http://localhost:8080",
+        ...(env.LLAMACPP_API_KEY ? { apiKey: env.LLAMACPP_API_KEY } : {}),
+        ...ctxFromEnv(env.LLAMACPP_CONTEXT_WINDOW),
+      };
+    case "vllm":
+      return {
+        type: "vllm",
+        baseUrl: env.VLLM_BASE_URL ?? "http://localhost:8000",
+        ...(env.VLLM_API_KEY ? { apiKey: env.VLLM_API_KEY } : {}),
+        ...ctxFromEnv(env.VLLM_CONTEXT_WINDOW),
+      };
+    case "openai-compatible":
+      return {
+        type: "openai-compatible",
+        baseUrl: requireEnv(env, "OPENAI_COMPATIBLE_BASE_URL"),
+        apiKey: requireEnv(env, "OPENAI_COMPATIBLE_API_KEY"),
+        ...ctxFromEnv(env.OPENAI_COMPATIBLE_CONTEXT_WINDOW),
       };
   }
+}
+
+/** Parse a context-window env var into `{ contextWindow }` or `{}` if absent/invalid. */
+function ctxFromEnv(value: string | undefined): { contextWindow?: number } {
+  if (!value) return {};
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? { contextWindow: n } : {};
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {

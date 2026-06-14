@@ -13,6 +13,14 @@ export interface AuthMethod {
   displayName: string;
   kind: "apiKey" | "baseUrl" | "oauth" | "vertex";
   hint: string;
+  /** For `baseUrl` methods: the value to pre-fill in the setup dialog. */
+  defaultBaseUrl?: string;
+  /**
+   * For `baseUrl` methods: also prompt for an API key (e.g. a custom
+   * OpenAI-compatible server). Optional keys (vLLM/llama.cpp) leave this false
+   * and accept an empty value.
+   */
+  requiresApiKey?: boolean;
 }
 
 export interface ProviderCatalogEntry extends ProviderInfo {
@@ -262,6 +270,70 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
         displayName: "Ollama Local Daemon",
         kind: "baseUrl",
         hint: "Ollama URL (default http://localhost:11434)",
+        defaultBaseUrl: "http://localhost:11434",
+      },
+    ],
+  },
+  llamacpp: {
+    id: "llamacpp",
+    displayName: "llama.cpp (local)",
+    company: "llama.cpp",
+    // The model name depends on what the server was launched with, so there is
+    // no static list and no safe default: the user types it in. Validation is
+    // permissive and the setup model step is a free-text input.
+    availableModels: [],
+    models: {},
+    defaultModel: "",
+    supportsStreaming: true,
+    supportsVision: false,
+    supportsTools: true,
+    authMethods: [
+      {
+        id: "base_url",
+        displayName: "llama.cpp Server",
+        kind: "baseUrl",
+        hint: "llama-server URL (default http://localhost:8080)",
+        defaultBaseUrl: "http://localhost:8080",
+      },
+    ],
+  },
+  vllm: {
+    id: "vllm",
+    displayName: "vLLM (local)",
+    company: "vLLM",
+    availableModels: [],
+    models: {},
+    defaultModel: "",
+    supportsStreaming: true,
+    supportsVision: false,
+    supportsTools: true,
+    authMethods: [
+      {
+        id: "base_url",
+        displayName: "vLLM Server",
+        kind: "baseUrl",
+        hint: "vLLM URL (default http://localhost:8000)",
+        defaultBaseUrl: "http://localhost:8000",
+      },
+    ],
+  },
+  "openai-compatible": {
+    id: "openai-compatible",
+    displayName: "OpenAI-compatible (custom)",
+    company: "Custom",
+    availableModels: [],
+    models: {},
+    defaultModel: "",
+    supportsStreaming: true,
+    supportsVision: false,
+    supportsTools: true,
+    authMethods: [
+      {
+        id: "base_url",
+        displayName: "Custom OpenAI-compatible Server",
+        kind: "baseUrl",
+        hint: "Server base URL, then your API key",
+        requiresApiKey: true,
       },
     ],
   },
