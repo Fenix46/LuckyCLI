@@ -73,6 +73,29 @@ describe("glob and grep tools", () => {
     expect(result.content).toMatch(/no matches/i);
   });
 
+  it("includes surrounding lines when context is requested", async () => {
+    // a.ts: line 1 matches "foo"; line 2 ("const bar = 2;") is context.
+    const result = await registry.execute(
+      "grep",
+      { pattern: "foo", include: "*.ts", context: 1 },
+      { cwd: root },
+    );
+    // The match line uses ':' after the line number, context lines use '-'.
+    expect(result.content).toContain(join("src", "a.ts") + ":1:");
+    expect(result.content).toContain(join("src", "a.ts") + ":2-");
+    expect(result.content).toContain("const bar = 2;");
+  });
+
+  it("omits context lines by default", async () => {
+    const result = await registry.execute(
+      "grep",
+      { pattern: "foo", include: "*.ts" },
+      { cwd: root },
+    );
+    expect(result.content).toContain(join("src", "a.ts") + ":1:");
+    expect(result.content).not.toContain("const bar = 2;");
+  });
+
   it("returns an error on an invalid regex", async () => {
     const result = await registry.execute("grep", { pattern: "(" }, { cwd: root });
     expect(result.isError).toBe(true);
