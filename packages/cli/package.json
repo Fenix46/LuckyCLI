@@ -1,6 +1,6 @@
 {
   "name": "@luckycli/cli",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "LuckyCLI — multi-provider terminal agent",
   "license": "Apache-2.0",
   "type": "module",
@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",
-    "@luckycli/core": "0.4.1",
+    "@luckycli/core": "0.4.2",
     "auto-bind": "^5.0.1",
     "bidi-js": "^1.0.3",
     "chalk": "^5.6.2",
