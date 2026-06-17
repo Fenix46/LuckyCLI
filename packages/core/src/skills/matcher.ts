@@ -37,6 +37,14 @@ export interface SkillActivation {
 /** Per-turn cap on automatic activations. */
 export const ACTIVATION_BUDGET = 2;
 
+/**
+ * Trailing line appended inside every injected `<skill>` block. Re-anchors the
+ * navigation method (the knowledge graph, when present) against the recency of
+ * the skill body: the skill is the procedure, not the way you locate code.
+ */
+export const SKILL_NAVIGATION_REMINDER =
+  "This skill is the procedure for the task — not how you navigate the code. Keep using your normal navigation tools (the knowledge graph first, when the project has one) to locate symbols and assess impact; don't fall back to broad grepping or opening files at random just because a skill is active.";
+
 /** Normalize a message for matching: lowercase, collapse whitespace. */
 function normalizeMessage(message: string): string {
   return normalizeSkillName(message);
@@ -141,6 +149,12 @@ export async function renderSkillInjection(
   if (activation.related.length > 0) {
     lines.push("", `Related skills available (use skill_load): ${activation.related.join(", ")}`);
   }
+  // A skill is the *procedure* for a task, not the way you navigate the code.
+  // Because this block lands at the tail of the user turn — the most recent,
+  // highest-salience position — without this reminder the model tends to follow
+  // the skill's steps by grepping/opening files and skip the knowledge-graph
+  // navigation taught earlier in the system prompt. Keep them coupled.
+  lines.push("", SKILL_NAVIGATION_REMINDER);
   lines.push("</skill>");
   return lines.join("\n");
 }

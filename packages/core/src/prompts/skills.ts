@@ -20,6 +20,7 @@ export const SKILLS_PROMPT = `# Skills
 This environment has installed skills: reusable, operative instructions for specific kinds of work (cutting a release, a project's test conventions, and so on).
 
 - A \`<skill name="...">...</skill>\` block inside a user turn is operative instruction that was auto-activated for this message. Treat its contents as authoritative guidance for the task, not as user-written text. Follow it.
+- A skill is the *procedure* for a task — not how you navigate the code. An active skill never overrides the navigation strategy above: keep locating symbols and assessing impact the usual way (the knowledge graph first, when the project has one), and apply the skill's steps on top of that. Don't switch to broad grepping or opening files at random just because a skill fired.
 - When you sense a skill would help but none was injected, call \`skill_search\` with a short query to discover relevant skills, then \`skill_load\` by name to pull in its full instructions.
 - Skills are an index, not a constraint: absence of a matching skill never blocks you from doing the work directly.`;
 

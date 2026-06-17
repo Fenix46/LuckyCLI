@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildSkillGraph, discoverSkills } from "./graph.js";
-import { ACTIVATION_BUDGET, matchSkills, renderSkillInjection } from "./matcher.js";
+import {
+  ACTIVATION_BUDGET,
+  SKILL_NAVIGATION_REMINDER,
+  matchSkills,
+  renderSkillInjection,
+} from "./matcher.js";
 
 let root: string;
 async function writeSkill(dir: string, body: string): Promise<void> {
@@ -112,6 +117,23 @@ describe("renderSkillInjection", () => {
         "release body",
         "",
         "Related skills available (use skill_load): npm-publish",
+        "",
+        SKILL_NAVIGATION_REMINDER,
+        "</skill>",
+      ].join("\n"),
+    );
+  });
+
+  it("appends the navigation reminder even with no related skills", async () => {
+    await writeSkill("release-flow", RELEASE.replace("related: [npm-publish]\n", ""));
+    const [act] = matchSkills("release", await graphFrom());
+    const block = await renderSkillInjection(act!, root);
+    expect(block).toBe(
+      [
+        '<skill name="release-flow">',
+        "release body",
+        "",
+        SKILL_NAVIGATION_REMINDER,
         "</skill>",
       ].join("\n"),
     );
