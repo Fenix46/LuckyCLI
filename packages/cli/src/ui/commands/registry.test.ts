@@ -93,6 +93,47 @@ describe("dispatchCommand", () => {
   });
 });
 
+describe("skill alias commands", () => {
+  function ctxWithRunSkill(): { ctx: CommandContext; calls: string[]; emitted: Item[] } {
+    const calls: string[] = [];
+    const emitted: Item[] = [];
+    const ctx = {
+      emit: (...items: Item[]) => emitted.push(...items),
+      ui: {
+        runSkill: async (name: string) => {
+          calls.push(name);
+          return true;
+        },
+      },
+    } as unknown as CommandContext;
+    return { ctx, calls, emitted };
+  }
+
+  it("registers a hidden /<name> command per enabled skill", () => {
+    const reg = buildCommandRegistry(["code-review", "release-flow"]);
+    const cr = reg.find((c) => c.name === "/code-review");
+    expect(cr).toBeDefined();
+    expect(cr?.hidden).toBe(true);
+    // hidden: stays out of the menu.
+    expect(slashMenuEntries(reg).some((e) => e.name === "/code-review")).toBe(false);
+  });
+
+  it("dispatches /<name> to runSkill", async () => {
+    const reg = buildCommandRegistry(["code-review"]);
+    const { ctx, calls } = ctxWithRunSkill();
+    expect(await dispatchCommand("/code-review", reg, ctx)).toBe(true);
+    expect(calls).toEqual(["code-review"]);
+  });
+
+  it("never shadows a built-in command", () => {
+    // A skill literally named "skill" must not replace the /skill command.
+    const reg = buildCommandRegistry(["skill", "model"]);
+    expect(reg.filter((c) => c.name === "/skill")).toHaveLength(1);
+    expect(reg.find((c) => c.name === "/skill")?.hidden).toBeFalsy();
+    expect(reg.filter((c) => c.name === "/model")).toHaveLength(1);
+  });
+});
+
 describe("slashMenuEntries", () => {
   it("keeps the pre-registry menu order and hides hidden commands", () => {
     const entries = slashMenuEntries(buildCommandRegistry());

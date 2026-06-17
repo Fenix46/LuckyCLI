@@ -20,6 +20,7 @@ import {
   defaultEffortFor,
   deriveTitle,
   detectSelfUpdate,
+  discoverSkills,
   effortLevelsFor,
   fetchCodexModels,
   fetchOllamaModels,
@@ -366,9 +367,32 @@ export function App({
     };
   }, []);
 
-  // Slash commands: static registry; per-dispatch state travels in the
-  // CommandContext. The menu and /help derive from the same list.
-  const commandRegistry = useMemo(() => buildCommandRegistry(), []);
+  // Installed+enabled skills become direct `/<name>` commands. Discovered once
+  // at mount (best-effort); installing mid-session is still usable via
+  // `/skill use`. A changed list rebuilds the registry below.
+  const [skillCommandNames, setSkillCommandNames] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    discoverSkills()
+      .then((skills) => {
+        if (cancelled) return;
+        setSkillCommandNames(skills.filter((s) => s.enabled).map((s) => s.name));
+      })
+      .catch(() => {
+        /* no skills dir, or unreadable — leave the list empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Slash commands: registry derived from the static set plus skill aliases;
+  // per-dispatch state travels in the CommandContext. The menu and /help derive
+  // from the same list.
+  const commandRegistry = useMemo(
+    () => buildCommandRegistry(skillCommandNames),
+    [skillCommandNames],
+  );
   const menuEntries = useMemo(() => slashMenuEntries(commandRegistry), [commandRegistry]);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const showSlashMenu = input.startsWith("/");

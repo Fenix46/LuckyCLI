@@ -27,17 +27,44 @@ const MENU_ORDER = [
 ];
 
 /**
- * The single source of truth for slash commands. The slash menu, /help and
- * dispatch all derive from this list; order here is menu order.
+ * Direct `/<skill-name>` commands for each installed+enabled skill, mirroring
+ * how other agents invoke skills. Each dispatches to the same logic as
+ * `/skill use <name>`. Names colliding with a built-in command are skipped so a
+ * skill can never shadow core functionality.
  */
-export function buildCommandRegistry(): Command[] {
-  const commands = [
+function skillAliasCommands(skillNames: string[], reserved: Set<string>): Command[] {
+  return skillNames
+    .map((name) => `/${name}`)
+    .filter((slash) => !reserved.has(slash))
+    .map((slash) => {
+      const name = slash.slice(1);
+      return {
+        name: slash,
+        description: `Run the ${name} skill`,
+        hidden: true, // discoverable via /skill list; kept out of the core menu
+        async run(_args, ctx) {
+          const ok = await ctx.ui.runSkill(name);
+          if (!ok) ctx.emit({ kind: "error", text: `skill "${name}" is unavailable — see /skill list` });
+        },
+      } satisfies Command;
+    });
+}
+
+/**
+ * The single source of truth for slash commands. The slash menu, /help and
+ * dispatch all derive from this list; order here is menu order. Pass the names
+ * of installed+enabled skills to expose them as direct `/<name>` commands.
+ */
+export function buildCommandRegistry(skillNames: string[] = []): Command[] {
+  const base = [
     ...basicCommands(),
     ...providerCommands(),
     ...maintenanceCommands(),
     ...mcpCommands(),
     ...skillCommands(),
   ];
+  const reserved = new Set(base.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
+  const commands = [...base, ...skillAliasCommands(skillNames, reserved)];
   const rank = (c: Command) => {
     const i = MENU_ORDER.indexOf(c.name);
     return i === -1 ? MENU_ORDER.length : i;
