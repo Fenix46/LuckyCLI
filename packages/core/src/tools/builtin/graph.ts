@@ -8,6 +8,7 @@ import {
   neighborsOf,
   nodesInFile,
   resolveNodes,
+  suggestNodes,
   summarize,
   tryLoadGraph,
 } from "../../graph/index.js";
@@ -32,7 +33,8 @@ export const graphQueryTool = defineTool({
     "cheaply before opening source. Results may include external library nodes " +
     "(marked external) a file imports. Relations: 'find' (default, where a symbol " +
     "is defined), 'callers', 'callees', 'neighbors' (all links), 'file' (symbols " +
-    "declared in a file path).",
+    "declared in a file path). When the name isn't an exact match, returns the " +
+    "closest symbols as suggestions to re-query — prefer that over grepping.",
   readonly: true,
   schema: z.object({
     query: z.string().describe("Symbol name, module name, or repo-relative file path."),
@@ -52,7 +54,18 @@ export const graphQueryTool = defineTool({
 
     const matches = resolveNodes(graph, query);
     if (matches.length === 0) {
-      return { content: `No node found for "${query}".` };
+      // No exact hit — offer the closest symbols so the model refines the query
+      // instead of falling back to grep + reading whole files.
+      const suggestions = suggestNodes(graph, query);
+      if (suggestions.length === 0) {
+        return { content: `No node found for "${query}", and nothing similar in the graph.` };
+      }
+      return {
+        content: list(
+          `No exact match for "${query}". Did you mean (re-run graph_query with one of these)`,
+          suggestions.map(formatNode),
+        ),
+      };
     }
     if (relation === "find") {
       return { content: list(`Matches for "${query}"`, matches.map(formatNode)) };

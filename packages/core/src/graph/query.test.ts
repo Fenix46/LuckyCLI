@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { callersOf, calleesOf, godNodes, neighborsOf, resolveNodes, summarize, topModules } from "./query.js";
+import {
+  callersOf,
+  calleesOf,
+  godNodes,
+  neighborsOf,
+  resolveNodes,
+  suggestNodes,
+  summarize,
+  topModules,
+} from "./query.js";
 import { type Graph, emptyGraph } from "./types.js";
 
 function fixture(): Graph {
@@ -36,6 +45,43 @@ describe("graph query helpers", () => {
     expect(resolveNodes(g, "node:fs").map((n) => n.id)).toEqual(["mod_fs"]);
     expect(resolveNodes(g, "a.ts").map((n) => n.id)).toContain("a_ts"); // label match wins
     expect(resolveNodes(g, "missing")).toEqual([]);
+  });
+
+  it("suggests near-miss symbols by case-insensitive substring, prefix first", () => {
+    const g = emptyGraph("/repo");
+    g.nodes = [
+      { id: "f1", label: "loadPlaylistFromFile", kind: "method", sourceFile: "p.kt", sourceLocation: "L1" },
+      { id: "f2", label: "loadPlaylistFromXtream", kind: "method", sourceFile: "p.kt", sourceLocation: "L9" },
+      { id: "f3", label: "reloadPlaylist", kind: "function", sourceFile: "p.kt", sourceLocation: "L20" },
+      { id: "p_kt", label: "p.kt", kind: "file", sourceFile: "p.kt" },
+      { id: "mod", label: "a.b.loadPlaylist", kind: "module", sourceFile: "a.b.loadPlaylist" },
+    ];
+    const ids = suggestNodes(g, "loadPlaylist").map((n) => n.id);
+    // prefix matches (f1, f2) rank before the mid-word match (f3); files/modules excluded.
+    expect(ids).toEqual(["f1", "f2", "f3"]);
+  });
+
+  it("matches in either direction and is case-insensitive", () => {
+    const g = emptyGraph("/repo");
+    g.nodes = [
+      { id: "f1", label: "loadPlaylistFromFile", kind: "method", sourceFile: "p.kt", sourceLocation: "L1" },
+    ];
+    // query is longer than the label only when the label contains it; here the
+    // query is a substring of the label, case-insensitively.
+    expect(suggestNodes(g, "PLAYLISTFROM").map((n) => n.id)).toEqual(["f1"]);
+    expect(suggestNodes(g, "nope")).toEqual([]);
+    expect(suggestNodes(g, "")).toEqual([]);
+  });
+
+  it("caps suggestions at the requested limit", () => {
+    const g = emptyGraph("/repo");
+    g.nodes = Array.from({ length: 25 }, (_, i) => ({
+      id: `n${i}`,
+      label: `handler${String(i).padStart(2, "0")}`,
+      kind: "function" as const,
+      sourceFile: "h.ts",
+    }));
+    expect(suggestNodes(g, "handler", 5)).toHaveLength(5);
   });
 
   it("resolves a module by its short name (last segment of the FQN)", () => {

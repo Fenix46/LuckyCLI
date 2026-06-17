@@ -74,6 +74,14 @@ describe("graph tools", () => {
     expect(r.content).toContain('No node found for "nope"');
   });
 
+  it("graph_query suggests near-miss symbols instead of a dead end", async () => {
+    // "alph" doesn't resolve exactly but is a substring of the symbol "alpha".
+    const r = await graphQueryTool.execute({ query: "alph" }, { cwd });
+    expect(r.content).toContain('No exact match for "alph"');
+    expect(r.content).toContain("Did you mean");
+    expect(r.content).toContain("alpha (function) — a.ts:L1");
+  });
+
   it("graph_overview summarizes the graph", async () => {
     const r = await graphOverviewTool.execute({}, { cwd });
     expect(r.content).toContain("1 files");

@@ -40,6 +40,39 @@ export function resolveNodes(graph: Graph, query: string): GraphNode[] {
   return graph.nodes.filter((n) => n.sourceFile === query);
 }
 
+/** Default cap on fuzzy suggestions, so a near-miss query stays compact. */
+export const MAX_SUGGESTIONS = 10;
+
+/**
+ * Best-effort "did you mean" candidates for a query that {@link resolveNodes}
+ * couldn't resolve exactly. Case-insensitive substring match on the node label
+ * (in either direction, so `loadPlaylist` finds `loadPlaylistFromFile` and vice
+ * versa), restricted to declarable code — files and modules are excluded since
+ * they have their own resolution paths and would crowd out symbol matches.
+ *
+ * Ranked so the closest names surface first: exact-prefix, then shortest label
+ * (a substring of a short name is a tighter signal than of a long one), then
+ * alphabetical for determinism. Capped at {@link MAX_SUGGESTIONS}.
+ */
+export function suggestNodes(graph: Graph, query: string, limit = MAX_SUGGESTIONS): GraphNode[] {
+  const needle = query.toLowerCase().trim();
+  if (needle === "") return [];
+  const candidates = graph.nodes.filter(
+    (n) =>
+      n.kind !== "file" &&
+      n.kind !== "module" &&
+      n.label.toLowerCase().includes(needle),
+  );
+  candidates.sort((a, b) => {
+    const aPrefix = a.label.toLowerCase().startsWith(needle) ? 0 : 1;
+    const bPrefix = b.label.toLowerCase().startsWith(needle) ? 0 : 1;
+    if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+    if (a.label.length !== b.label.length) return a.label.length - b.label.length;
+    return a.label.localeCompare(b.label);
+  });
+  return candidates.slice(0, limit);
+}
+
 /** Nodes that call `id` (incoming `calls` edges). */
 export function callersOf(graph: Graph, id: string): GraphNode[] {
   return nodesFor(graph, edgesTo(graph, id).filter((e) => e.relation === "calls").map((e) => e.source));
