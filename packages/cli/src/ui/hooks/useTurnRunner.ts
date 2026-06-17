@@ -37,9 +37,9 @@ interface TurnRunnerDeps {
   /** Persist the session once the turn settles. */
   persist: () => void;
   /**
-   * Automatic skill activation. When present, the user message is augmented
-   * with matched skills' instruction blocks before `agent.send`, and the
-   * active set is cleared on compaction. Absent = skills disabled.
+   * Session skill activator. No longer auto-injects per turn — its active set is
+   * only used to track explicit /skill use and skill_load activations, and it is
+   * cleared on compaction. Absent = skills feature off.
    */
   skills?: SkillActivator;
 }
@@ -131,30 +131,11 @@ export function useTurnRunner({
         appendItems([{ kind: "assistant", text: buffered }]);
       };
 
-      // Automatic skill activation augments the user's TEXT with matched skills'
-      // instruction blocks. For a multimodal turn (ContentPart[]) we augment the
-      // text part in place and leave the images untouched; a plain string turn
-      // augments directly.
-      let payload: string | ContentPart[] = input;
-      if (skills) {
-        try {
-          if (typeof input === "string") {
-            payload = await skills.augment(input);
-          } else {
-            const textIdx = input.findIndex((p) => p.type === "text");
-            const baseText = textIdx >= 0 ? (input[textIdx] as { text: string }).text : "";
-            const augmented = await skills.augment(baseText);
-            if (augmented !== baseText) {
-              const next = [...input];
-              if (textIdx >= 0) next[textIdx] = { type: "text", text: augmented };
-              else next.unshift({ type: "text", text: augmented });
-              payload = next;
-            }
-          }
-        } catch {
-          // Skill activation is best-effort; never block a turn on it.
-        }
-      }
+      // Skills are never auto-injected: a turn carries exactly what the user (or
+      // an explicit /skill use) sent. Keyword auto-activation was removed because
+      // a generic keyword (e.g. "review") hijacked unrelated tasks; skills now
+      // reach the model only on demand — see the /skill command and skill_load.
+      const payload: string | ContentPart[] = input;
 
       const controller = new AbortController();
       abortRef.current = controller;

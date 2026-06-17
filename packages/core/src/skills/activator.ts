@@ -1,19 +1,22 @@
 /**
- * Session-scoped automatic skill activation.
+ * Session-scoped skill activation, on demand only.
  *
- * Glue between the pure {@link matchSkills} matcher and the CLI turn loop: holds
- * the per-session **active set** (skills already injected this session, so they
- * are not re-injected), reads the skill graph fresh on every turn (so a skill
- * installed mid-session is immediately live), and produces the text to append to
- * the user turn. The active set is cleared on compaction, since the injected
- * block may have been summarized away.
+ * Skills are never auto-injected from the user's wording: keyword matching on
+ * the turn proved too eager (a generic word like "review" hijacked unrelated
+ * tasks). A skill reaches the model only when explicitly invoked — `/skill use
+ * <name>` in the CLI, or the skill_load tool — at which point {@link activate}
+ * loads its body and the caller sends it as a turn.
  *
- * Kept in core (not the React hook) so it is unit-testable and the UI layer only
- * has to call two methods: {@link augment} before `agent.send`, and
- * {@link onCompacted} when a compaction event arrives.
+ * This holds the per-session **active set** (skills loaded this session) so the
+ * UI can show what's live and avoid re-loading; it is cleared on compaction,
+ * since an injected block may have been summarized away. Kept in core so it is
+ * unit-testable and the UI only calls {@link activate}, {@link markActive}, and
+ * {@link onCompacted}.
  */
 import { skillsRootDir, tryLoadSkillGraph } from "./graph.js";
-import { matchSkills, renderSkillInjection } from "./matcher.js";
+import { normalizeSkillName } from "./skill-file.js";
+import { renderSkillInjection, type SkillActivation } from "./matcher.js";
+import type { SkillNode } from "./types.js";
 
 export class SkillActivator {
   private readonly active = new Set<string>();
@@ -23,33 +26,41 @@ export class SkillActivator {
     this.root = root;
   }
 
-  /** Skills injected so far this session (normalized ids). */
+  /** Skills loaded so far this session (normalized ids). */
   activeSkills(): string[] {
     return [...this.active];
   }
 
   /**
-   * Given the raw user message, return it with any activated skills' `<skill>`
-   * blocks appended (at the transcript tail, so the cached prefix is untouched).
-   * Returns the message unchanged when no skill is installed or nothing matches.
+   * Load a named, installed+enabled skill and return its `<skill>` block ready
+   * to send as a turn, marking it active. Returns null when the skill doesn't
+   * exist, is disabled, or has no readable body — the caller surfaces the error.
    */
-  async augment(message: string): Promise<string> {
+  async activate(name: string): Promise<string | null> {
     const graph = await tryLoadSkillGraph(this.root);
-    if (!graph) return message;
+    if (!graph) return null;
 
-    const activations = matchSkills(message, graph, this.active);
-    if (activations.length === 0) return message;
+    const id = normalizeSkillName(name);
+    const node = graph.nodes.find(
+      (n): n is SkillNode => n.kind === "skill" && n.id === id,
+    );
+    if (!node || !node.attrs || node.attrs.enabled === false) return null;
 
-    const blocks: string[] = [];
-    for (const activation of activations) {
-      const block = await renderSkillInjection(activation, this.root);
-      if (block) {
-        blocks.push(block);
-        this.active.add(activation.id);
-      }
-    }
-    if (blocks.length === 0) return message;
-    return `${message}\n\n${blocks.join("\n\n")}`;
+    const related = graph.edges
+      .filter((e) => e.relation === "related_to" && e.source === id)
+      .map((e) => e.target);
+    const activation: SkillActivation = {
+      id,
+      name: node.label,
+      description: node.attrs.description ?? "",
+      bodyPath: node.attrs.bodyPath,
+      matched: [],
+      related,
+    };
+    const block = await renderSkillInjection(activation, this.root);
+    if (!block) return null;
+    this.active.add(id);
+    return block;
   }
 
   /** Mark a skill active without injecting it (e.g. an explicit skill_load). */
