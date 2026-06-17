@@ -5,13 +5,22 @@ import { defineTool } from "../types.js";
 
 const MAX_BYTES = 256 * 1024;
 const MAX_RANGE_LINES = 2_000;
+/**
+ * A whole-file read past this many lines gets a trailing nudge to read a
+ * targeted range instead. Reading entire large files is the main token sink
+ * after a graph hit already points at the relevant lines.
+ */
+const LARGE_READ_LINES = 400;
 
 export const readFileTool = defineTool({
   name: "read_file",
   description:
-    "Read the contents of a text file, relative to the working directory. " +
-    "Returns up to 256KB of UTF-8 text. Optionally read a 1-based line range " +
-    "with offset and limit.",
+    "Read a text file, relative to the working directory. Prefer a targeted " +
+    "line range (offset + limit) over reading the whole file — when the graph " +
+    "or a search has pointed you at a symbol, read just its definition plus a " +
+    "little surrounding context. Read whole files only when you genuinely need " +
+    "full-file understanding. Returns up to 256KB of UTF-8 text; 1-based line " +
+    "numbers with offset and limit.",
   readonly: true,
   schema: z.object({
     path: z.string().describe("File path, relative to the working directory."),
@@ -41,11 +50,27 @@ export const readFileTool = defineTool({
       };
     }
 
-    return {
-      content: truncated ? `${text}\n\n[truncated at ${MAX_BYTES} bytes]` : text,
-    };
+    // Whole-file read: serve it, but on a large file nudge toward a targeted
+    // range next time so the model doesn't keep pulling entire files.
+    const lineCount = countLines(text);
+    const notes: string[] = [];
+    if (truncated) notes.push(`[truncated at ${MAX_BYTES} bytes]`);
+    if (lineCount > LARGE_READ_LINES) {
+      notes.push(
+        `[read ${lineCount} lines; for a large file, prefer read_file with offset/limit on the relevant range]`,
+      );
+    }
+    return { content: [text, ...notes].join("\n\n") };
   },
 });
+
+/** Line count of already-decoded text (one more than the newline count). */
+function countLines(text: string): number {
+  if (text === "") return 0;
+  let n = 1;
+  for (let i = 0; i < text.length; i++) if (text[i] === "\n") n++;
+  return n;
+}
 
 export function formatLineRange(
   text: string,

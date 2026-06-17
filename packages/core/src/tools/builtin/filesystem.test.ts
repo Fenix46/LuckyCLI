@@ -67,6 +67,33 @@ describe("filesystem tools", () => {
     });
   });
 
+  it("nudges toward a range when reading a large file whole", async () => {
+    const big = Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join("\n");
+    await writeFile(join(root, "big.txt"), big, "utf8");
+
+    const result = await registry.execute("read_file", { path: "big.txt" }, { cwd: root });
+    expect(result.content).toContain("line 1");
+    expect(result.content).toContain("[read 500 lines;");
+    expect(result.content).toContain("offset/limit");
+  });
+
+  it("does not nudge a small whole-file read", async () => {
+    await writeFile(join(root, "small.txt"), "a\nb\nc", "utf8");
+    const result = await registry.execute("read_file", { path: "small.txt" }, { cwd: root });
+    expect(result).toEqual({ content: "a\nb\nc" });
+  });
+
+  it("does not nudge when a range was requested, however large the file", async () => {
+    const big = Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join("\n");
+    await writeFile(join(root, "big2.txt"), big, "utf8");
+    const result = await registry.execute(
+      "read_file",
+      { path: "big2.txt", offset: 1, limit: 2 },
+      { cwd: root },
+    );
+    expect(result.content).not.toContain("prefer read_file with offset/limit");
+  });
+
   it("lists directories before files and supports a limit", async () => {
     await mkdir(join(root, "z-dir"));
     await mkdir(join(root, "a-dir"));
