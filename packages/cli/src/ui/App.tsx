@@ -931,6 +931,19 @@ export function App({
             openMcpPanel: mcpPanel.open,
             openSkillPanel: skillPanel.open,
             openAgentsPanel: agentsPanel.open,
+            runSkill: async (name: string) => {
+              // Load the named skill on demand and send its block as a turn so
+              // the model applies it to the current work. The transcript shows a
+              // compact note; the full body goes to the model, not the screen.
+              const block = await skillActivator.activate(name);
+              if (!block) return false;
+              setItems((prev) => [
+                ...prev,
+                { kind: "command", title: "Skill loaded", rows: [{ label: "skill", value: name }] },
+              ]);
+              await runTurn(block);
+              return true;
+            },
             triggerSetup: onTriggerSetup,
             triggerResume: onTriggerResume,
             applyTheme: selectTheme,
@@ -965,7 +978,7 @@ export function App({
       setInput("");
       await runTurn(content);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession],
+    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

@@ -27,6 +27,12 @@ export interface CommandContext {
   ui: {
     openMcpPanel(tab: McpPanelTab, query?: string): void;
     openSkillPanel(tab: SkillPanelTab, query?: string): void;
+    /**
+     * Load an installed+enabled skill by name and send it as an operative turn,
+     * so the model applies it to the current work. Resolves false (and the
+     * caller reports the error) when the skill is missing or disabled.
+     */
+    runSkill(name: string): Promise<boolean>;
     openAgentsPanel(): void;
     triggerSetup(): void;
     triggerResume(): void;

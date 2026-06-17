@@ -31,13 +31,13 @@ function fakeDeps(overrides: Partial<SkillCommandDeps> = {}): SkillCommandDeps {
 
 interface Harness {
   emitted: Item[];
-  ui: { openSkillPanel: ReturnType<typeof vi.fn> };
+  ui: { openSkillPanel: ReturnType<typeof vi.fn>; runSkill: ReturnType<typeof vi.fn> };
   run(args: string): Promise<void> | void;
 }
 
-function harness(deps: SkillCommandDeps = fakeDeps()): Harness {
+function harness(deps: SkillCommandDeps = fakeDeps(), runSkillResult = true): Harness {
   const emitted: Item[] = [];
-  const ui = { openSkillPanel: vi.fn() };
+  const ui = { openSkillPanel: vi.fn(), runSkill: vi.fn(async () => runSkillResult) };
   const ctx = {
     agent: {},
     meta: { provider: "claude", model: "claude-sonnet-4-6" },
@@ -152,6 +152,35 @@ describe("/skill", () => {
     const h = harness(deps);
     await h.run("remove ghost");
     expect(h.emitted).toEqual([{ kind: "error", text: 'no installed skill named "ghost"' }]);
+  });
+
+  it("runs a skill on `use <name>`", async () => {
+    const h = harness();
+    await h.run("use release-flow");
+    expect(h.ui.runSkill).toHaveBeenCalledWith("release-flow");
+    expect(h.emitted).toEqual([]); // success: the turn output speaks for itself
+  });
+
+  it("aliases `run` to `use`", async () => {
+    const h = harness();
+    await h.run("run release-flow");
+    expect(h.ui.runSkill).toHaveBeenCalledWith("release-flow");
+  });
+
+  it("errors when `use` names a missing or disabled skill", async () => {
+    const h = harness(fakeDeps(), false);
+    await h.run("use ghost");
+    expect(h.ui.runSkill).toHaveBeenCalledWith("ghost");
+    expect(h.emitted).toEqual([
+      { kind: "error", text: 'no enabled skill named "ghost" — see /skill list' },
+    ]);
+  });
+
+  it("requires a name for `use`", async () => {
+    const h = harness();
+    await h.run("use");
+    expect(h.ui.runSkill).not.toHaveBeenCalled();
+    expect(h.emitted).toEqual([{ kind: "error", text: "usage: /skill use <name>" }]);
   });
 
   it("rejects unknown subcommands", async () => {

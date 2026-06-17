@@ -77,7 +77,7 @@ export function skillCommands(deps: SkillCommandDeps = defaultDeps): Command[] {
   return [
     {
       name: "/skill",
-      description: "Open the interactive skills panel (install, search, enable/disable)",
+      description: "Skills panel + run one on demand (use <name>, install, search, enable/disable)",
       aliases: ["/skills"],
       async run(args, ctx) {
         // First-run convenience: drop the starter pack in before doing anything,
@@ -102,6 +102,21 @@ export function skillCommands(deps: SkillCommandDeps = defaultDeps): Command[] {
             return;
           }
           await listInstalled(ctx, deps);
+          return;
+        }
+
+        if (sub === "use" || sub === "run") {
+          if (!tail) {
+            ctx.emit({ kind: "error", text: `usage: /skill ${sub} <name>` });
+            return;
+          }
+          const ok = await ctx.ui.runSkill(tail);
+          if (!ok) {
+            ctx.emit({
+              kind: "error",
+              text: `no enabled skill named "${tail}" — see /skill list`,
+            });
+          }
           return;
         }
 
