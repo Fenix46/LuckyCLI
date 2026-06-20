@@ -341,21 +341,12 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     id: "openrouter",
     displayName: "OpenRouter",
     company: "OpenRouter",
-    // Bootstrap only — the real catalog is fetched live from /models once a key
-    // is supplied. Model ids are namespaced (`vendor/model`).
-    availableModels: [
-      "anthropic/claude-opus-4-8",
-      "anthropic/claude-sonnet-4-6",
-      "openai/gpt-5.5",
-      "google/gemini-3-pro-preview",
-    ],
-    models: modelEntries([
-      { id: "anthropic/claude-opus-4-8", source: "provider" },
-      { id: "anthropic/claude-sonnet-4-6", source: "provider" },
-      { id: "openai/gpt-5.5", source: "provider" },
-      { id: "google/gemini-3-pro-preview", source: "provider" },
-    ]),
-    defaultModel: "anthropic/claude-sonnet-4-6",
+    // No static list: OpenRouter's catalog is fetched live from
+    // openrouter.ai/api/v1/models. Model ids are namespaced (`vendor/model`)
+    // and the user picks from the live list.
+    availableModels: [],
+    models: {},
+    defaultModel: "",
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
@@ -372,15 +363,13 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     id: "opencode-zen",
     displayName: "opencode Zen",
     company: "opencode",
-    // Bootstrap only — the real catalog is fetched live from /models. Without an
-    // API key the shared public key is used (free models only).
-    availableModels: ["claude-sonnet-4-6", "gpt-5.5", "gemini-3-pro-preview"],
-    models: modelEntries([
-      { id: "claude-sonnet-4-6", source: "provider" },
-      { id: "gpt-5.5", source: "provider" },
-      { id: "gemini-3-pro-preview", source: "provider" },
-    ]),
-    defaultModel: "claude-sonnet-4-6",
+    // No static list: zen's catalog is fetched live from
+    // opencode.ai/zen/v1/models. Without an API key the shared public key is
+    // used (free models, e.g. deepseek-v4-flash-free). The user picks from the
+    // live list — no preselected default.
+    availableModels: [],
+    models: {},
+    defaultModel: "",
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
