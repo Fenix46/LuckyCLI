@@ -92,9 +92,11 @@ function promptBlockLines(
     const cursorOnLine =
       cursorOffset !== undefined && cursorOffset >= lineStart && cursorOffset <= lineEnd;
 
+    // Each chunk carries its exact original offset so cursor position is correct
     chunks.forEach((chunk, chunkIndex) => {
-      const chunkStart = lineStart + chunkIndex * available;
-      const chunkEnd = chunkStart + chunk.length;
+      const chunkText = chunk.text;
+      const chunkStart = lineStart + chunk.origOffset;
+      const chunkEnd = chunkStart + chunkText.length;
       const cursorOnChunk =
         cursorOnLine &&
         cursorOffset !== undefined &&
@@ -105,7 +107,7 @@ function promptBlockLines(
         ? cursorOffset - chunkStart
         : -1;
       const label = chunkIndex === 0 ? prefix : " ".repeat(prefix.length);
-      const content = `${label}${chunk || " "}`;
+      const content = `${label}${chunkText || " "}`;
 
       if (localCursor >= 0) {
         const cursorAbsolute = label.length + localCursor;
@@ -124,12 +126,50 @@ function promptBlockLines(
   return rows;
 }
 
-function chunkPromptLine(line: string, width: number): string[] {
-  if (line.length === 0) return [""];
-  const chunks: string[] = [];
-  for (let i = 0; i < line.length; i += width) {
-    chunks.push(line.slice(i, i + width));
+function chunkPromptLine(line: string, width: number): { text: string; origOffset: number }[] {
+  if (line.length === 0) return [{ text: "", origOffset: 0 }];
+  if (width <= 0) return [{ text: line, origOffset: 0 }];
+
+  // Find word-boundary break positions: start of each word in the original string
+  // plus 0 (beginning).
+  const breakpoints: number[] = [0];
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === " ") {
+      breakpoints.push(i + 1);
+    }
   }
+
+  const chunks: { text: string; origOffset: number }[] = [];
+  let linePos = 0; // position in the original line
+
+  while (linePos < line.length) {
+    // How far we can go without exceeding width
+    const lineEnd = Math.min(linePos + width, line.length);
+
+    if (lineEnd >= line.length) {
+      // Rest of the line fits on one chunk
+      chunks.push({ text: line.slice(linePos), origOffset: linePos });
+      linePos = line.length;
+    } else {
+      // Find the last word break at or before lineEnd so we don't split a word
+      let breakIdx = lineEnd;
+      for (let j = breakpoints.length - 1; j >= 0; j--) {
+        if (breakpoints[j]! <= lineEnd) {
+          breakIdx = breakpoints[j]!;
+          break;
+        }
+      }
+
+      if (breakIdx <= linePos) {
+        // No break found within range — a single word exceeds width; force cut
+        breakIdx = lineEnd;
+      }
+
+      chunks.push({ text: line.slice(linePos, breakIdx), origOffset: linePos });
+      linePos = breakIdx;
+    }
+  }
+
   return chunks;
 }
 
