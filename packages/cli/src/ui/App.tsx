@@ -24,6 +24,8 @@ import {
   effortLevelsFor,
   fetchCodexModels,
   fetchOllamaModels,
+  fetchOpencodeZenModels,
+  fetchOpenRouterModels,
   getProvider,
   getAutoUpdatePolicy,
   getReasoningEffort,
@@ -420,6 +422,11 @@ export function App({
   // Installed Ollama models, discovered from the daemon (/api/tags).
   const ollamaModelsRef = useRef<Promise<string[]> | null>(null);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  // Live gateway catalogs, fetched when the /model picker opens.
+  const zenModelsRef = useRef<Promise<string[]> | null>(null);
+  const [zenModels, setZenModels] = useState<string[]>([]);
+  const openRouterModelsRef = useRef<Promise<string[]> | null>(null);
+  const [openRouterModels, setOpenRouterModels] = useState<string[]>([]);
   const liveModels =
     meta.provider === "openai-oauth"
       ? codexModels.map((m) => m.slug)
@@ -427,7 +434,11 @@ export function App({
         ? antigravityModels
         : meta.provider === "ollama"
           ? ollamaModels
-          : undefined;
+          : meta.provider === "opencode-zen"
+            ? zenModels
+            : meta.provider === "openrouter"
+              ? openRouterModels
+              : undefined;
 
   const modelPicker = getModelPickerState(input, meta.provider, meta.model, liveModels);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
@@ -801,6 +812,52 @@ export function App({
     [],
   );
 
+  // Fetch the live opencode Zen catalog when the picker opens. Falls back to the
+  // public key in core when no key is stored. Returns [] if unreachable.
+  const loadZenModels = useCallback(
+    async (refresh = false): Promise<string[]> => {
+      const creds = loadStoredConfig().credentials?.["opencode-zen"];
+      if (!creds || creds.type !== "opencode-zen") return [];
+      if (!zenModelsRef.current || refresh) {
+        zenModelsRef.current = fetchOpencodeZenModels(creds.apiKey)
+          .then((models) => {
+            const ids = models.map((m) => m.id);
+            setZenModels(ids);
+            return ids;
+          })
+          .catch(() => {
+            zenModelsRef.current = null;
+            return [];
+          });
+      }
+      return zenModelsRef.current;
+    },
+    [],
+  );
+
+  // Fetch the live OpenRouter catalog when the picker opens. Returns [] if
+  // unreachable; the active model still works (validation is lenient).
+  const loadOpenRouterModels = useCallback(
+    async (refresh = false): Promise<string[]> => {
+      const creds = loadStoredConfig().credentials?.openrouter;
+      if (!creds || creds.type !== "openrouter") return [];
+      if (!openRouterModelsRef.current || refresh) {
+        openRouterModelsRef.current = fetchOpenRouterModels(creds.apiKey)
+          .then((models) => {
+            const ids = models.map((m) => m.id);
+            setOpenRouterModels(ids);
+            return ids;
+          })
+          .catch(() => {
+            openRouterModelsRef.current = null;
+            return [];
+          });
+      }
+      return openRouterModelsRef.current;
+    },
+    [],
+  );
+
   // Fetch the live Codex catalog when the picker opens for openai-oauth, and
   // re-fetch on `/model --refresh`. Memoized for the session by the cache.
   useEffect(() => {
@@ -820,6 +877,18 @@ export function App({
     const refresh = input.slice("/model".length).trim() === "--refresh";
     void loadOllamaModels(refresh);
   }, [modelPicker.open, meta.provider, input, loadOllamaModels]);
+
+  useEffect(() => {
+    if (!modelPicker.open || meta.provider !== "opencode-zen") return;
+    const refresh = input.slice("/model".length).trim() === "--refresh";
+    void loadZenModels(refresh);
+  }, [modelPicker.open, meta.provider, input, loadZenModels]);
+
+  useEffect(() => {
+    if (!modelPicker.open || meta.provider !== "openrouter") return;
+    const refresh = input.slice("/model".length).trim() === "--refresh";
+    void loadOpenRouterModels(refresh);
+  }, [modelPicker.open, meta.provider, input, loadOpenRouterModels]);
 
   const applyEffort = useCallback(
     (model: string, effort: string) => {

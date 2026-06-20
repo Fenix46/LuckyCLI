@@ -72,4 +72,14 @@ describe("validateModel", () => {
   it("still rejects an empty model id for local providers", () => {
     expect(validateModel("llamacpp", "").ok).toBe(false);
   });
+
+  it("validates zen/openrouter against their live catalog", () => {
+    for (const provider of ["opencode-zen", "openrouter"] as const) {
+      // Pre-fetch (no live list yet): trust the id.
+      expect(validateModel(provider, "anything").ok).toBe(true);
+      // With a live list: accept known, reject unknown.
+      expect(validateModel(provider, "glm-4.7-free", ["glm-4.7-free"]).ok).toBe(true);
+      expect(validateModel(provider, "nope", ["glm-4.7-free"]).ok).toBe(false);
+    }
+  });
 });
