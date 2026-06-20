@@ -7,7 +7,12 @@
 
 import { providerInfo } from "../../catalog.js";
 import { withContextWindow } from "../../model-info.js";
-import type { OpenRouterCredentials, ProviderInfo } from "../../types.js";
+import type {
+  ModelInfo,
+  OpenRouterCredentials,
+  ProviderInfo,
+} from "../../types.js";
+import { fetchOpenRouterModels } from "../openai-models.js";
 import { OpenAiProvider } from "../openai/OpenAiProvider.js";
 
 /** OpenRouter's OpenAI-compatible endpoint. */
@@ -24,6 +29,7 @@ const OPENROUTER_HEADERS: Record<string, string> = {
 
 export class OpenRouterProvider extends OpenAiProvider {
   override readonly info: ProviderInfo;
+  private readonly apiKey: string;
 
   constructor(credentials: OpenRouterCredentials) {
     super({
@@ -32,12 +38,31 @@ export class OpenRouterProvider extends OpenAiProvider {
       baseUrl: OPENROUTER_BASE_URL,
       extraHeaders: OPENROUTER_HEADERS,
     });
-    // The model id is not in the static catalog (it's a live, namespaced slug),
-    // so apply the discovered window as the provider-wide default that
-    // currentModelInfo() falls back to.
-    this.info = withContextWindow(
+    this.apiKey = credentials.apiKey;
+    // Model ids are live, namespaced slugs absent from the static catalog and
+    // each has its own context window. A saved credentials.contextWindow is
+    // only an immediate hint for the active model; the authoritative per-model
+    // windows are loaded below from /models.
+    const seeded = withContextWindow(
       providerInfo("openrouter"),
       credentials.contextWindow,
     );
+    // Mutable own `models` map we fill in place; the agent re-reads
+    // provider.info.models on every context check, so the async fill is used.
+    this.info = { ...seeded, models: { ...(seeded.models ?? {}) } };
+    void this.preloadModelWindows();
+  }
+
+  /**
+   * Fetch every model's context window from OpenRouter's /models and merge it
+   * into `info.models`, so currentModelInfo() resolves the right window for ANY
+   * model the user selects. Best effort: failures leave the map untouched.
+   */
+  private async preloadModelWindows(): Promise<void> {
+    const models = this.info.models as Record<string, ModelInfo>;
+    for (const m of await fetchOpenRouterModels(this.apiKey)) {
+      if (typeof m.contextWindow !== "number" || m.contextWindow <= 0) continue;
+      models[m.id] = { ...(models[m.id] ?? { id: m.id }), id: m.id, contextWindow: m.contextWindow };
+    }
   }
 }
