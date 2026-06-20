@@ -36,6 +36,9 @@ export class OpenAiProvider implements IProvider {
     this.client = new OpenAI({
       apiKey: credentials.apiKey,
       ...(credentials.baseUrl ? { baseURL: credentials.baseUrl } : {}),
+      ...(credentials.extraHeaders
+        ? { defaultHeaders: credentials.extraHeaders }
+        : {}),
     });
   }
 

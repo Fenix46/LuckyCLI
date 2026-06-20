@@ -141,7 +141,9 @@ export type ProviderId =
   | "ollama"
   | "llamacpp"
   | "vllm"
-  | "openai-compatible";
+  | "openai-compatible"
+  | "openrouter"
+  | "opencode-zen";
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   "claude",
@@ -153,6 +155,8 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   "llamacpp",
   "vllm",
   "openai-compatible",
+  "openrouter",
+  "opencode-zen",
 ];
 
 /**
@@ -242,6 +246,12 @@ export interface OpenAiCredentials {
   type: "openai";
   apiKey: string;
   baseUrl?: string;
+  /**
+   * Extra HTTP headers sent on every request (e.g. gateway attribution headers
+   * like `HTTP-Referer`/`X-Title`). Forwarded verbatim as the SDK's
+   * `defaultHeaders`. Optional — omitted for the plain OpenAI provider.
+   */
+  extraHeaders?: Record<string, string>;
 }
 
 export interface OpenAiOAuthCredentials {
@@ -312,6 +322,36 @@ export interface OpenAiCompatibleCredentials {
   contextWindow?: number;
 }
 
+/**
+ * OpenRouter — an OpenAI-compatible aggregator. Only an API key is needed; the
+ * base URL and attribution headers are fixed by the provider implementation.
+ */
+export interface OpenRouterCredentials {
+  type: "openrouter";
+  apiKey: string;
+  /**
+   * Context window (tokens) for the selected model, captured live from
+   * OpenRouter's /models at setup. Drives the context indicator and
+   * auto-compaction; omitted when discovery was unavailable.
+   */
+  contextWindow?: number;
+}
+
+/**
+ * opencode-zen — opencode's hosted gateway. The API key is optional: without
+ * one the provider falls back to the shared public key (free models only).
+ */
+export interface OpencodeZenCredentials {
+  type: "opencode-zen";
+  apiKey?: string;
+  /**
+   * Context window (tokens) for the selected model, resolved from models.dev at
+   * setup (zen's own /models doesn't report it). Drives the context indicator
+   * and auto-compaction; omitted when discovery was unavailable.
+   */
+  contextWindow?: number;
+}
+
 export type ProviderCredentials =
   | ClaudeCredentials
   | OpenAiCredentials
@@ -321,7 +361,9 @@ export type ProviderCredentials =
   | OllamaCredentials
   | LlamaCppCredentials
   | VllmCredentials
-  | OpenAiCompatibleCredentials;
+  | OpenAiCompatibleCredentials
+  | OpenRouterCredentials
+  | OpencodeZenCredentials;
 
 export function isProviderId(value: string): value is ProviderId {
   return (PROVIDER_IDS as readonly string[]).includes(value);

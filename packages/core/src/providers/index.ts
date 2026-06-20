@@ -12,6 +12,8 @@ import { VllmProvider } from "./impl/vllm/VllmProvider.js";
 import { OpenAiCompatibleProvider } from "./impl/openai-compatible/OpenAiCompatibleProvider.js";
 import { OpenAiOAuthProvider } from "./impl/openai-oauth/OpenAiOAuthProvider.js";
 import { OpenAiProvider } from "./impl/openai/OpenAiProvider.js";
+import { OpenRouterProvider } from "./impl/openrouter/OpenRouterProvider.js";
+import { OpencodeZenProvider } from "./impl/opencode-zen/OpencodeZenProvider.js";
 import { registerProviderFactory } from "./registry.js";
 import { loadStoredConfig, saveStoredConfig } from "../config/store.js";
 import type {
@@ -24,6 +26,8 @@ import type {
   OpenAiCompatibleCredentials,
   OpenAiCredentials,
   OpenAiOAuthCredentials,
+  OpenRouterCredentials,
+  OpencodeZenCredentials,
 } from "./types.js";
 
 let registered = false;
@@ -74,6 +78,12 @@ export function registerBuiltinProviders(): void {
   registerProviderFactory("openai-compatible", (c) =>
     new OpenAiCompatibleProvider(c as OpenAiCompatibleCredentials),
   );
+  registerProviderFactory("openrouter", (c) =>
+    new OpenRouterProvider(c as OpenRouterCredentials),
+  );
+  registerProviderFactory("opencode-zen", (c) =>
+    new OpencodeZenProvider(c as OpencodeZenCredentials),
+  );
 }
 
 // Register on import so consumers just `import "@luckycli/core"`.
@@ -117,8 +127,21 @@ export { fetchOllamaModels } from "./impl/ollama/models.js";
 export type { OllamaModel } from "./impl/ollama/models.js";
 export { normalizeOpenAiCompatibleBaseUrl } from "./impl/openai-compatible/OpenAiCompatibleProvider.js";
 export { fetchLlamaCppContextWindow } from "./impl/llamacpp/context.js";
-export { fetchOpenAiCompatibleModels } from "./impl/openai-models.js";
+export {
+  fetchOpenAiCompatibleModels,
+  fetchOpenRouterModels,
+  fetchOpencodeZenModels,
+} from "./impl/openai-models.js";
 export type { OpenAiCompatibleModel } from "./impl/openai-models.js";
+export { OPENROUTER_BASE_URL } from "./impl/openrouter/OpenRouterProvider.js";
+export {
+  OPENCODE_ZEN_BASE_URL,
+  OPENCODE_ZEN_PUBLIC_KEY,
+} from "./impl/opencode-zen/OpencodeZenProvider.js";
+export {
+  fetchOpencodeZenContextWindow,
+  fetchOpencodeZenContextWindows,
+} from "./impl/opencode-zen/context.js";
 export {
   fetchVllmContextWindow,
   fetchVllmContextWindows,

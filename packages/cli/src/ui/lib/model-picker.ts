@@ -75,7 +75,12 @@ export function validateModel(
   if (!model) return { ok: false, message: "model id cannot be empty" };
 
   // Runtime-catalog providers validate against the live catalog, when we have it.
-  if (provider === "openai-oauth" || provider === "antigravity") {
+  if (
+    provider === "openai-oauth" ||
+    provider === "antigravity" ||
+    provider === "opencode-zen" ||
+    provider === "openrouter"
+  ) {
     if (!liveModels || liveModels.length === 0) return { ok: true }; // pre-fetch: trust it
     if (liveModels.includes(model)) return { ok: true };
     return {

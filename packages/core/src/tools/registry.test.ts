@@ -20,6 +20,27 @@ describe("ToolRegistry", () => {
     expect(defs[0]?.parameters).toMatchObject({ type: "object" });
   });
 
+  it("emits draft-07 numeric bounds (not the draft-04 boolean form)", () => {
+    // Strict providers (DeepSeek via opencode Zen) reject the openApi3 target's
+    // `exclusiveMinimum: true`. Draft-07 must emit the numeric form, and we drop
+    // the `$schema` annotation providers don't use.
+    const bounded = defineTool({
+      name: "bounded",
+      description: "Has a positive integer bound.",
+      schema: z.object({ limit: z.number().int().positive().max(2000) }),
+      async execute() {
+        return { content: "ok" };
+      },
+    });
+    const params = new ToolRegistry().register(bounded).definitions()[0]
+      ?.parameters as {
+      $schema?: unknown;
+      properties: { limit: { exclusiveMinimum: unknown } };
+    };
+    expect(params.$schema).toBeUndefined();
+    expect(params.properties.limit.exclusiveMinimum).toBe(0);
+  });
+
   it("preserves an explicit provider-facing JSON schema override", () => {
     const passthrough = defineTool({
       name: "passthrough",

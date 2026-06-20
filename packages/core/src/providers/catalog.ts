@@ -21,6 +21,12 @@ export interface AuthMethod {
    * and accept an empty value.
    */
   requiresApiKey?: boolean;
+  /**
+   * For `apiKey` methods: the key may be left empty. Used by gateways with a
+   * free public tier (opencode Zen) — an empty key falls back to a shared
+   * public key instead of blocking the setup flow.
+   */
+  optionalApiKey?: boolean;
 }
 
 export interface ProviderCatalogEntry extends ProviderInfo {
@@ -334,6 +340,52 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
         kind: "baseUrl",
         hint: "Server base URL, then your API key",
         requiresApiKey: true,
+      },
+    ],
+  },
+  openrouter: {
+    id: "openrouter",
+    displayName: "OpenRouter",
+    company: "OpenRouter",
+    // No static list: OpenRouter's catalog is fetched live from
+    // openrouter.ai/api/v1/models. Model ids are namespaced (`vendor/model`)
+    // and the user picks from the live list.
+    availableModels: [],
+    models: {},
+    defaultModel: "",
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsTools: true,
+    authMethods: [
+      {
+        id: "api_key",
+        displayName: "OpenRouter API Key",
+        kind: "apiKey",
+        hint: "OpenRouter API key (openrouter.ai/keys)",
+      },
+    ],
+  },
+  "opencode-zen": {
+    id: "opencode-zen",
+    displayName: "opencode Zen",
+    company: "opencode",
+    // No static list: zen's catalog is fetched live from
+    // opencode.ai/zen/v1/models. Without an API key the shared public key is
+    // used (free models, e.g. deepseek-v4-flash-free). The user picks from the
+    // live list — no preselected default.
+    availableModels: [],
+    models: {},
+    defaultModel: "",
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsTools: true,
+    authMethods: [
+      {
+        id: "api_key",
+        displayName: "opencode Zen API Key (optional)",
+        kind: "apiKey",
+        hint: "opencode API key — leave empty to use the free public tier",
+        optionalApiKey: true,
       },
     ],
   },

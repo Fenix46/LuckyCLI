@@ -8,6 +8,12 @@
  * call can prefill the context window too.
  */
 
+import { OPENROUTER_BASE_URL } from "./openrouter/OpenRouterProvider.js";
+import {
+  OPENCODE_ZEN_BASE_URL,
+  OPENCODE_ZEN_PUBLIC_KEY,
+} from "./opencode-zen/OpencodeZenProvider.js";
+
 export interface OpenAiCompatibleModel {
   id: string;
   /** Context window (tokens), when the server reports it (vLLM's max_model_len). */
@@ -16,6 +22,14 @@ export interface OpenAiCompatibleModel {
 
 interface ModelsResponse {
   data?: Array<{ id?: string; max_model_len?: number }>;
+}
+
+interface OpenRouterModelsResponse {
+  data?: Array<{
+    id?: string;
+    context_length?: number;
+    top_provider?: { context_length?: number };
+  }>;
 }
 
 function authHeaders(apiKey?: string): Record<string, string> {
@@ -65,4 +79,55 @@ function modelsUrl(baseUrl: string): string {
     hasPath = /\/[^/]+$/.test(trimmed.replace(/^https?:\/\/[^/]+/, ""));
   }
   return hasPath ? `${trimmed}/models` : `${trimmed}/v1/models`;
+}
+
+/**
+ * List the models the OpenRouter gateway advertises. The base URL already
+ * includes `/api/v1`, so `/models` is appended directly. Returns [] when
+ * unreachable, so the caller can fall back to the bootstrap catalog list.
+ */
+export async function fetchOpenRouterModels(
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<OpenAiCompatibleModel[]> {
+  try {
+    const res = await fetch(`${OPENROUTER_BASE_URL}/models`, {
+      headers: authHeaders(apiKey),
+      signal,
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as OpenRouterModelsResponse;
+    const seen = new Set<string>();
+    const out: OpenAiCompatibleModel[] = [];
+    for (const m of data.data ?? []) {
+      if (!m.id || seen.has(m.id)) continue;
+      seen.add(m.id);
+      // top_provider.context_length is the effective limit for the routed
+      // backend; fall back to the model-level context_length.
+      const ctx = m.top_provider?.context_length ?? m.context_length;
+      out.push(
+        typeof ctx === "number" && ctx > 0
+          ? { id: m.id, contextWindow: ctx }
+          : { id: m.id },
+      );
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * List the models opencode Zen advertises. Falls back to the shared public key
+ * when none is supplied, matching the provider. Returns [] when unreachable.
+ */
+export async function fetchOpencodeZenModels(
+  apiKey?: string,
+  signal?: AbortSignal,
+): Promise<OpenAiCompatibleModel[]> {
+  return fetchOpenAiCompatibleModels(
+    OPENCODE_ZEN_BASE_URL,
+    apiKey || OPENCODE_ZEN_PUBLIC_KEY,
+    signal,
+  );
 }
