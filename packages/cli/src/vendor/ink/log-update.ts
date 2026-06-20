@@ -146,6 +146,19 @@ export class LogUpdate {
       return fullResetSequence_CAUSES_FLICKER(next, 'resize', stylePool)
     }
 
+    // Main-screen: growing viewport also needs a full reset.  The Yoga content
+    // height does not change on resize, so the incremental diff sees
+    // heightDelta === 0 and writes nothing — the new terminal rows stay blank.
+    // Alt-screen is unaffected: its content height is clamped to terminalRows
+    // so growing viewport naturally paints via the normal "growing" path.
+    if (
+      !altScreen &&
+      next.viewport.height > prev.viewport.height &&
+      prev.viewport.height > 0
+    ) {
+      return fullResetSequence_CAUSES_FLICKER(next, 'resize', stylePool)
+    }
+
     // DECSTBM scroll optimization: when a ScrollBox's scrollTop changed,
     // shift content with a hardware scroll (CSI top;bot r + CSI n S/T)
     // instead of rewriting the whole scroll region. The shiftRows on
