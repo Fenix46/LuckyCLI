@@ -242,6 +242,12 @@ export interface OpenAiCredentials {
   type: "openai";
   apiKey: string;
   baseUrl?: string;
+  /**
+   * Extra HTTP headers sent on every request (e.g. gateway attribution headers
+   * like `HTTP-Referer`/`X-Title`). Forwarded verbatim as the SDK's
+   * `defaultHeaders`. Optional — omitted for the plain OpenAI provider.
+   */
+  extraHeaders?: Record<string, string>;
 }
 
 export interface OpenAiOAuthCredentials {
