@@ -8,6 +8,12 @@
  * call can prefill the context window too.
  */
 
+import { OPENROUTER_BASE_URL } from "./openrouter/OpenRouterProvider.js";
+import {
+  OPENCODE_ZEN_BASE_URL,
+  OPENCODE_ZEN_PUBLIC_KEY,
+} from "./opencode-zen/OpencodeZenProvider.js";
+
 export interface OpenAiCompatibleModel {
   id: string;
   /** Context window (tokens), when the server reports it (vLLM's max_model_len). */
@@ -65,4 +71,31 @@ function modelsUrl(baseUrl: string): string {
     hasPath = /\/[^/]+$/.test(trimmed.replace(/^https?:\/\/[^/]+/, ""));
   }
   return hasPath ? `${trimmed}/models` : `${trimmed}/v1/models`;
+}
+
+/**
+ * List the models the OpenRouter gateway advertises. The base URL already
+ * includes `/api/v1`, so `/models` is appended directly. Returns [] when
+ * unreachable, so the caller can fall back to the bootstrap catalog list.
+ */
+export async function fetchOpenRouterModels(
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<OpenAiCompatibleModel[]> {
+  return fetchOpenAiCompatibleModels(OPENROUTER_BASE_URL, apiKey, signal);
+}
+
+/**
+ * List the models opencode Zen advertises. Falls back to the shared public key
+ * when none is supplied, matching the provider. Returns [] when unreachable.
+ */
+export async function fetchOpencodeZenModels(
+  apiKey?: string,
+  signal?: AbortSignal,
+): Promise<OpenAiCompatibleModel[]> {
+  return fetchOpenAiCompatibleModels(
+    OPENCODE_ZEN_BASE_URL,
+    apiKey || OPENCODE_ZEN_PUBLIC_KEY,
+    signal,
+  );
 }
