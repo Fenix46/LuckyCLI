@@ -21,6 +21,12 @@ export interface AuthMethod {
    * and accept an empty value.
    */
   requiresApiKey?: boolean;
+  /**
+   * For `apiKey` methods: the key may be left empty. Used by gateways with a
+   * free public tier (opencode Zen) — an empty key falls back to a shared
+   * public key instead of blocking the setup flow.
+   */
+  optionalApiKey?: boolean;
 }
 
 export interface ProviderCatalogEntry extends ProviderInfo {
@@ -379,6 +385,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
         displayName: "opencode Zen API Key (optional)",
         kind: "apiKey",
         hint: "opencode API key — leave empty to use the free public tier",
+        optionalApiKey: true,
       },
     ],
   },
