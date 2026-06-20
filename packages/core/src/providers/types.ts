@@ -329,6 +329,12 @@ export interface OpenAiCompatibleCredentials {
 export interface OpenRouterCredentials {
   type: "openrouter";
   apiKey: string;
+  /**
+   * Context window (tokens) for the selected model, captured live from
+   * OpenRouter's /models at setup. Drives the context indicator and
+   * auto-compaction; omitted when discovery was unavailable.
+   */
+  contextWindow?: number;
 }
 
 /**

@@ -24,6 +24,14 @@ interface ModelsResponse {
   data?: Array<{ id?: string; max_model_len?: number }>;
 }
 
+interface OpenRouterModelsResponse {
+  data?: Array<{
+    id?: string;
+    context_length?: number;
+    top_provider?: { context_length?: number };
+  }>;
+}
+
 function authHeaders(apiKey?: string): Record<string, string> {
   return apiKey ? { authorization: `Bearer ${apiKey}` } : {};
 }
@@ -82,7 +90,31 @@ export async function fetchOpenRouterModels(
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<OpenAiCompatibleModel[]> {
-  return fetchOpenAiCompatibleModels(OPENROUTER_BASE_URL, apiKey, signal);
+  try {
+    const res = await fetch(`${OPENROUTER_BASE_URL}/models`, {
+      headers: authHeaders(apiKey),
+      signal,
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as OpenRouterModelsResponse;
+    const seen = new Set<string>();
+    const out: OpenAiCompatibleModel[] = [];
+    for (const m of data.data ?? []) {
+      if (!m.id || seen.has(m.id)) continue;
+      seen.add(m.id);
+      // top_provider.context_length is the effective limit for the routed
+      // backend; fall back to the model-level context_length.
+      const ctx = m.top_provider?.context_length ?? m.context_length;
+      out.push(
+        typeof ctx === "number" && ctx > 0
+          ? { id: m.id, contextWindow: ctx }
+          : { id: m.id },
+      );
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 /**

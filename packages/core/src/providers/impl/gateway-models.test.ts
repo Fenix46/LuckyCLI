@@ -45,6 +45,32 @@ describe("gateway model discovery", () => {
     });
   });
 
+  it("reads OpenRouter context windows (top_provider preferred)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: "anthropic/claude-sonnet-4-6",
+              context_length: 200000,
+              top_provider: { context_length: 180000 },
+            },
+            { id: "x/no-ctx" },
+          ],
+        }),
+      }),
+    );
+
+    const models = await fetchOpenRouterModels("k");
+
+    expect(models).toEqual([
+      { id: "anthropic/claude-sonnet-4-6", contextWindow: 180000 },
+      { id: "x/no-ctx" },
+    ]);
+  });
+
   it("returns [] when the gateway is unreachable", async () => {
     vi.stubGlobal(
       "fetch",

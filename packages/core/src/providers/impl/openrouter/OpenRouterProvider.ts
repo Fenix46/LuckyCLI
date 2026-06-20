@@ -6,6 +6,7 @@
  */
 
 import { providerInfo } from "../../catalog.js";
+import { withContextWindow } from "../../model-info.js";
 import type { OpenRouterCredentials, ProviderInfo } from "../../types.js";
 import { OpenAiProvider } from "../openai/OpenAiProvider.js";
 
@@ -31,6 +32,12 @@ export class OpenRouterProvider extends OpenAiProvider {
       baseUrl: OPENROUTER_BASE_URL,
       extraHeaders: OPENROUTER_HEADERS,
     });
-    this.info = providerInfo("openrouter");
+    // The model id is not in the static catalog (it's a live, namespaced slug),
+    // so apply the discovered window as the provider-wide default that
+    // currentModelInfo() falls back to.
+    this.info = withContextWindow(
+      providerInfo("openrouter"),
+      credentials.contextWindow,
+    );
   }
 }
