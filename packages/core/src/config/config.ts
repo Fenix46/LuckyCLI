@@ -206,6 +206,13 @@ export function credentialsFromEnv(
         apiKey: requireEnv(env, "OPENAI_COMPATIBLE_API_KEY"),
         ...ctxFromEnv(env.OPENAI_COMPATIBLE_CONTEXT_WINDOW),
       };
+    case "openrouter":
+      return { type: "openrouter", apiKey: requireEnv(env, "OPENROUTER_API_KEY") };
+    case "opencode-zen":
+      return {
+        type: "opencode-zen",
+        ...(env.OPENCODE_API_KEY ? { apiKey: env.OPENCODE_API_KEY } : {}),
+      };
   }
 }
 

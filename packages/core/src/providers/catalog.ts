@@ -337,6 +337,62 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
       },
     ],
   },
+  openrouter: {
+    id: "openrouter",
+    displayName: "OpenRouter",
+    company: "OpenRouter",
+    // Bootstrap only — the real catalog is fetched live from /models once a key
+    // is supplied. Model ids are namespaced (`vendor/model`).
+    availableModels: [
+      "anthropic/claude-opus-4-8",
+      "anthropic/claude-sonnet-4-6",
+      "openai/gpt-5.5",
+      "google/gemini-3-pro-preview",
+    ],
+    models: modelEntries([
+      { id: "anthropic/claude-opus-4-8", source: "provider" },
+      { id: "anthropic/claude-sonnet-4-6", source: "provider" },
+      { id: "openai/gpt-5.5", source: "provider" },
+      { id: "google/gemini-3-pro-preview", source: "provider" },
+    ]),
+    defaultModel: "anthropic/claude-sonnet-4-6",
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsTools: true,
+    authMethods: [
+      {
+        id: "api_key",
+        displayName: "OpenRouter API Key",
+        kind: "apiKey",
+        hint: "OpenRouter API key (openrouter.ai/keys)",
+      },
+    ],
+  },
+  "opencode-zen": {
+    id: "opencode-zen",
+    displayName: "opencode Zen",
+    company: "opencode",
+    // Bootstrap only — the real catalog is fetched live from /models. Without an
+    // API key the shared public key is used (free models only).
+    availableModels: ["claude-sonnet-4-6", "gpt-5.5", "gemini-3-pro-preview"],
+    models: modelEntries([
+      { id: "claude-sonnet-4-6", source: "provider" },
+      { id: "gpt-5.5", source: "provider" },
+      { id: "gemini-3-pro-preview", source: "provider" },
+    ]),
+    defaultModel: "claude-sonnet-4-6",
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsTools: true,
+    authMethods: [
+      {
+        id: "api_key",
+        displayName: "opencode Zen API Key (optional)",
+        kind: "apiKey",
+        hint: "opencode API key — leave empty to use the free public tier",
+      },
+    ],
+  },
 };
 
 /** The bare ProviderInfo for a provider (no auth fields). */

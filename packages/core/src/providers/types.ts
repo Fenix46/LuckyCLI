@@ -141,7 +141,9 @@ export type ProviderId =
   | "ollama"
   | "llamacpp"
   | "vllm"
-  | "openai-compatible";
+  | "openai-compatible"
+  | "openrouter"
+  | "opencode-zen";
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   "claude",
@@ -153,6 +155,8 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   "llamacpp",
   "vllm",
   "openai-compatible",
+  "openrouter",
+  "opencode-zen",
 ];
 
 /**
@@ -318,6 +322,24 @@ export interface OpenAiCompatibleCredentials {
   contextWindow?: number;
 }
 
+/**
+ * OpenRouter — an OpenAI-compatible aggregator. Only an API key is needed; the
+ * base URL and attribution headers are fixed by the provider implementation.
+ */
+export interface OpenRouterCredentials {
+  type: "openrouter";
+  apiKey: string;
+}
+
+/**
+ * opencode-zen — opencode's hosted gateway. The API key is optional: without
+ * one the provider falls back to the shared public key (free models only).
+ */
+export interface OpencodeZenCredentials {
+  type: "opencode-zen";
+  apiKey?: string;
+}
+
 export type ProviderCredentials =
   | ClaudeCredentials
   | OpenAiCredentials
@@ -327,7 +349,9 @@ export type ProviderCredentials =
   | OllamaCredentials
   | LlamaCppCredentials
   | VllmCredentials
-  | OpenAiCompatibleCredentials;
+  | OpenAiCompatibleCredentials
+  | OpenRouterCredentials
+  | OpencodeZenCredentials;
 
 export function isProviderId(value: string): value is ProviderId {
   return (PROVIDER_IDS as readonly string[]).includes(value);
