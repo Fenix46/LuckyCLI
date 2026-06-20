@@ -344,6 +344,12 @@ export interface OpenRouterCredentials {
 export interface OpencodeZenCredentials {
   type: "opencode-zen";
   apiKey?: string;
+  /**
+   * Context window (tokens) for the selected model, resolved from models.dev at
+   * setup (zen's own /models doesn't report it). Drives the context indicator
+   * and auto-compaction; omitted when discovery was unavailable.
+   */
+  contextWindow?: number;
 }
 
 export type ProviderCredentials =

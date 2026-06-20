@@ -6,6 +6,7 @@
  */
 
 import { providerInfo } from "../../catalog.js";
+import { withContextWindow } from "../../model-info.js";
 import type { OpencodeZenCredentials, ProviderInfo } from "../../types.js";
 import { OpenAiProvider } from "../openai/OpenAiProvider.js";
 
@@ -28,6 +29,11 @@ export class OpencodeZenProvider extends OpenAiProvider {
       baseUrl: OPENCODE_ZEN_BASE_URL,
       extraHeaders: { "X-Title": "lucky" },
     });
-    this.info = providerInfo("opencode-zen");
+    // The model id is not in the static catalog (it's a live id), so apply the
+    // discovered window as the provider-wide default currentModelInfo() uses.
+    this.info = withContextWindow(
+      providerInfo("opencode-zen"),
+      credentials.contextWindow,
+    );
   }
 }

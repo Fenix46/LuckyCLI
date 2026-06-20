@@ -139,6 +139,10 @@ export {
   OPENCODE_ZEN_PUBLIC_KEY,
 } from "./impl/opencode-zen/OpencodeZenProvider.js";
 export {
+  fetchOpencodeZenContextWindow,
+  fetchOpencodeZenContextWindows,
+} from "./impl/opencode-zen/context.js";
+export {
   fetchVllmContextWindow,
   fetchVllmContextWindows,
 } from "./impl/vllm/context.js";
