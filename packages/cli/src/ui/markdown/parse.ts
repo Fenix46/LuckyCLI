@@ -11,6 +11,7 @@ export function parseMessageIntoBlocks(text: string): Block[] {
   const lines = text.split("\n");
   const blocks: Block[] = [];
   let currentCodeBlock: { language: string; lines: string[] } | null = null;
+  let prevEmpty = false; // track if the previous block was an empty line
 
   for (const line of lines) {
     if (line.trim().startsWith("```")) {
@@ -36,9 +37,13 @@ export function parseMessageIntoBlocks(text: string): Block[] {
 
     const trimmed = line.trim();
     if (!trimmed) {
+      // Only emit one empty-line block, skip consecutive whitespace-only lines
+      if (prevEmpty) continue;
       blocks.push({ type: "paragraph", text: "" });
+      prevEmpty = true;
       continue;
     }
+    prevEmpty = false;
 
     const headerMatch = line.match(/^(#{1,6})\s+(.*)$/);
     if (headerMatch) {

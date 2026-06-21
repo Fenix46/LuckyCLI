@@ -99,6 +99,7 @@ export function TranscriptItem({
 function spacingBefore(item: Item, previous?: Item): number {
   if (!previous) return 1;
   if (item.kind === "tool" && previous.kind === "tool") return 0;
+  if (item.kind === "tool" && previous.kind === "assistant") return 0;
   return item.kind !== previous.kind || item.kind === "user" ? 2 : 1;
 }
 
