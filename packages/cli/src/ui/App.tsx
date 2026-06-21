@@ -1056,9 +1056,10 @@ export function App({
         return;
       }
 
-      // Splice any stashed large pastes back into the text sent to the model,
-      // but keep the compact `[Pasted text #N]` placeholder in the transcript
-      // so it stays readable. Clear the stash for the next prompt.
+      // Splice any stashed large pastes back into the text — both for the model
+      // and for the transcript, so the submitted prompt shows the full pasted
+      // content instead of the collapsed `[Pasted text #N]` placeholder. Clear
+      // the stash for the next prompt.
       const expanded = expandPastedRefs(text, pastedContentsRef.current);
       pastedContentsRef.current = {};
       nextPasteIdRef.current = 1;
@@ -1067,7 +1068,7 @@ export function App({
       const content = buildTurnContent(expanded, attachedImagesRef.current);
       attachedImagesRef.current = {};
       nextImageIdRef.current = 1;
-      setItems((prev) => [...prev, { kind: "user", text }]);
+      setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       setInput("");
       await runTurn(content);
     },
