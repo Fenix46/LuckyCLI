@@ -25,15 +25,16 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
       {blocks.map((block, blockIdx) => {
         if (block.type === "code" && block.codeLines) {
           return (
-            <Box key={blockIdx} flexDirection="column" paddingLeft={2}>
-              <Box marginBottom={1}>
-                <Text bold dimColor color={theme.accent}>
-                  ⌨ {block.language?.toUpperCase() || "CODE"}
+            <Box key={blockIdx} flexDirection="column">
+              <Box flexDirection="column" paddingLeft={2} paddingTop={1} paddingBottom={1} backgroundColor={theme.codeLabelBg}>
+                <Text bold color={theme.accent}>
+                  {block.language?.toUpperCase() || "CODE"}
                 </Text>
               </Box>
-              <Box flexDirection="column">
+              <Box flexDirection="column" backgroundColor={theme.codeBlockBg} paddingTop={1} paddingBottom={1}>
                 {block.codeLines.map((line, lineIdx) => (
                   <Text key={lineIdx}>
+                    <Text color={theme.muted}>  </Text>
                     {highlightCodeLine(line, block.language || "code", theme)}
                   </Text>
                 ))}
@@ -43,11 +44,12 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
         }
 
         if (block.type === "header") {
-          const headerPrefix = "#".repeat(block.level || 1) + " ";
+          const level = block.level || 1;
+          const icon = level === 1 ? "◆ " : level === 2 ? "▹ " : "• ";
           return (
-            <Box key={blockIdx}>
-              <Text bold underline color={theme.primary}>
-                {headerPrefix}
+            <Box key={blockIdx} flexDirection="column" marginTop={1}>
+              <Text bold color={theme.primary}>
+                {icon}
                 {block.text}
               </Text>
             </Box>
