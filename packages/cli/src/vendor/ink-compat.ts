@@ -22,6 +22,7 @@ export { default as useInput } from "./ink/hooks/use-input.js";
 export { default as useApp } from "./ink/hooks/use-app.js";
 export { default as useStdin } from "./ink/hooks/use-stdin.js";
 export { default as measureElement } from "./ink/measure-element.js";
+export { stringWidth } from "./ink/stringWidth.js";
 export type { DOMElement } from "./ink/dom.js";
 export type { Key } from "./ink/events/input-event.js";
 
