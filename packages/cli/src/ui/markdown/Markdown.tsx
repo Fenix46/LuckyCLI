@@ -1,9 +1,12 @@
 import { Box, Text } from "../../vendor/ink-compat.js";
-import { stringWidth } from "../../vendor/ink/stringWidth.js";
 import React from "react";
 import type { Theme } from "../themes.js";
 import { parseMessageIntoBlocks, type Block } from "./parse.js";
 import { highlightCodeLine, parseInlineMarkdown } from "./highlight.js";
+import Table from "./Table.js";
+
+// Context for passing theme to Table sub-components
+const ThemeContext = React.createContext<Theme | null>(null);
 
 interface MarkdownProps {
   text: string;
@@ -26,7 +29,7 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
       {blocks.map((block, blockIdx) => {
         if (block.type === "code" && block.codeLines) {
           return (
-            <Box key={blockIdx} flexDirection="column">
+            <Box key={blockIdx} flexDirection="column" width="100%">
               <Box flexDirection="column" paddingLeft={2} paddingTop={1} paddingBottom={1} backgroundColor={theme.codeLabelBg}>
                 <Text bold color={theme.accent}>
                   {block.language?.toUpperCase() || "CODE"}
@@ -68,7 +71,7 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
         }
 
         if (block.type === "table" && block.rows && block.colWidths) {
-          return renderTable(block, blockIdx, theme);
+          return renderMarkdownTable(block, blockIdx, theme);
         }
 
         if (!block.text.trim()) {
@@ -87,92 +90,70 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
   );
 }
 
-/** Render a parsed markdown table block as Ink elements. */
-function renderTable(block: Block, key: number, theme: Theme): React.JSX.Element {
+/** Theme-adapted header component for the Table. */
+function MarkdownHeader(props: React.PropsWithChildren<{}>) {
+  const theme = React.useContext(ThemeContext);
+  return (
+    <Text bold color={theme?.accent ?? "blue"}>
+      {props.children}
+    </Text>
+  );
+}
+
+/** Theme-adapted cell component for the Table. */
+function MarkdownCell(props: React.PropsWithChildren<{}>) {
+  return <Text Wrapped={true}>{props.children}</Text>;
+}
+
+/** Theme-adapted skeleton component for the Table borders. */
+function MarkdownSkeleton(props: React.PropsWithChildren<{}>) {
+    const theme = React.useContext(ThemeContext);
+  return <Text color={theme?.muted ?? "gray"}>{props.children}</Text>;
+}
+
+/** Convert parsed table block to Table component data format and render. */
+function renderMarkdownTable(block: Block, key: number, theme: Theme): React.JSX.Element {
   const rows = block.rows!;
   const colWidths = block.colWidths!;
   // rows[0] = header, rows[1] = separator, rows[2..] = body
 
-  const cellPad = 1; // one space on each side of cell content
-
-  // Build cell text with padding using stringWidth for correct wide-char handling.
-  // Returns exactly (cellPad + width + cellPad) characters.
-  function padCell(cell: string, width: number): string {
-    const leftPad = " ".repeat(cellPad);
-    const contentWidth = stringWidth(cell);
-    const rightPad = cellPad + width - contentWidth;
-    return leftPad + cell + " ".repeat(Math.max(0, rightPad));
-  }
-
-  // Build a full table row string (including borders)
-  function rowBorder(charLeft: string, charMid: string, charRight: string, sep: string = charMid): string {
-    const segments = colWidths.map((w) => charMid.repeat(cellPad + w + cellPad));
-    return charLeft + segments.join(sep) + charRight;
-  }
-
-  function dataRow(
-    cells: readonly string[],
-    rowType: "header" | "body",
-  ): React.JSX.Element {
+  if (rows.length < 3) {
+    // Not enough rows to render a meaningful table, fall back to paragraph
     return (
-      <Text>
-        <Text color={theme.muted}>│</Text>
-        {cells.map((c, i) => (
-          <React.Fragment key={i}>
-            <Text bold={rowType === "header"} color={rowType === "header" ? theme.accent : undefined}>
-              {padCell(c, colWidths[i] ?? 0)}
-            </Text>
-            <Text color={theme.muted}>│</Text>
-          </React.Fragment>
-        ))}
-      </Text>
+      <Box key={key}>
+        <Text>{parseInlineMarkdown(rows[0]?.join(", ") ?? "", theme)}</Text>
+      </Box>
     );
   }
 
-  const lines: React.JSX.Element[] = [];
-  let idx = 0;
+  // Extract column names from header row (rows[0])
+  const headers = rows[0]!;
+  const columnKeys = headers.map((_, i) => `col_${i}`) as Array<`col_${number}`>;
 
-  // Top border
-  lines.push(
-    <Text key={key + "-" + idx++} color={theme.muted}>
-      {rowBorder("┌", "─", "┐", "┬")}
-    </Text>,
-  );
-
-  // Header row (bold, accent color)
-  lines.push(dataRow(rows[0]!, "header"));
-
-  // Separator line
-  lines.push(
-    <Text key={key + "-" + idx++} color={theme.muted}>
-      {rowBorder("├", "─", "┤", "┼")}
-    </Text>,
-  );
-
-  // Body rows
+  // Convert body rows (rows[2..]) to array of objects
+  const data: Record<string, string | number | boolean | null | undefined>[] = [];
   for (let r = 2; r < rows.length; r++) {
-    lines.push(dataRow(rows[r]!, "body"));
-    // Add separator after each body row except the last
-    if (r < rows.length - 1) {
-      lines.push(
-        <Text key={key + "-" + idx++} color={theme.muted}>
-          {rowBorder("├", "─", "┤", "┼")}
-        </Text>,
-      );
+    const rowData: Record<string, string | number | boolean | null | undefined> = {};
+    const bodyRow = rows[r]!;
+    for (let c = 0; c < columnKeys.length; c++) {
+      rowData[columnKeys[c]!] = bodyRow[c] ?? "";
     }
+    data.push(rowData);
   }
 
-  // Bottom border with ┴ junctions at column boundaries
-  lines.push(
-    <Text key={key + "-" + idx++} color={theme.muted}>
-      {"└" + colWidths.map((w) => "─".repeat(cellPad + w + cellPad)).join("┴") + "┘"}
-    </Text>,
-  );
-
   return (
-    <Box key={key} flexDirection="column" marginTop={0} marginBottom={1}>
-      {lines}
-    </Box>
+    <ThemeContext.Provider value={theme} key={key}>
+      <Box flexDirection="column" marginTop={0} marginBottom={1}>
+        <Table<Record<string, string | number | boolean | null | undefined>>
+          data={data}
+          columns={columnKeys}
+          padding={1}
+          header={MarkdownHeader}
+          cell={MarkdownCell}
+          skeleton={MarkdownSkeleton}
+        />
+      </Box>
+    </ThemeContext.Provider>
   );
 }
 
