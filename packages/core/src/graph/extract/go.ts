@@ -5,12 +5,20 @@
  * Go's grammar: package imports, `func` (top-level) and methods (a `func` with a
  * receiver, qualified by its receiver type), `type` declarations for structs
  * (→ class) and interfaces (with their method specs), and an intra-file
- * call-graph second pass. Calls through a selector (pkg.Fn, recv.Method) are
- * left to cross-file resolution and skipped here.
+ * call-graph second pass. Calls through a selector (pkg.Fn, recv.Method) can't
+ * be resolved locally — the callee may live in another file or package — so
+ * they're emitted as call candidates (see CallCandidate) for the whole-graph
+ * cross-file resolution pass instead of being skipped.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -46,6 +54,21 @@ function receiverType(method: Node): string | undefined {
   return descendants(recv, "type_identifier")[0]?.text;
 }
 
+/** Parameter/receiver name -> declared type, e.g. `(r Rect)` -> r: Rect. */
+function paramTypes(paramList: Node | null | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!paramList) return out;
+  for (const decl of paramList.namedChildren) {
+    if (decl?.type !== "parameter_declaration") continue;
+    const type = descendants(decl, "type_identifier")[0]?.text;
+    if (!type) continue;
+    for (const id of decl.namedChildren) {
+      if (id?.type === "identifier") out.set(id.text, type);
+    }
+  }
+  return out;
+}
+
 function extractGo(ctx: ExtractorContext): Extraction {
   const { path, root } = ctx;
   const nodes: GraphNode[] = [];
@@ -53,6 +76,7 @@ function extractGo(ctx: ExtractorContext): Extraction {
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
   const callables = new Map<string, string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -135,16 +159,21 @@ function extractGo(ctx: ExtractorContext): Extraction {
     }
   }
 
-  // --- Pass 2: call graph (INFERRED `calls` between local symbols) -----------
-  function calls(node: Node, enclosing: string | undefined): void {
+  // --- Pass 2: call graph (INFERRED `calls` between local symbols, plus
+  // cross-file CANDIDATES for selector calls like pkg.Fn / recv.Method) ------
+  function calls(node: Node, enclosing: string | undefined, locals: Map<string, string>): void {
     let current = enclosing;
+    let scope = locals;
     if (node.type === "function_declaration") {
       const name = node.childForFieldName("name")?.text;
       if (name) current = symbolId(path, name);
+      scope = paramTypes(node.namedChildren.find((c) => c?.type === "parameter_list"));
     } else if (node.type === "method_declaration") {
       const name = node.childForFieldName("name")?.text;
       const recv = receiverType(node);
       if (name && recv) current = symbolId(path, `${recv}.${name}`);
+      const lists = node.namedChildren.filter((c) => c?.type === "parameter_list");
+      scope = new Map([...paramTypes(lists[0]), ...paramTypes(lists[1])]);
     } else if (node.type === "call_expression" && current) {
       const callee = node.childForFieldName("function");
       if (callee?.type === "identifier") {
@@ -152,13 +181,21 @@ function extractGo(ctx: ExtractorContext): Extraction {
         if (target && target !== current) {
           addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
         }
+      } else if (callee?.type === "selector_expression") {
+        const receiver = callee.namedChildren[0];
+        const method = callee.childForFieldName("field")?.text;
+        if (method && receiver) {
+          const receiverHint =
+            receiver.type === "identifier" ? (scope.get(receiver.text) ?? receiver.text) : undefined;
+          callCandidates.push({ callerId: current, calleeName: method, ...(receiverHint ? { receiverHint } : {}) });
+        }
       }
     }
-    for (const child of node.namedChildren) if (child) calls(child, current);
+    for (const child of node.namedChildren) if (child) calls(child, current, scope);
   }
-  calls(root, undefined);
+  calls(root, undefined, new Map());
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const goExtractor: Extractor = { language: "go", extract: extractGo };

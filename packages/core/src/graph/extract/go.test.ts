@@ -80,15 +80,39 @@ describe("go extractor", () => {
     expect(defined.some((n) => n?.label === "Area" && n?.kind === "method")).toBe(true);
   });
 
-  it("infers an intra-file call alpha->beta and ignores selector calls", async () => {
-    const { nodes, edges } = await extract("main.go", SAMPLE);
+  it("infers an intra-file call alpha->beta and defers selector calls to cross-file resolution", async () => {
+    const { nodes, edges, callCandidates } = await extract("main.go", SAMPLE);
     const calls = edges.filter((e) => e.relation === "calls");
     const alpha = byLabel(nodes, "alpha")!;
     const beta = byLabel(nodes, "beta")!;
     expect(calls.some((e) => e.source === alpha.id && e.target === beta.id)).toBe(true);
     expect(calls.every((e) => e.confidence === "INFERRED")).toBe(true);
-    // beta calls fmt.Println (selector) — not a local symbol → no edge from beta
+    // beta calls fmt.Println (selector) — not a local symbol → no direct edge,
+    // but a candidate for the cross-file resolution pass instead.
     expect(calls.some((e) => e.source === beta.id)).toBe(false);
+    expect(
+      callCandidates?.some((c) => c.callerId === beta.id && c.calleeName === "Println"),
+    ).toBe(true);
+  });
+
+  it("emits a candidate with a type-hinted receiver for recv.Method() calls", async () => {
+    const source = `package main
+
+type Rect struct{ w, h float64 }
+
+func (r Rect) Area() float64 { return r.w * r.h }
+
+func describe(r Rect) float64 {
+	return r.Area()
+}
+`;
+    const { nodes, callCandidates } = await extract("shapes.go", source);
+    const describeFn = byLabel(nodes, "describe")!;
+    expect(callCandidates).toContainEqual({
+      callerId: describeFn.id,
+      calleeName: "Area",
+      receiverHint: "Rect",
+    });
   });
 
   it("is registered for the go language", () => {

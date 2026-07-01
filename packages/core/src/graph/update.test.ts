@@ -109,3 +109,64 @@ describe("incremental graph update", () => {
     }
   });
 });
+
+describe("incremental graph update — cross-file calls", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-update-xfile-"));
+    await writeFile(
+      join(root, "shapes.go"),
+      `package main
+
+type Rect struct{ w, h float64 }
+
+func (r Rect) Area() float64 { return r.w * r.h }
+`,
+    );
+    await writeFile(
+      join(root, "main.go"),
+      `package main
+
+func describe(r Rect) float64 {
+	return 0
+}
+`,
+    );
+    await buildAndSaveGraph(root);
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("re-resolves a cross-file call against the whole graph when the caller's file changes", async () => {
+    // Initial build: describe() doesn't call Area() yet, so no cross-file edge exists.
+    const before = await loadGraph(root);
+    const areaMethod = before.nodes.find((n) => n.label === "Area")!;
+    expect(before.edges.some((e) => e.target === areaMethod.id && e.relation === "calls")).toBe(
+      false,
+    );
+
+    // Editing main.go (not shapes.go) to add the call must still resolve
+    // against Area(), which lives in the untouched file.
+    await writeFile(
+      join(root, "main.go"),
+      `package main
+
+func describe(r Rect) float64 {
+	return r.Area()
+}
+`,
+    );
+    await updateGraphForFiles(root, ["main.go"]);
+
+    const after = await loadGraph(root);
+    const describeFn = after.nodes.find((n) => n.label === "describe")!;
+    const resolved = after.edges.find(
+      (e) => e.source === describeFn.id && e.target === areaMethod.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+    expect(validateGraph(after)).toEqual([]);
+  });
+});

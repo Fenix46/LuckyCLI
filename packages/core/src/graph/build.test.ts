@@ -115,3 +115,48 @@ describe("graph build pipeline", () => {
     expect(second.graph.edges).toEqual(first.graph.edges);
   });
 });
+
+describe("graph build pipeline — cross-file calls", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-"));
+    await writeFile(
+      join(root, "shapes.go"),
+      `package main
+
+type Rect struct{ w, h float64 }
+
+func (r Rect) Area() float64 { return r.w * r.h }
+`,
+    );
+    await writeFile(
+      join(root, "main.go"),
+      `package main
+
+func describe(r Rect) float64 {
+	return r.Area()
+}
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves a receiver method call across files into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeFn = nodes.find((n) => n.label === "describe")!;
+    const areaMethod = nodes.find((n) => n.label === "Area")!;
+    expect(areaMethod.sourceFile).toBe("shapes.go");
+    expect(describeFn.sourceFile).toBe("main.go");
+
+    const resolved = edges.find(
+      (e) => e.source === describeFn.id && e.target === areaMethod.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});
