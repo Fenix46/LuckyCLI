@@ -250,3 +250,44 @@ describe("graph build pipeline — cross-file calls (java)", () => {
     expect(resolved?.confidence).toBe("AMBIGUOUS");
   });
 });
+
+describe("graph build pipeline — cross-file calls (c)", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-c-"));
+    await writeFile(
+      join(root, "geometry.c"),
+      `double area(double w, double h) {
+    return w * h;
+}
+`,
+    );
+    await writeFile(
+      join(root, "main.c"),
+      `double describe(double w, double h) {
+    return area(w, h);
+}
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves a call to a function defined in another translation unit into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeFn = nodes.find((n) => n.label === "describe")!;
+    const areaFn = nodes.find((n) => n.label === "area")!;
+    expect(areaFn.sourceFile).toBe("geometry.c");
+    expect(describeFn.sourceFile).toBe("main.c");
+
+    const resolved = edges.find(
+      (e) => e.source === describeFn.id && e.target === areaFn.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});

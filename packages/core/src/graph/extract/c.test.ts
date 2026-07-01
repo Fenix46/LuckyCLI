@@ -79,6 +79,16 @@ describe("c extractor", () => {
     expect(calls.every((e) => e.confidence === "INFERRED")).toBe(true);
   });
 
+  it("emits a candidate for a call to a function not defined in this file", async () => {
+    const source = `double describe(struct Rect *r) {
+    return area(r);
+}
+`;
+    const { nodes, callCandidates } = await extract("main.c", source);
+    const describeFn = byLabel(nodes, "describe")[0]!;
+    expect(callCandidates).toContainEqual({ callerId: describeFn.id, calleeName: "area" });
+  });
+
   it("is registered for the c language", () => {
     expect(extractorFor("c")).toBe(cExtractor);
   });

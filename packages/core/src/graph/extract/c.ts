@@ -6,12 +6,22 @@
  * definitions (the ones with a body) become "class" nodes, top-level
  * `function_definition`s become functions, and a second pass wires the
  * intra-file call graph from `call_expression`s whose callee is a plain
- * identifier naming a function defined in the same file. Calls through function
- * pointers or other translation units are left to cross-file resolution.
+ * identifier naming a function defined in the same file. A bare-identifier call
+ * to a function NOT defined in this file (declared in a header, defined in
+ * another translation unit) can't be resolved locally, so it's emitted as a
+ * call candidate (see CallCandidate) for the whole-graph cross-file resolution
+ * pass instead of being dropped. Calls through function pointers carry no
+ * resolvable name at all and stay out of scope.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -52,6 +62,7 @@ function extractC(ctx: ExtractorContext): Extraction {
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
   const callables = new Map<string, string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -117,6 +128,10 @@ function extractC(ctx: ExtractorContext): Extraction {
         const target = callables.get(callee.text);
         if (target && target !== current) {
           addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+        } else if (!target) {
+          // Not defined in this file — could be declared in a header and
+          // defined in another translation unit. Defer to cross-file resolution.
+          callCandidates.push({ callerId: current, calleeName: callee.text });
         }
       }
     }
@@ -124,7 +139,7 @@ function extractC(ctx: ExtractorContext): Extraction {
   }
   calls(root, undefined);
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const cExtractor: Extractor = { language: "c", extract: extractC };
