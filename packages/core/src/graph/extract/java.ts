@@ -5,12 +5,20 @@
  * class/interface/enum declarations, their methods (qualified by and attached to
  * the declaring type), and intra-file calls. A bare `method_invocation` (no
  * receiver object) is a call to a method of the same class, so it's resolved to
- * `Class.name`; qualified calls (obj.m(), Type.m()) are left to cross-file
- * resolution and skipped.
+ * `Class.name`; qualified calls (obj.m(), Type.m(), this.m()) can't be resolved
+ * locally when the receiver's type isn't a known local parameter — the target
+ * may be declared in another file — so they're emitted as call candidates (see
+ * CallCandidate) for the whole-graph cross-file resolution pass.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -24,12 +32,26 @@ function moduleId(specifier: string): string {
   return makeNodeId(`module::${specifier}`);
 }
 
+/** Parameter name -> declared type, e.g. `(Bar b)` -> b: Bar. */
+function paramTypes(params: Node | null | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!params) return out;
+  for (const decl of params.namedChildren) {
+    if (decl?.type !== "formal_parameter") continue;
+    const type = decl.childForFieldName("type")?.text;
+    const name = decl.childForFieldName("name")?.text;
+    if (type && name) out.set(name, type);
+  }
+  return out;
+}
+
 function extractJava(ctx: ExtractorContext): Extraction {
   const { path, root } = ctx;
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -106,9 +128,15 @@ function extractJava(ctx: ExtractorContext): Extraction {
   }
 
   // --- Pass 2: call graph (INFERRED `calls` within a class) ------------------
-  function calls(node: Node, current: string | undefined, className: string | undefined): void {
+  function calls(
+    node: Node,
+    current: string | undefined,
+    className: string | undefined,
+    locals: Map<string, string>,
+  ): void {
     let nextCurrent = current;
     let nextClass = className;
+    let nextLocals = locals;
     switch (node.type) {
       case "class_declaration":
       case "enum_declaration":
@@ -118,25 +146,37 @@ function extractJava(ctx: ExtractorContext): Extraction {
       case "method_declaration": {
         const name = node.childForFieldName("name")?.text;
         if (name && className) nextCurrent = symbolId(path, `${className}.${name}`);
+        nextLocals = paramTypes(node.childForFieldName("parameters"));
         break;
       }
       case "method_invocation": {
         const object = node.childForFieldName("object");
         const name = node.childForFieldName("name")?.text;
-        if (!object && name && current && className) {
+        if (!name || !nextCurrent) break;
+        if ((!object || object.type === "this") && className) {
           const target = symbolId(path, `${className}.${name}`);
-          if (seenNodes.has(target) && target !== current) {
-            addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+          if (seenNodes.has(target) && target !== nextCurrent) {
+            addEdge({ source: nextCurrent, target, relation: "calls", confidence: "INFERRED" });
           }
+        } else if (object) {
+          const receiverHint =
+            object.type === "identifier" ? (locals.get(object.text) ?? object.text) : undefined;
+          callCandidates.push({
+            callerId: nextCurrent,
+            calleeName: name,
+            ...(receiverHint ? { receiverHint } : {}),
+          });
         }
         break;
       }
     }
-    for (const child of node.namedChildren) if (child) calls(child, nextCurrent, nextClass);
+    for (const child of node.namedChildren) {
+      if (child) calls(child, nextCurrent, nextClass, nextLocals);
+    }
   }
-  calls(root, undefined, undefined);
+  calls(root, undefined, undefined, new Map());
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const javaExtractor: Extractor = { language: "java", extract: extractJava };

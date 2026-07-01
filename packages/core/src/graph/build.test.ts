@@ -206,3 +206,47 @@ fn describe(r: &Rect) -> f64 {
     expect(resolved?.confidence).toBe("AMBIGUOUS");
   });
 });
+
+describe("graph build pipeline — cross-file calls (java)", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-java-"));
+    await writeFile(
+      join(root, "Rect.java"),
+      `public class Rect {
+    public double area() { return 1.0; }
+}
+`,
+    );
+    await writeFile(
+      join(root, "Describer.java"),
+      `public class Describer {
+    public double describe(Rect r) {
+        return r.area();
+    }
+}
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves a param.method() call across files into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeMethod = nodes.find((n) => n.label === "describe")!;
+    const areaMethod = nodes.find((n) => n.label === "area")!;
+    expect(areaMethod.sourceFile).toBe("Rect.java");
+    expect(describeMethod.sourceFile).toBe("Describer.java");
+
+    const resolved = edges.find(
+      (e) =>
+        e.source === describeMethod.id && e.target === areaMethod.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});

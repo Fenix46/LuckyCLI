@@ -98,6 +98,38 @@ describe("java extractor", () => {
     expect(calls.every((e) => e.confidence === "INFERRED")).toBe(true);
   });
 
+  it("emits a candidate with a type-hinted receiver for param.method() calls", async () => {
+    const source = `class Foo {
+    double run(Rect r) {
+        return r.area();
+    }
+}
+`;
+    const { nodes, callCandidates } = await extract("Foo.java", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with the bare identifier hint for Type.staticMethod() calls", async () => {
+    const source = `class Foo {
+    double run() {
+        return Rect.staticHelper();
+    }
+}
+`;
+    const { nodes, callCandidates } = await extract("Foo.java", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "staticHelper",
+      receiverHint: "Rect",
+    });
+  });
+
   it("is registered for the java language", () => {
     expect(extractorFor("java")).toBe(javaExtractor);
   });
