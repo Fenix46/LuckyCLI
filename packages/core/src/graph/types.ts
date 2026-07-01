@@ -116,11 +116,37 @@ export const GraphSchema = z
   .strict();
 export type Graph = z.infer<typeof GraphSchema>;
 
+/**
+ * An unresolved call site an extractor recognized but couldn't attribute to a
+ * local symbol — a qualified/receiver call (`pkg.Fn`, `obj.method()`,
+ * `Type::method()`, …) whose target may live in another file. Extractors emit
+ * these instead of a `calls` edge; {@link resolveCrossFileCalls} matches them
+ * against the whole-graph symbol table once every file has been merged.
+ */
+export const CallCandidateSchema = z
+  .object({
+    /** Node id of the calling function/method (the edge's future source). */
+    callerId: z.string().min(1),
+    /** Bare callee name as written at the call site, e.g. "method" in `obj.method()`. */
+    calleeName: z.string().min(1),
+    /**
+     * Best-effort receiver/type hint, when the extractor can read one — a
+     * variable/receiver name, static type, or package alias (`obj`, `Type`,
+     * `pkg`). Used to prefer a same-named method whose enclosing class/type
+     * matches; absent when the grammar gives no hint (rare).
+     */
+    receiverHint: z.string().optional(),
+  })
+  .strict();
+export type CallCandidate = z.infer<typeof CallCandidateSchema>;
+
 /** An extractor's output for a single file, before graph assembly. */
 export const ExtractionSchema = z
   .object({
     nodes: z.array(GraphNodeSchema),
     edges: z.array(GraphEdgeSchema),
+    /** Cross-file call sites to resolve once the whole graph is assembled. */
+    callCandidates: z.array(CallCandidateSchema).optional(),
   })
   .strict();
 export type Extraction = z.infer<typeof ExtractionSchema>;
@@ -252,6 +278,82 @@ export function markExternalNodes(nodes: Iterable<GraphNode>): void {
     } else {
       node.external = true;
     }
+  }
+}
+
+/**
+ * Resolve cross-file call candidates (see {@link CallCandidate}) into `calls`
+ * edges, once every file's nodes are in the graph. Mirrors
+ * {@link resolveInternalImports}'s shape: a global post-process pass that sees
+ * the whole project, which is exactly what a single-file extractor can't.
+ *
+ * Matching is name-only (no type inference), so it's inherently uncertain —
+ * every edge this pass creates is `AMBIGUOUS` confidence, never `EXTRACTED`/
+ * `INFERRED`. Two-tier lookup:
+ *   1. If `receiverHint` matches a known class/interface name, prefer a
+ *      `method` node whose qualified name is `<hint>.<calleeName>` (or the
+ *      language's separator — id lookup is by suffix, not literal string, so
+ *      `.`/`::`/etc. are all covered by how each extractor built the id).
+ *   2. Otherwise fall back to any function/method in the project whose bare
+ *      name matches `calleeName`. If that's ambiguous (multiple candidates),
+ *      skip — a wrong edge is worse than a missing one.
+ *
+ * Candidates are cleared after resolution; they never reach the persisted
+ * graph (call sites are re-discovered on every build/update from source).
+ */
+export function resolveCrossFileCalls(
+  graph: Graph,
+  candidates: readonly CallCandidate[],
+): void {
+  if (candidates.length === 0) return;
+
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const CALLABLE_KINDS = new Set<NodeKind>(["function", "method"]);
+
+  // bare callee name -> every callable node whose label matches.
+  const byName = new Map<string, GraphNode[]>();
+  // "<receiverHint>.<calleeName>" style key -> callable nodes, matched by
+  // checking whether the node's id ends with a normalized "<hint>_<name>"
+  // suffix, since every extractor's qualifier separator normalizes to `_`
+  // through makeNodeId.
+  for (const node of graph.nodes) {
+    if (!CALLABLE_KINDS.has(node.kind)) continue;
+    const bucket = byName.get(node.label);
+    if (bucket) bucket.push(node);
+    else byName.set(node.label, [node]);
+  }
+
+  const seenEdges = new Set<string>(
+    graph.edges.map((e) => `${e.source}->${e.target}:${e.relation}`),
+  );
+
+  for (const candidate of candidates) {
+    const caller = nodeById.get(candidate.callerId);
+    if (!caller) continue; // caller vanished (e.g. dangling from a stale candidate)
+
+    const sameName = byName.get(candidate.calleeName);
+    if (!sameName || sameName.length === 0) continue;
+
+    let target: GraphNode | undefined;
+    if (candidate.receiverHint) {
+      const hintSuffix = makeNodeId(`${candidate.receiverHint}_${candidate.calleeName}`);
+      const hinted = sameName.filter((n) => n.id.endsWith(hintSuffix));
+      if (hinted.length === 1) target = hinted[0];
+    }
+    if (!target && sameName.length === 1) {
+      target = sameName[0];
+    }
+    if (!target || target.id === caller.id) continue;
+
+    const key = `${caller.id}->${target.id}:calls`;
+    if (seenEdges.has(key)) continue;
+    seenEdges.add(key);
+    graph.edges.push({
+      source: caller.id,
+      target: target.id,
+      relation: "calls",
+      confidence: "AMBIGUOUS",
+    });
   }
 }
 
