@@ -6,11 +6,19 @@
  * attached to the implementing type), `struct`/`enum` (→ class), `trait`
  * (→ interface, with its signature methods), `mod` (recursed into), and
  * intra-file calls. Method/associated calls via `self.x()` or `Type::x()`
- * (field/scoped expressions) are left to cross-file resolution and skipped.
+ * (field/scoped expressions) can't be resolved locally — the target may be
+ * defined in another file/module — so they're emitted as call candidates
+ * (see CallCandidate) for the whole-graph cross-file resolution pass.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -31,6 +39,7 @@ function extractRust(ctx: ExtractorContext): Extraction {
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
   const callables = new Map<string, string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -122,35 +131,68 @@ function extractRust(ctx: ExtractorContext): Extraction {
   collectItems(root);
 
   // --- Pass 2: call graph (INFERRED `calls` between local symbols) -----------
-  function calls(node: Node, enclosing: string | undefined, implType: string | undefined): void {
+  // `implType` tracks the type of the *nearest enclosing* impl block — kept
+  // alive through the whole function body (unlike `enclosingImpl`, which is
+  // only used to attribute a nested `impl_item`) so `self.x()` calls deep
+  // inside a method can still be hinted with their receiver's real type.
+  function calls(
+    node: Node,
+    enclosing: string | undefined,
+    enclosingImpl: string | undefined,
+    implType: string | undefined,
+  ): void {
     let current = enclosing;
-    let childImpl = implType;
+    let nextEnclosingImpl = enclosingImpl;
+    let nextImplType = implType;
     switch (node.type) {
       case "impl_item":
-        childImpl = node.childForFieldName("type")?.text ?? implType;
+        nextEnclosingImpl = node.childForFieldName("type")?.text ?? enclosingImpl;
+        nextImplType = nextEnclosingImpl;
         break;
       case "function_item": {
         const name = node.childForFieldName("name")?.text;
-        if (name) current = symbolId(path, implType ? `${implType}.${name}` : name);
-        childImpl = undefined; // inside a function body now
+        if (name) current = symbolId(path, enclosingImpl ? `${enclosingImpl}.${name}` : name);
+        nextImplType = enclosingImpl; // self.x() inside this body resolves to its own impl type
         break;
       }
       case "call_expression": {
         const callee = node.childForFieldName("function");
-        if (current && callee?.type === "identifier") {
+        if (!current) break;
+        if (callee?.type === "identifier") {
           const target = callables.get(callee.text);
           if (target && target !== current) {
             addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+          }
+        } else if (callee?.type === "field_expression") {
+          // self.x() / recv.x() — self resolves to the enclosing impl type.
+          const receiver = callee.namedChildren[0];
+          const method = callee.childForFieldName("field")?.text;
+          if (method && receiver) {
+            const receiverHint = receiver.type === "self" ? implType : receiver.text;
+            callCandidates.push({
+              callerId: current,
+              calleeName: method,
+              ...(receiverHint ? { receiverHint } : {}),
+            });
+          }
+        } else if (callee?.type === "scoped_identifier") {
+          // Type::x() — associated function/const call.
+          const receiver = callee.namedChildren[0];
+          const method = callee.namedChildren[1]?.text;
+          if (method && receiver?.type === "identifier") {
+            callCandidates.push({ callerId: current, calleeName: method, receiverHint: receiver.text });
           }
         }
         break;
       }
     }
-    for (const child of node.namedChildren) if (child) calls(child, current, childImpl);
+    for (const child of node.namedChildren) {
+      if (child) calls(child, current, nextEnclosingImpl, nextImplType);
+    }
   }
-  calls(root, undefined, undefined);
+  calls(root, undefined, undefined, undefined);
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const rustExtractor: Extractor = { language: "rust", extract: extractRust };

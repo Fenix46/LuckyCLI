@@ -91,6 +91,34 @@ describe("rust extractor", () => {
     expect(calls.every((e) => e.confidence === "INFERRED")).toBe(true);
   });
 
+  it("emits a self.method() candidate hinted with the enclosing impl type", async () => {
+    const { nodes, callCandidates } = await extract("lib.rs", SAMPLE);
+    const scaled = byLabel(nodes, "scaled")!;
+    expect(callCandidates).toContainEqual({
+      callerId: scaled.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a Type::assoc_fn() candidate hinted with the scoping type", async () => {
+    const source = `struct Rect;
+impl Rect {
+    fn helper() -> f64 { 1.0 }
+    fn scaled() -> f64 {
+        Rect::helper()
+    }
+}
+`;
+    const { nodes, callCandidates } = await extract("lib.rs", source);
+    const scaled = byLabel(nodes, "scaled")!;
+    expect(callCandidates).toContainEqual({
+      callerId: scaled.id,
+      calleeName: "helper",
+      receiverHint: "Rect",
+    });
+  });
+
   it("is registered for the rust language", () => {
     expect(extractorFor("rust")).toBe(rustExtractor);
   });

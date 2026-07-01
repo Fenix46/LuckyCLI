@@ -160,3 +160,49 @@ func describe(r Rect) float64 {
     expect(resolved?.confidence).toBe("AMBIGUOUS");
   });
 });
+
+describe("graph build pipeline — cross-file calls (rust)", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-rs-"));
+    await writeFile(
+      join(root, "shapes.rs"),
+      `pub struct Rect { pub w: f64, pub h: f64 }
+
+impl Rect {
+    pub fn area(&self) -> f64 { self.w * self.h }
+}
+`,
+    );
+    await writeFile(
+      join(root, "main.rs"),
+      `mod shapes;
+use shapes::Rect;
+
+fn describe(r: &Rect) -> f64 {
+    r.area()
+}
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves a receiver.method() call across files into an AMBIGUOUS calls edge (unique bare-name fallback)", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeFn = nodes.find((n) => n.label === "describe")!;
+    const areaMethod = nodes.find((n) => n.label === "area")!;
+    expect(areaMethod.sourceFile).toBe("shapes.rs");
+    expect(describeFn.sourceFile).toBe("main.rs");
+
+    const resolved = edges.find(
+      (e) => e.source === describeFn.id && e.target === areaMethod.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});
