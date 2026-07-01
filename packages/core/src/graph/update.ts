@@ -20,10 +20,12 @@ import { extractorFor } from "./extract/index.js";
 import { parse } from "./extract/parser.js";
 import { saveGraph, tryLoadGraph } from "./store.js";
 import {
+  type CallCandidate,
   type GraphEdge,
   type GraphNode,
   assertValidGraph,
   markExternalNodes,
+  resolveCrossFileCalls,
   resolveInternalImports,
 } from "./types.js";
 
@@ -75,6 +77,7 @@ export async function updateGraphForFiles(
 
   const updated: string[] = [];
   const removed: string[] = [];
+  const callCandidates: CallCandidate[] = [];
   for (const rel of targets) {
     const language = languageForPath(rel);
     const extractor = language ? extractorFor(language) : undefined;
@@ -100,6 +103,7 @@ export async function updateGraphForFiles(
       const extraction = extractor.extract({ path: rel, source, root: parsed.root });
       for (const node of extraction.nodes) nodes.set(node.id, node);
       for (const edge of extraction.edges) candidateEdges.push(edge);
+      if (extraction.callCandidates) callCandidates.push(...extraction.callCandidates);
       updated.push(rel);
     } finally {
       parsed.dispose();
@@ -125,6 +129,11 @@ export async function updateGraphForFiles(
   // then re-flag the remaining unresolved `module` nodes as external libraries.
   resolveInternalImports(graph);
   markExternalNodes(graph.nodes);
+  // Re-resolve cross-file calls originating from the re-extracted files against
+  // the WHOLE graph (their callee may live in a file that didn't change) — see
+  // resolveCrossFileCalls. Candidates aren't persisted, so this is the only
+  // chance to recompute them; edges from unaffected files are untouched above.
+  resolveCrossFileCalls(graph, callCandidates);
 
   // Prune module nodes that no longer have any edge (no longer imported).
   const incident = new Set<string>();

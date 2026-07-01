@@ -16,12 +16,14 @@ import { extractorFor } from "./extract/index.js";
 import { parse } from "./extract/parser.js";
 import { saveGraph } from "./store.js";
 import {
+  type CallCandidate,
   type Graph,
   type GraphEdge,
   type GraphNode,
   assertValidGraph,
   emptyGraph,
   markExternalNodes,
+  resolveCrossFileCalls,
   resolveInternalImports,
 } from "./types.js";
 
@@ -57,6 +59,7 @@ export async function buildGraph(cwd: string, options: BuildOptions = {}): Promi
 
   const nodes = new Map<string, GraphNode>();
   const rawEdges: GraphEdge[] = [];
+  const callCandidates: CallCandidate[] = [];
   const skipped: { file: string; reason: string }[] = [];
 
   let index = 0;
@@ -87,6 +90,7 @@ export async function buildGraph(cwd: string, options: BuildOptions = {}): Promi
       const extraction = extractor.extract({ path: file.relPath, source, root: parsed.root });
       for (const node of extraction.nodes) nodes.set(node.id, node);
       rawEdges.push(...extraction.edges);
+      if (extraction.callCandidates) callCandidates.push(...extraction.callCandidates);
     } catch (err) {
       skipped.push({ file: file.relPath, reason: `extract failed: ${errorMessage(err)}` });
     } finally {
@@ -122,6 +126,9 @@ export async function buildGraph(cwd: string, options: BuildOptions = {}): Promi
   // stay flagged.
   resolveInternalImports(graph);
   markExternalNodes(graph.nodes);
+  // Cross-file `calls` edges (see resolveCrossFileCalls): needs every file's
+  // symbols in the graph, so it runs last, once the whole project is merged.
+  resolveCrossFileCalls(graph, callCandidates);
   assertValidGraph(graph);
 
   return {
