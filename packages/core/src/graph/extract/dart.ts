@@ -69,7 +69,7 @@ function paramTypes(sig: Node): Map<string, string> {
 }
 
 /** The method name of a `.name` selector, if this selector is one. */
-function selectorName(sel: Node | undefined): string | undefined {
+function selectorName(sel: Node | null | undefined): string | undefined {
   if (sel?.type !== "selector") return undefined;
   const access = childOfType(sel, "unconditional_assignable_selector");
   return access ? childOfType(access, "identifier")?.text : undefined;
