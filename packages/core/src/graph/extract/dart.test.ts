@@ -112,6 +112,53 @@ describe("dart extractor", () => {
     ).toBe(true);
   });
 
+  it("emits a candidate with a type-hinted receiver for param.method() calls", async () => {
+    const source = `double run(Rect r) {
+  return r.area();
+}
+`;
+    const { nodes, callCandidates } = await extract("run.dart", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with the bare identifier hint for Type.method() calls", async () => {
+    const source = `double run() {
+  return Rect.defaultArea();
+}
+`;
+    const { nodes, callCandidates } = await extract("run.dart", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "defaultArea",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("still resolves this.method() within the class instead of emitting a candidate", async () => {
+    const source = `class Foo {
+  double run() {
+    return this.helper();
+  }
+  double helper() {
+    return 1.0;
+  }
+}
+`;
+    const { nodes, edges, callCandidates } = await extract("foo.dart", source);
+    const run = byLabel(nodes, "run")[0]!;
+    const helper = byLabel(nodes, "helper")[0]!;
+    expect(
+      edges.some((e) => e.relation === "calls" && e.source === run.id && e.target === helper.id),
+    ).toBe(true);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
   it("is registered for the dart language", () => {
     expect(extractorFor("dart")).toBe(dartExtractor);
   });

@@ -463,3 +463,46 @@ describe("graph build pipeline — cross-file calls (swift)", () => {
     expect(resolved?.confidence).toBe("AMBIGUOUS");
   });
 });
+
+describe("graph build pipeline — cross-file calls (dart)", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-dart-"));
+    await writeFile(
+      join(root, "rect.dart"),
+      `class Rect {
+  double area() {
+    return 1.0;
+  }
+}
+`,
+    );
+    await writeFile(
+      join(root, "describer.dart"),
+      `double describe(Rect r) {
+  return r.area();
+}
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves a param.method() call across files into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeFn = nodes.find((n) => n.label === "describe")!;
+    const areaMethod = nodes.find((n) => n.label === "area")!;
+    expect(areaMethod.sourceFile).toBe("rect.dart");
+    expect(describeFn.sourceFile).toBe("describer.dart");
+
+    const resolved = edges.find(
+      (e) => e.source === describeFn.id && e.target === areaMethod.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});

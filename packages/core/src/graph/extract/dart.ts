@@ -8,11 +8,22 @@
  * (not a child), and a call is an `identifier` followed by a `selector` carrying
  * an `argument_part` — so the call pass pairs each signature with its following
  * body and matches that shape. Bare calls (`f()`) resolve to a function/method in
- * the same scope; calls through a receiver are left to cross-file resolution.
+ * the same scope; calls through a receiver (`obj.m()`: identifier + `.m` selector
+ * + argument selector) can't be resolved locally when the receiver's type isn't a
+ * known parameter — the target may be declared in another file — so they're
+ * emitted as call candidates (see CallCandidate) for the whole-graph cross-file
+ * resolution pass. `this.m()` is still resolved directly within the enclosing
+ * type.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -40,12 +51,37 @@ function signatureName(sig: Node): string | undefined {
   return sig.childForFieldName("name")?.text ?? childOfType(sig, "identifier")?.text;
 }
 
+/** Parameter name -> declared type, e.g. `(Rect r)` -> r: Rect. */
+function paramTypes(sig: Node): Map<string, string> {
+  const out = new Map<string, string>();
+  const params = childOfType(sig, "formal_parameter_list");
+  const visit = (n: Node): void => {
+    if (n.type === "formal_parameter") {
+      const type = childOfType(n, "type_identifier")?.text;
+      const name = childOfType(n, "identifier")?.text;
+      if (type && name) out.set(name, type);
+      return;
+    }
+    for (const c of n.namedChildren) if (c) visit(c);
+  };
+  if (params) visit(params);
+  return out;
+}
+
+/** The method name of a `.name` selector, if this selector is one. */
+function selectorName(sel: Node | undefined): string | undefined {
+  if (sel?.type !== "selector") return undefined;
+  const access = childOfType(sel, "unconditional_assignable_selector");
+  return access ? childOfType(access, "identifier")?.text : undefined;
+}
+
 function extractDart(ctx: ExtractorContext): Extraction {
   const { path, root } = ctx;
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -126,8 +162,13 @@ function extractDart(ctx: ExtractorContext): Extraction {
   collect(root, fid, "");
 
   // --- Pass 2: call graph (INFERRED `calls` within the enclosing scope) ------
-  /** Record bare `name(...)` calls found anywhere under `body` from `current`. */
-  function walkCalls(node: Node, prefix: string, current: string): void {
+  /** Record bare `name(...)` and receiver `obj.m(...)` calls under `body`. */
+  function walkCalls(
+    node: Node,
+    prefix: string,
+    current: string,
+    locals: Map<string, string>,
+  ): void {
     const kids = node.namedChildren;
     for (let i = 0; i < kids.length; i++) {
       const id = kids[i];
@@ -141,9 +182,30 @@ function extractDart(ctx: ExtractorContext): Extraction {
         if (seenNodes.has(target) && target !== current) {
           addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
         }
+        continue;
+      }
+      // Receiver call: `obj` `.m` `(args)` — three consecutive siblings.
+      const name = selectorName(sel);
+      const args = kids[i + 2];
+      if (
+        name &&
+        (id?.type === "identifier" || id?.type === "this") &&
+        args?.type === "selector" &&
+        childOfType(args, "argument_part")
+      ) {
+        if (id.type === "this") {
+          // this.m() — same type, resolvable locally like a bare call.
+          const target = symbolId(path, qualify(prefix, name));
+          if (seenNodes.has(target) && target !== current) {
+            addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+          }
+        } else {
+          const receiverHint = locals.get(id.text) ?? id.text;
+          callCandidates.push({ callerId: current, calleeName: name, receiverHint });
+        }
       }
     }
-    for (const child of kids) if (child) walkCalls(child, prefix, current);
+    for (const child of kids) if (child) walkCalls(child, prefix, current, locals);
   }
 
   function callsContainer(container: Node, prefix: string): void {
@@ -159,15 +221,15 @@ function extractDart(ctx: ExtractorContext): Extraction {
         const sig = child.type === "method_signature" ? childOfType(child, "function_signature") : child;
         const name = sig && signatureName(sig);
         const body = kids[i + 1];
-        if (name && body?.type === "function_body") {
-          walkCalls(body, prefix, symbolId(path, qualify(prefix, name)));
+        if (name && sig && body?.type === "function_body") {
+          walkCalls(body, prefix, symbolId(path, qualify(prefix, name)), paramTypes(sig));
         }
       }
     }
   }
   callsContainer(root, "");
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const dartExtractor: Extractor = { language: "dart", extract: extractDart };
