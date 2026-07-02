@@ -34,7 +34,7 @@ function harness(overrides: {
   } as ProviderCommandDeps;
   const ctx = {
     agent: overrides.agent ?? {},
-    meta: overrides.meta ?? { provider: "claude", model: "claude-sonnet-4-6" },
+    meta: overrides.meta ?? { provider: "claude", model: "claude-sonnet-5" },
     emit: (...items: Item[]) => emitted.push(...items),
     setInput: () => {},
     state: { activeThemeId: "lucky-dark", sessionId: null, taskListId: "t", contextStatus: null },
@@ -57,7 +57,7 @@ describe("/model", () => {
     if (item.kind !== "command") throw new Error("expected command item");
     expect(item.title).toBe("Models");
     const active = item.rows.filter((r) => r.label === "active");
-    expect(active).toEqual([{ label: "active", value: "claude-sonnet-4-6" }]);
+    expect(active).toEqual([{ label: "active", value: "claude-sonnet-5" }]);
   });
 
   it("delegates an explicit model to ui.selectModel (picker flow)", () => {
@@ -98,7 +98,7 @@ describe("/thinking", () => {
     const h = harness();
     h.run("/thinking", "on");
     expect(h.deps.saveThinkingEnabled).toHaveBeenCalledWith("claude", true);
-    expect(h.ui.changeModel).toHaveBeenCalledWith("claude-sonnet-4-6");
+    expect(h.ui.changeModel).toHaveBeenCalledWith("claude-sonnet-5");
     expect(h.emitted).toEqual([
       { kind: "assistant", text: "Claude thinking enabled." },
     ]);

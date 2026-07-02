@@ -3,7 +3,7 @@ import { getModelPickerState, validateModel } from "./model-picker.js";
 
 describe("getModelPickerState", () => {
   it("is closed unless the input is a /model command", () => {
-    expect(getModelPickerState("hello", "claude", "claude-sonnet-4-6").open).toBe(false);
+    expect(getModelPickerState("hello", "claude", "claude-sonnet-5").open).toBe(false);
   });
 
   it("uses live slugs for openai-oauth when provided", () => {
@@ -33,9 +33,9 @@ describe("getModelPickerState", () => {
   });
 
   it("falls back to the static catalog for non-openai providers", () => {
-    const state = getModelPickerState("/model", "claude", "claude-sonnet-4-6");
+    const state = getModelPickerState("/model", "claude", "claude-sonnet-5");
     expect(state.open).toBe(true);
-    expect(state.items).toContain("claude-sonnet-4-6");
+    expect(state.items).toContain("claude-sonnet-5");
   });
 });
 
@@ -51,7 +51,7 @@ describe("validateModel", () => {
   });
 
   it("still validates other providers against the static catalog", () => {
-    expect(validateModel("claude", "claude-sonnet-4-6").ok).toBe(true);
+    expect(validateModel("claude", "claude-sonnet-5").ok).toBe(true);
     expect(validateModel("claude", "made-up").ok).toBe(false);
   });
 
