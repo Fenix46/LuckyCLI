@@ -7,11 +7,22 @@
  * (`def self.x`) methods, top-level `def` (→ function), and an intra-file
  * call-graph second pass. A receiver-less call (`foo`, `foo(...)`) inside a
  * class/module resolves to a method of the same enclosing scope; calls through a
- * receiver (`obj.m`, `Type.m`) are left to cross-file resolution and skipped.
+ * receiver (`obj.m`, `Type.m`) can't be resolved locally — the target may live
+ * in another file — so they're emitted as call candidates (see CallCandidate)
+ * for the whole-graph cross-file resolution pass, hinted with the receiver as
+ * written (Ruby has no type annotations, so a constant receiver like `Type.m`
+ * is the useful hint; a variable receiver safely fails to match). `self.m` is
+ * still resolved directly within the enclosing scope.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -43,6 +54,7 @@ function extractRuby(ctx: ExtractorContext): Extraction {
   const edges: GraphEdge[] = [];
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -133,10 +145,15 @@ function extractRuby(ctx: ExtractorContext): Extraction {
       case "call": {
         const receiver = node.childForFieldName("receiver");
         const name = node.childForFieldName("method")?.text;
-        if (!receiver && name && current) {
+        if (!name || !current) break;
+        if (!receiver || receiver.type === "self") {
           const target = symbolId(path, qualify(prefix, name));
           if (seenNodes.has(target) && target !== current) {
             addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+          }
+        } else if (receiver.type === "identifier" || receiver.type === "constant") {
+          if (name !== "require" && name !== "require_relative" && name !== "new") {
+            callCandidates.push({ callerId: current, calleeName: name, receiverHint: receiver.text });
           }
         }
         break;
@@ -146,7 +163,7 @@ function extractRuby(ctx: ExtractorContext): Extraction {
   }
   calls(root, "", undefined);
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const rubyExtractor: Extractor = { language: "ruby", extract: extractRuby };

@@ -551,3 +551,46 @@ function describe(Rect $r) {
     expect(resolved?.confidence).toBe("AMBIGUOUS");
   });
 });
+
+describe("graph build pipeline — cross-file calls (ruby)", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-rb-"));
+    await writeFile(
+      join(root, "rect.rb"),
+      `class Rect
+  def self.default_area
+    1.0
+  end
+end
+`,
+    );
+    await writeFile(
+      join(root, "describer.rb"),
+      `def describe
+  Rect.default_area
+end
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves a Type.m call across files into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeFn = nodes.find((n) => n.label === "describe")!;
+    const areaMethod = nodes.find((n) => n.label === "default_area")!;
+    expect(areaMethod.sourceFile).toBe("rect.rb");
+    expect(describeFn.sourceFile).toBe("describer.rb");
+
+    const resolved = edges.find(
+      (e) => e.source === describeFn.id && e.target === areaMethod.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});

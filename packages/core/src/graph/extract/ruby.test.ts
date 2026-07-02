@@ -136,6 +136,65 @@ describe("ruby extractor", () => {
     ).toBe(true);
   });
 
+  it("emits a candidate hinted with a constant receiver for Type.m calls", async () => {
+    const source = `def run
+  Rect.default_area
+end
+`;
+    const { nodes, callCandidates } = await extract("run.rb", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "default_area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate hinted with the variable name for obj.m calls", async () => {
+    const source = `def run(r)
+  r.area
+end
+`;
+    const { nodes, callCandidates } = await extract("run.rb", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "r",
+    });
+  });
+
+  it("still resolves self.m within the scope instead of emitting a candidate", async () => {
+    const source = `class Foo
+  def run
+    self.helper
+  end
+
+  def helper
+    1
+  end
+end
+`;
+    const { nodes, edges, callCandidates } = await extract("foo.rb", source);
+    const run = byLabel(nodes, "run")[0]!;
+    const helper = byLabel(nodes, "helper")[0]!;
+    expect(
+      edges.some((e) => e.relation === "calls" && e.source === run.id && e.target === helper.id),
+    ).toBe(true);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
+  it("does not emit candidates for require or constructor calls", async () => {
+    const source = `require "json"
+
+def run
+  Rect.new
+end
+`;
+    const { callCandidates } = await extract("run.rb", source);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
   it("is registered for the ruby language", () => {
     expect(extractorFor("ruby")).toBe(rubyExtractor);
   });
