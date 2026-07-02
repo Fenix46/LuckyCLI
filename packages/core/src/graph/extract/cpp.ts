@@ -8,11 +8,21 @@
  * declaring class, free functions, and an intra-file call-graph second pass. A
  * bare `call_expression` whose callee is a plain identifier resolves to a member
  * of the enclosing class (inside a method) or a free function (inside a free
- * function); calls through an object/scope are left to cross-file resolution.
+ * function); when that fails locally, and for calls through an object
+ * (`obj.m()`, `ptr->m()`) or a scope (`Type::m()`, `ns::fn()`), a CallCandidate
+ * is emitted for the whole-graph cross-file resolution pass — the receiverHint
+ * carries a parameter's declared type when the receiver is a known local, else
+ * the scope/identifier as written.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -75,12 +85,27 @@ function declInfo(funcDef: Node): DeclInfo | undefined {
   return undefined;
 }
 
+/** Parameter name -> declared type name, e.g. `(const Rect &r)` -> r: Rect. */
+function paramTypes(funcDef: Node): Map<string, string> {
+  const out = new Map<string, string>();
+  const fdec = descendants(funcDef, "function_declarator")[0];
+  const params = fdec?.childForFieldName("parameters");
+  for (const decl of params?.namedChildren ?? []) {
+    if (decl?.type !== "parameter_declaration") continue;
+    const type = decl.childForFieldName("type")?.text;
+    const name = descendants(decl, "identifier")[0]?.text;
+    if (type && name) out.set(name, type);
+  }
+  return out;
+}
+
 function extractCpp(ctx: ExtractorContext): Extraction {
   const { path, root } = ctx;
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -185,10 +210,25 @@ function extractCpp(ctx: ExtractorContext): Extraction {
   collect(root, fid, "");
 
   // --- Pass 2: call graph (INFERRED `calls`) ---------------------------------
-  function calls(node: Node, prefix: string, scope: string | undefined, current: string | undefined): void {
+  function addCandidate(callerId: string, calleeName: string, receiverHint?: string): void {
+    callCandidates.push({
+      callerId,
+      calleeName,
+      ...(receiverHint ? { receiverHint } : {}),
+    });
+  }
+
+  function calls(
+    node: Node,
+    prefix: string,
+    scope: string | undefined,
+    current: string | undefined,
+    locals: Map<string, string>,
+  ): void {
     let nextPrefix = prefix;
     let nextScope = scope;
     let nextCurrent = current;
+    let nextLocals = locals;
     switch (node.type) {
       case "namespace_definition": {
         const name = node.childForFieldName("name")?.text;
@@ -210,25 +250,45 @@ function extractCpp(ctx: ExtractorContext): Extraction {
             : prefix;
           nextScope = classPrefix;
           nextCurrent = symbolId(path, qualify(classPrefix, info.name));
+          nextLocals = paramTypes(node);
         }
         break;
       }
       case "call_expression": {
         const callee = node.childForFieldName("function");
-        if (callee?.type === "identifier" && current && scope !== undefined) {
+        if (!callee || !current) break;
+        if (callee.type === "identifier" && scope !== undefined) {
           const target = symbolId(path, qualify(scope, callee.text));
           if (seenNodes.has(target) && target !== current) {
             addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+          } else if (!seenNodes.has(target)) {
+            // Not defined in this file (e.g. header-declared free function).
+            addCandidate(current, callee.text);
           }
+        } else if (callee.type === "field_expression") {
+          // obj.method() / ptr->method(): hint with the local's declared type.
+          const object = callee.childForFieldName("argument");
+          const name = callee.childForFieldName("field")?.text;
+          if (!name) break;
+          const receiverHint =
+            object?.type === "identifier" ? (locals.get(object.text) ?? object.text) : undefined;
+          addCandidate(current, name, receiverHint);
+        } else if (callee.type === "qualified_identifier") {
+          // Type::method() / ns::fn(): hint with the innermost scope.
+          const parts = flattenQualified(callee);
+          const name = parts.pop();
+          if (name) addCandidate(current, name, parts[parts.length - 1]);
         }
         break;
       }
     }
-    for (const child of node.namedChildren) if (child) calls(child, nextPrefix, nextScope, nextCurrent);
+    for (const child of node.namedChildren) {
+      if (child) calls(child, nextPrefix, nextScope, nextCurrent, nextLocals);
+    }
   }
-  calls(root, "", undefined, undefined);
+  calls(root, "", undefined, undefined, new Map());
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const cppExtractor: Extractor = { language: "cpp", extract: extractCpp };

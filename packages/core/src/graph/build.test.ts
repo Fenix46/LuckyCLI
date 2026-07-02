@@ -291,3 +291,47 @@ describe("graph build pipeline — cross-file calls (c)", () => {
     expect(resolved?.confidence).toBe("AMBIGUOUS");
   });
 });
+
+describe("graph build pipeline — cross-file calls (cpp)", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-cpp-"));
+    await writeFile(
+      join(root, "rect.cpp"),
+      `class Rect {
+public:
+    double area() const { return w_ * h_; }
+private:
+    double w_, h_;
+};
+`,
+    );
+    await writeFile(
+      join(root, "describer.cpp"),
+      `double describe(const Rect &r) {
+    return r.area();
+}
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves an obj.method() call across files into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeFn = nodes.find((n) => n.label === "describe")!;
+    const areaMethod = nodes.find((n) => n.label === "area")!;
+    expect(areaMethod.sourceFile).toBe("rect.cpp");
+    expect(describeFn.sourceFile).toBe("describer.cpp");
+
+    const resolved = edges.find(
+      (e) => e.source === describeFn.id && e.target === areaMethod.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});

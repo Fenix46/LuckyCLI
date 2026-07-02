@@ -114,6 +114,58 @@ describe("cpp extractor", () => {
     ).toBe(true);
   });
 
+  it("emits a candidate with a type-hinted receiver for obj.method() calls", async () => {
+    const source = `double run(const Rect &r) {
+    return r.area();
+}
+`;
+    const { nodes, callCandidates } = await extract("run.cpp", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with a type-hinted receiver for ptr->method() calls", async () => {
+    const source = `double run(Rect *r) {
+    return r->area();
+}
+`;
+    const { nodes, callCandidates } = await extract("run.cpp", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with the scope hint for Type::method() calls", async () => {
+    const source = `double run() {
+    return Rect::defaultArea();
+}
+`;
+    const { nodes, callCandidates } = await extract("run.cpp", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "defaultArea",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a hint-less candidate for a bare call to a function not defined here", async () => {
+    const source = `double run(int x) {
+    return elsewhere(x);
+}
+`;
+    const { nodes, callCandidates } = await extract("run.cpp", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({ callerId: run.id, calleeName: "elsewhere" });
+  });
+
   it("is registered for the cpp language", () => {
     expect(extractorFor("cpp")).toBe(cppExtractor);
   });
