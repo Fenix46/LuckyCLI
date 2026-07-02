@@ -8,12 +8,22 @@
  * top-level `func` (→ function), and an intra-file call-graph second pass. The
  * grammar exposes no field names, so children are matched by type. A
  * `call_expression` whose callee is a bare `simple_identifier` resolves to a
- * function in the same scope; calls through a receiver are left to cross-file
- * resolution.
+ * function in the same scope; calls through a receiver (`obj.m()`, via
+ * navigation_expression) can't be resolved locally when the receiver's type
+ * isn't a known parameter — the target may be declared in another file — so
+ * they're emitted as call candidates (see CallCandidate) for the whole-graph
+ * cross-file resolution pass. `self.m()` is still resolved directly within the
+ * enclosing type.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -39,12 +49,25 @@ function declName(node: Node): string | undefined {
   return childOfType(node, "type_identifier")?.text ?? childOfType(node, "simple_identifier")?.text;
 }
 
+/** Parameter name -> declared type, e.g. `(r: Rect)` -> r: Rect. */
+function paramTypes(funcDecl: Node): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const decl of funcDecl.namedChildren) {
+    if (decl?.type !== "parameter") continue;
+    const name = childOfType(decl, "simple_identifier")?.text;
+    const type = childOfType(decl, "user_type")?.text;
+    if (name && type) out.set(name, type);
+  }
+  return out;
+}
+
 function extractSwift(ctx: ExtractorContext): Extraction {
   const { path, root } = ctx;
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -119,9 +142,15 @@ function extractSwift(ctx: ExtractorContext): Extraction {
   collect(root, fid, "");
 
   // --- Pass 2: call graph (INFERRED `calls` within the enclosing scope) ------
-  function calls(node: Node, prefix: string, current: string | undefined): void {
+  function calls(
+    node: Node,
+    prefix: string,
+    current: string | undefined,
+    locals: Map<string, string>,
+  ): void {
     let nextPrefix = prefix;
     let nextCurrent = current;
+    let nextLocals = locals;
     if (node.type === "protocol_declaration" || node.type === "class_declaration") {
       const name = declName(node);
       if (name) nextPrefix = qualify(prefix, name);
@@ -132,6 +161,7 @@ function extractSwift(ctx: ExtractorContext): Extraction {
     ) {
       const name = memberName(node);
       if (name) nextCurrent = symbolId(path, qualify(prefix, name));
+      nextLocals = paramTypes(node);
     } else if (node.type === "call_expression" && current) {
       const callee = node.namedChildren[0];
       if (callee?.type === "simple_identifier") {
@@ -139,13 +169,36 @@ function extractSwift(ctx: ExtractorContext): Extraction {
         if (seenNodes.has(target) && target !== current) {
           addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
         }
+      } else if (callee?.type === "navigation_expression") {
+        const receiver = callee.namedChildren[0];
+        const suffix = childOfType(callee, "navigation_suffix");
+        const name = suffix ? childOfType(suffix, "simple_identifier")?.text : undefined;
+        if (name) {
+          if (receiver?.type === "self_expression") {
+            // self.m() — same type, resolvable locally like a bare call.
+            const target = symbolId(path, qualify(prefix, name));
+            if (seenNodes.has(target) && target !== current) {
+              addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+            }
+          } else {
+            const receiverHint =
+              receiver?.type === "simple_identifier"
+                ? (locals.get(receiver.text) ?? receiver.text)
+                : undefined;
+            callCandidates.push({
+              callerId: current,
+              calleeName: name,
+              ...(receiverHint ? { receiverHint } : {}),
+            });
+          }
+        }
       }
     }
-    for (const child of node.namedChildren) if (child) calls(child, nextPrefix, nextCurrent);
+    for (const child of node.namedChildren) if (child) calls(child, nextPrefix, nextCurrent, nextLocals);
   }
-  calls(root, "", undefined);
+  calls(root, "", undefined, new Map());
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const swiftExtractor: Extractor = { language: "swift", extract: extractSwift };

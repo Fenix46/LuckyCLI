@@ -120,6 +120,53 @@ describe("swift extractor", () => {
     ).toBe(true);
   });
 
+  it("emits a candidate with a type-hinted receiver for param.method() calls", async () => {
+    const source = `func run(r: Rect) -> Double {
+    return r.area()
+}
+`;
+    const { nodes, callCandidates } = await extract("Run.swift", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with the bare identifier hint for Type.method() calls", async () => {
+    const source = `func run() -> Double {
+    return Rect.defaultArea()
+}
+`;
+    const { nodes, callCandidates } = await extract("Run.swift", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "defaultArea",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("still resolves self.method() within the type instead of emitting a candidate", async () => {
+    const source = `class Foo {
+    func run() -> Double {
+        return self.helper()
+    }
+    func helper() -> Double {
+        return 1.0
+    }
+}
+`;
+    const { nodes, edges, callCandidates } = await extract("Foo.swift", source);
+    const run = byLabel(nodes, "run")[0]!;
+    const helper = byLabel(nodes, "helper")[0]!;
+    expect(
+      edges.some((e) => e.relation === "calls" && e.source === run.id && e.target === helper.id),
+    ).toBe(true);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
   it("is registered for the swift language", () => {
     expect(extractorFor("swift")).toBe(swiftExtractor);
   });
