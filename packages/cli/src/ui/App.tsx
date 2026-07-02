@@ -1,7 +1,6 @@
 import { Box, Text, useApp, useWindowSize } from "../vendor/ink-compat.js";
 import React, { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import {
-  PROVIDER_CATALOG,
   type Agent,
   type ContextStatus,
   type Message,
@@ -13,7 +12,6 @@ import {
   type Session,
   type TokenUsage,
   type ToolResultMetadata,
-  antigravityModelLabel,
   claudeEffortLevelsForModel,
   createSessionId,
   defaultEffortFor,
@@ -53,7 +51,6 @@ import {
   pruneOrphanedImages,
   type AttachedImages,
 } from "./lib/image-input.js";
-import { formatStatusFooter } from "./lib/status.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import type { CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
@@ -66,7 +63,9 @@ import { useSkillPanel } from "./hooks/useSkillPanel.js";
 import { useModalRouter, type ModalHandler } from "./hooks/useModalRouter.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
 import { ChatInput } from "./components/ChatInput.js";
-import { PickerHint } from "./components/PickerHint.js";
+import { EffortPickerView, ModelPickerView, ThemePickerView } from "./components/Pickers.js";
+import { SlashMenu } from "./components/SlashMenu.js";
+import { StatusFooter } from "./components/StatusFooter.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { AgentUsagePanel } from "./components/AgentUsagePanel.js";
 import { TranscriptList } from "./components/Transcript.js";
@@ -974,89 +973,26 @@ export function App({
       <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} expanded={tasksExpanded} />
       <AgentUsagePanel usage={agentUsage} theme={activeTheme} width={messageWidth} />
       {effortPicker ? (
-        <Box
-          flexDirection="column"
-          paddingLeft={2}
-          marginBottom={1}
-          width="100%"
-        >
-          <Text bold color={activeTheme.accent}>
-            Reasoning effort <Text color={activeTheme.muted}>· {effortPicker.model}</Text>
-          </Text>
-          <Box flexDirection="column" marginTop={1}>
-            {effortPicker.levels.map((level, idx) => (
-              <Box key={level} flexDirection="row">
-                <Text color={idx === selectedEffortIndex ? activeTheme.accent : "gray"}>
-                  {idx === selectedEffortIndex ? "❯ " : "  "}
-                </Text>
-                <Text color={idx === selectedEffortIndex ? activeTheme.primary : "white"}>
-                  {level}
-                </Text>
-              </Box>
-            ))}
-          </Box>
-          <PickerHint theme={activeTheme} />
-        </Box>
+        <EffortPickerView
+          theme={activeTheme}
+          model={effortPicker.model}
+          levels={effortPicker.levels}
+          selectedIndex={selectedEffortIndex}
+        />
       ) : modelPicker.open ? (
-        <Box
-          flexDirection="column"
-          paddingLeft={2}
-          marginBottom={1}
-          width="100%"
-        >
-          <Text bold color={activeTheme.accent}>
-            Select model <Text color={activeTheme.muted}>· {PROVIDER_CATALOG[meta.provider].displayName}</Text>
-          </Text>
-          <Box flexDirection="column" marginTop={1}>
-            {modelPicker.items.length > 0 ? (
-              modelPicker.items.map((model, idx) => (
-                <Box key={model} flexDirection="row">
-                  <Text color={idx === selectedModelIndex ? activeTheme.accent : "gray"}>
-                    {idx === selectedModelIndex ? "❯ " : "  "}
-                  </Text>
-                  <Text bold={model === meta.model} color={idx === selectedModelIndex ? activeTheme.primary : "white"}>
-                    {model === meta.model ? "★ " : "  "}
-                    {meta.provider === "antigravity" ? antigravityModelLabel(model) : model}
-                    {meta.provider === "antigravity" ? <Text color={activeTheme.muted}> {" · "}{model}</Text> : null}
-                  </Text>
-                </Box>
-              ))
-            ) : (
-              <Text color={activeTheme.warning}>No matching model. Type /model {"<model-id>"}.</Text>
-            )}
-          </Box>
-          <PickerHint theme={activeTheme} />
-        </Box>
+        <ModelPickerView
+          theme={activeTheme}
+          provider={meta.provider}
+          activeModel={meta.model}
+          items={modelPicker.items}
+          selectedIndex={selectedModelIndex}
+        />
       ) : themePicker.open ? (
-        <Box
-          flexDirection="column"
-          paddingLeft={2}
-          marginBottom={1}
-          width="100%"
-        >
-          <Text bold color={activeTheme.accent}>Interface theme</Text>
-          <Box flexDirection="column" marginTop={1}>
-            {themePicker.items.length > 0 ? (
-              themePicker.items.map((theme, idx) => (
-                <Box key={theme.id} flexDirection="row">
-                  <Text color={idx === selectedThemeIndex ? activeTheme.accent : "gray"}>
-                    {idx === selectedThemeIndex ? "❯ " : "  "}
-                  </Text>
-                  <Text bold={theme.id === activeTheme.id} color={idx === selectedThemeIndex ? activeTheme.primary : "white"}>
-                    {theme.id === activeTheme.id ? "★ " : "  "}
-                    {theme.id.padEnd(12)}
-                  </Text>
-                  <Text color={idx === selectedThemeIndex ? "white" : activeTheme.muted}>
-                    {theme.name}
-                  </Text>
-                </Box>
-              ))
-            ) : (
-              <Text color={activeTheme.warning}>No matching theme. Type /theme.</Text>
-            )}
-          </Box>
-          <PickerHint theme={activeTheme} />
-        </Box>
+        <ThemePickerView
+          theme={activeTheme}
+          items={themePicker.items}
+          selectedIndex={selectedThemeIndex}
+        />
       ) : mcpPanel.isOpen ? (
         <McpPanel theme={activeTheme} width={messageWidth} {...mcpPanel.panelProps} />
       ) : skillPanel.isOpen ? (
@@ -1126,59 +1062,22 @@ export function App({
 
       {/* Slash-command menu sits just below the prompt (Claude Code style). */}
       {showSlashMenu && filteredCommands.length > 0 ? (
-        <Box flexDirection="column" paddingLeft={2} marginTop={1} width="100%">
-          {filteredCommands.map((cmd, idx) => (
-            <Box key={cmd.name} flexDirection="row">
-              <Text color={idx === selectedCommandIndex ? activeTheme.accent : "gray"}>
-                {idx === selectedCommandIndex ? "❯ " : "  "}
-              </Text>
-              <Text bold color={idx === selectedCommandIndex ? activeTheme.primary : "white"}>
-                {cmd.name.padEnd(12)}
-              </Text>
-              <Text color={idx === selectedCommandIndex ? "white" : activeTheme.muted}>
-                {cmd.desc}
-              </Text>
-            </Box>
-          ))}
-        </Box>
+        <SlashMenu
+          theme={activeTheme}
+          commands={filteredCommands}
+          selectedIndex={selectedCommandIndex}
+        />
       ) : null}
 
-      {/* Status bar: one clipped row bounded to the same content width as the
-          rules above (terminal width minus the root's paddingX). The left side
-          keeps its natural width (flexShrink=0); a flexGrow spacer pushes the
-          right side to the edge; the right side truncates instead of spilling
-          past the terminal. Matches Claude Code's footer (overflow:hidden row +
-          wrap="truncate"), so nothing ever overflows on resize. */}
-      <Box width={terminalSize.width - 2} marginTop={1} overflow="hidden">
-        <Box flexDirection="row" gap={1} flexShrink={0}>
-          {permissionMode === "acceptEdits" ? (
-            <Text color={activeTheme.success} bold>
-              ⏵⏵ accept edits on{" "}
-              <Text color={activeTheme.muted} dimColor>
-                (shift+tab to cycle)
-              </Text>
-            </Text>
-          ) : (
-            <Text color={activeTheme.muted} dimColor>
-              shift+tab: accept edits
-            </Text>
-          )}
-        </Box>
-        <Box flexGrow={1} />
-        <Box flexDirection="row" gap={1} flexShrink={1}>
-          {items.length > 1 ? (
-            <Text color={activeTheme.muted} dimColor wrap="truncate">
-              scroll to view history{"  "}
-            </Text>
-          ) : null}
-          <Text color={activeTheme.muted} dimColor wrap="truncate">
-            {formatStatusFooter(contextStatus, {
-              ...(footerEffort ? { effort: footerEffort } : {}),
-              ...(footerThinking ? { thinking: footerThinking } : {}),
-            })}
-          </Text>
-        </Box>
-      </Box>
+      <StatusFooter
+        theme={activeTheme}
+        width={terminalSize.width - 2}
+        permissionMode={permissionMode}
+        showScrollHint={items.length > 1}
+        contextStatus={contextStatus}
+        effort={footerEffort}
+        thinking={footerThinking}
+      />
       </Box>
     </Box>
   );
