@@ -291,7 +291,7 @@ export async function fetchClaudeOAuthUsage(accessToken: string): Promise<Claude
     headers: authHeaders(accessToken, {
       "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER,
       "Content-Type": "application/json",
-      "User-Agent": "claude-cli/2.1.175 (external, cli)",
+      "User-Agent": "claude-cli/2.1.198 (external, cli)",
     }),
   }, "Claude OAuth usage");
   if (!res.ok) {
@@ -317,7 +317,7 @@ export async function fetchClaudeOAuthReferralEligibility(
         "anthropic-client-platform": "claude_code_cli",
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
-        "User-Agent": "claude-cli/2.1.175 (external, cli)",
+        "User-Agent": "claude-cli/2.1.198 (external, cli)",
         "x-organization-uuid": organizationUuid,
       }),
     },
@@ -444,6 +444,7 @@ export function claudeModelSupportsEffort(model: string): boolean {
   const canonical = model.toLowerCase();
   return (
     canonical.includes("sonnet-4-6") ||
+    canonical.includes("sonnet-5") ||
     canonical.includes("opus-4-6") ||
     canonical.includes("opus-4-8") ||
     canonical.includes("fable")
@@ -456,7 +457,8 @@ export function claudeModelSupportsAdaptiveThinking(model: string): boolean {
 
 export function claudeModelSupportsMaxEffort(model: string): boolean {
   const canonical = model.toLowerCase();
-  return canonical.includes("opus-4") || canonical.includes("fable");
+  // Sonnet 5 is the first Sonnet-tier model with xhigh/max effort support.
+  return canonical.includes("opus-4") || canonical.includes("sonnet-5") || canonical.includes("fable");
 }
 
 export function normalizeClaudeEffort(
@@ -488,7 +490,12 @@ function hasExplicitClaude1mSuffix(model: string): boolean {
 
 function modelSupportsClaude1m(model: string): boolean {
   const canonical = model.toLowerCase();
-  return canonical.includes("claude-sonnet-4") || canonical.includes("opus-4-6") || canonical.includes("opus-4-8");
+  return (
+    canonical.includes("claude-sonnet-4") ||
+    canonical.includes("claude-sonnet-5") ||
+    canonical.includes("opus-4-6") ||
+    canonical.includes("opus-4-8")
+  );
 }
 
 function isTruthyEnv(value: string | undefined): boolean {

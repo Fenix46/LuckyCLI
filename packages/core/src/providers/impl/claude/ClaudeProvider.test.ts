@@ -119,7 +119,7 @@ describe("ClaudeProvider", () => {
   it("exposes Claude runtime context metadata in api-key mode too", async () => {
     const provider = new ClaudeProvider({ type: "claude", authMethod: "api_key", apiKey: "test-key" });
 
-    expect(provider.info.models?.["claude-sonnet-4-6"]).toMatchObject({
+    expect(provider.info.models?.["claude-sonnet-5"]).toMatchObject({
       contextWindow: 1_000_000,
       maxOutputTokens: 64_000,
       source: "provider",
@@ -204,7 +204,7 @@ describe("ClaudeProvider", () => {
     expect(request.system).toEqual([
       {
         type: "text",
-        text: "x-anthropic-billing-header: cc_version=2.1.175.cea; cc_entrypoint=cli; cch=d1656;",
+        text: "x-anthropic-billing-header: cc_version=2.1.198.cea; cc_entrypoint=cli; cch=d1656;",
       },
       { type: "text", text: "Be concise.", cache_control: { type: "ephemeral" } },
     ]);
@@ -293,7 +293,7 @@ describe("ClaudeProvider", () => {
           Authorization: "Bearer oauth-access-token",
           "anthropic-beta": "oauth-2025-04-20",
           "Content-Type": "application/json",
-          "User-Agent": "claude-cli/2.1.175 (external, cli)",
+          "User-Agent": "claude-cli/2.1.198 (external, cli)",
         }),
       }),
     );

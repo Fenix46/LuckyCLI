@@ -12,6 +12,7 @@ describe("Claude OAuth context window", () => {
 
   it("uses 1M context for Claude Code-capable Sonnet/Opus models", () => {
     expect(claudeContextWindowForModel("claude-sonnet-4-6")).toBe(1_000_000);
+    expect(claudeContextWindowForModel("claude-sonnet-5")).toBe(1_000_000);
     expect(claudeContextWindowForModel("claude-opus-4-8")).toBe(1_000_000);
   });
 
@@ -33,11 +34,23 @@ describe("Claude OAuth context window", () => {
       "xhigh",
       "max",
     ]);
+    expect(claudeEffortLevelsForModel("claude-sonnet-5")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
     expect(claudeEffortLevelsForModel("claude-haiku-4-5-20251001")).toEqual([]);
   });
 
   it("maps xhigh to max for opus and clamps unsupported max to high", () => {
     expect(normalizeClaudeEffort("claude-opus-4-8", "xhigh")).toBe("max");
     expect(normalizeClaudeEffort("claude-sonnet-4-6", "max")).toBe("high");
+  });
+
+  it("supports max/xhigh effort on Sonnet 5 (first Sonnet tier with it)", () => {
+    expect(normalizeClaudeEffort("claude-sonnet-5", "max")).toBe("max");
+    expect(normalizeClaudeEffort("claude-sonnet-5", "xhigh")).toBe("max");
   });
 });
