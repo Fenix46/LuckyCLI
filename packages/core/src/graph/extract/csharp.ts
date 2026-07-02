@@ -7,12 +7,21 @@
  * methods (qualified by and attached to the declaring type), and an intra-file
  * call-graph second pass. A bare `invocation_expression` whose function is a
  * plain identifier (no receiver) is a call to a method of the same class, so it
- * resolves to `Type.name`; member-access calls (obj.M(), Type.M()) are left to
- * cross-file resolution and skipped.
+ * resolves to `Type.name`; member-access calls (obj.M(), Type.M()) can't be
+ * resolved locally when the receiver's type isn't a known local parameter — the
+ * target may be declared in another file — so they're emitted as call
+ * candidates (see CallCandidate) for the whole-graph cross-file resolution
+ * pass. `this.M()` is still resolved directly within the class.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -36,12 +45,26 @@ const TYPE_DECLS = new Set([
   "enum_declaration",
 ]);
 
+/** Parameter name -> declared type, e.g. `(Rect r)` -> r: Rect. */
+function paramTypes(params: Node | null | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!params) return out;
+  for (const decl of params.namedChildren) {
+    if (decl?.type !== "parameter") continue;
+    const type = decl.childForFieldName("type")?.text;
+    const name = decl.childForFieldName("name")?.text;
+    if (type && name) out.set(name, type);
+  }
+  return out;
+}
+
 function extractCSharp(ctx: ExtractorContext): Extraction {
   const { path, root } = ctx;
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -120,9 +143,15 @@ function extractCSharp(ctx: ExtractorContext): Extraction {
   collect(root, fid, "");
 
   // --- Pass 2: call graph (INFERRED `calls` within a type) -------------------
-  function calls(node: Node, prefix: string, current: string | undefined): void {
+  function calls(
+    node: Node,
+    prefix: string,
+    current: string | undefined,
+    locals: Map<string, string>,
+  ): void {
     let nextPrefix = prefix;
     let nextCurrent = current;
+    let nextLocals = locals;
     if (
       node.type === "namespace_declaration" ||
       node.type === "file_scoped_namespace_declaration" ||
@@ -134,20 +163,45 @@ function extractCSharp(ctx: ExtractorContext): Extraction {
     } else if (node.type === "method_declaration") {
       const name = node.childForFieldName("name")?.text;
       if (name) nextCurrent = symbolId(path, qualify(prefix, name));
+      nextLocals = paramTypes(node.childForFieldName("parameters"));
     } else if (node.type === "invocation_expression") {
       const fn = node.childForFieldName("function");
-      if (fn?.type === "identifier" && current) {
+      if (!fn || !current) {
+        // fall through to children
+      } else if (fn.type === "identifier") {
         const target = symbolId(path, qualify(prefix, fn.text));
         if (seenNodes.has(target) && target !== current) {
           addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
         }
+      } else if (fn.type === "member_access_expression") {
+        const receiver = fn.childForFieldName("expression");
+        const name = fn.childForFieldName("name")?.text;
+        if (name) {
+          if (receiver?.type === "this_expression") {
+            // this.M() — same class, resolvable locally like a bare call.
+            const target = symbolId(path, qualify(prefix, name));
+            if (seenNodes.has(target) && target !== current) {
+              addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+            }
+          } else {
+            const receiverHint =
+              receiver?.type === "identifier"
+                ? (locals.get(receiver.text) ?? receiver.text)
+                : undefined;
+            callCandidates.push({
+              callerId: current,
+              calleeName: name,
+              ...(receiverHint ? { receiverHint } : {}),
+            });
+          }
+        }
       }
     }
-    for (const child of node.namedChildren) if (child) calls(child, nextPrefix, nextCurrent);
+    for (const child of node.namedChildren) if (child) calls(child, nextPrefix, nextCurrent, nextLocals);
   }
-  calls(root, "", undefined);
+  calls(root, "", undefined, new Map());
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const csharpExtractor: Extractor = { language: "csharp", extract: extractCSharp };

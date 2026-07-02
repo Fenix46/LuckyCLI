@@ -112,6 +112,57 @@ describe("csharp extractor", () => {
     expect(calls.every((e) => e.confidence === "INFERRED")).toBe(true);
   });
 
+  it("emits a candidate with a type-hinted receiver for param.Method() calls", async () => {
+    const source = `class Foo {
+    double Run(Rect r) {
+        return r.Area();
+    }
+}
+`;
+    const { nodes, callCandidates } = await extract("Foo.cs", source);
+    const run = byLabel(nodes, "Run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "Area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with the bare identifier hint for Type.StaticMethod() calls", async () => {
+    const source = `class Foo {
+    double Run() {
+        return Rect.StaticHelper();
+    }
+}
+`;
+    const { nodes, callCandidates } = await extract("Foo.cs", source);
+    const run = byLabel(nodes, "Run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "StaticHelper",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("still resolves this.Method() within the class instead of emitting a candidate", async () => {
+    const source = `class Foo {
+    double Run() {
+        return this.Helper();
+    }
+    double Helper() { return 1.0; }
+}
+`;
+    const { nodes, edges, callCandidates } = await extract("Foo.cs", source);
+    const run = byLabel(nodes, "Run")[0]!;
+    const helper = byLabel(nodes, "Helper")[0]!;
+    expect(
+      edges.some(
+        (e) => e.relation === "calls" && e.source === run.id && e.target === helper.id,
+      ),
+    ).toBe(true);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
   it("is registered for the csharp language", () => {
     expect(extractorFor("csharp")).toBe(csharpExtractor);
   });
