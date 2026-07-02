@@ -7,12 +7,22 @@
  * the file), class/interface/trait/enum declarations, their methods (qualified
  * by and attached to the declaring type), top-level `function` (→ function), and
  * an intra-file call-graph second pass. `$this->m()` resolves to a method of the
- * enclosing class and a bare `f()` to a top-level function in the same
- * namespace; static/other-object calls are left to cross-file resolution.
+ * enclosing class (as do `self::`/`static::`/`parent::` calls) and a bare `f()`
+ * to a top-level function in the same namespace; calls that can't be resolved
+ * locally — `$obj->m()` (hinted with the parameter's declared type when known),
+ * `Type::m()`, and bare calls to functions not defined in this file — are
+ * emitted as call candidates (see CallCandidate) for the whole-graph cross-file
+ * resolution pass.
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -41,12 +51,29 @@ function namespaceBody(node: Node): Node | undefined {
   return body?.namedChildren.length ? body : undefined;
 }
 
+/** Parameter variable -> declared type, e.g. `(Rect $r)` -> $r: Rect. */
+function paramTypes(funcNode: Node): Map<string, string> {
+  const out = new Map<string, string>();
+  const params = funcNode.namedChildren.find((c) => c?.type === "formal_parameters");
+  for (const decl of params?.namedChildren ?? []) {
+    if (decl?.type !== "simple_parameter") continue;
+    const type = decl.namedChildren.find((c) => c?.type === "named_type")?.text;
+    const name = decl.namedChildren.find((c) => c?.type === "variable_name")?.text;
+    if (type && name) out.set(name, type);
+  }
+  return out;
+}
+
+/** Scopes that name the enclosing class rather than another type. */
+const LOCAL_SCOPES = new Set(["self", "static", "parent"]);
+
 function extractPhp(ctx: ExtractorContext): Extraction {
   const { path, root } = ctx;
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -155,14 +182,38 @@ function extractPhp(ctx: ExtractorContext): Extraction {
     nsPrefix: string,
     classPrefix: string | undefined,
     current: string,
+    locals: Map<string, string>,
   ): void {
     if (node.type === "member_call_expression") {
       const object = node.childForFieldName("object");
       const name = node.childForFieldName("name")?.text;
-      if (classPrefix && name && object?.type === "variable_name" && object.text === "$this") {
-        const target = symbolId(path, qualify(classPrefix, name));
-        if (seenNodes.has(target) && target !== current) {
-          addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+      if (name && object?.type === "variable_name") {
+        if (object.text === "$this") {
+          if (classPrefix) {
+            const target = symbolId(path, qualify(classPrefix, name));
+            if (seenNodes.has(target) && target !== current) {
+              addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+            }
+          }
+        } else {
+          const receiverHint = locals.get(object.text) ?? object.text.replace(/^\$/, "");
+          callCandidates.push({ callerId: current, calleeName: name, receiverHint });
+        }
+      }
+    } else if (node.type === "scoped_call_expression") {
+      const scope = node.childForFieldName("scope")?.text;
+      const name = node.childForFieldName("name")?.text;
+      if (scope && name) {
+        if (LOCAL_SCOPES.has(scope)) {
+          // self::/static::/parent::m() — the enclosing class hierarchy.
+          if (classPrefix) {
+            const target = symbolId(path, qualify(classPrefix, name));
+            if (seenNodes.has(target) && target !== current) {
+              addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+            }
+          }
+        } else {
+          callCandidates.push({ callerId: current, calleeName: name, receiverHint: scope });
         }
       }
     } else if (node.type === "function_call_expression") {
@@ -171,11 +222,14 @@ function extractPhp(ctx: ExtractorContext): Extraction {
         const target = symbolId(path, qualify(nsPrefix, fn.text));
         if (seenNodes.has(target) && target !== current) {
           addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+        } else if (!seenNodes.has(target)) {
+          // Not defined in this file — the function may live in another file.
+          callCandidates.push({ callerId: current, calleeName: fn.text });
         }
       }
     }
     for (const child of node.namedChildren) {
-      if (child) walkBody(child, nsPrefix, classPrefix, current);
+      if (child) walkBody(child, nsPrefix, classPrefix, current, locals);
     }
   }
 
@@ -204,13 +258,23 @@ function extractPhp(ctx: ExtractorContext): Extraction {
           for (const member of body?.namedChildren ?? []) {
             if (member?.type !== "method_declaration") continue;
             const method = member.childForFieldName("name")?.text;
-            if (method) walkBody(member, prefix, classPrefix, symbolId(path, qualify(classPrefix, method)));
+            if (method) {
+              walkBody(
+                member,
+                prefix,
+                classPrefix,
+                symbolId(path, qualify(classPrefix, method)),
+                paramTypes(member),
+              );
+            }
           }
           break;
         }
         case "function_definition": {
           const name = child.childForFieldName("name")?.text;
-          if (name) walkBody(child, prefix, undefined, symbolId(path, qualify(prefix, name)));
+          if (name) {
+            walkBody(child, prefix, undefined, symbolId(path, qualify(prefix, name)), paramTypes(child));
+          }
           break;
         }
       }
@@ -218,7 +282,7 @@ function extractPhp(ctx: ExtractorContext): Extraction {
   }
   callsTop(root.namedChildren, "");
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const phpExtractor: Extractor = { language: "php", extract: extractPhp };

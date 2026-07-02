@@ -116,6 +116,67 @@ describe("php extractor", () => {
     ).toBe(true);
   });
 
+  it("emits a candidate with a type-hinted receiver for $param->method() calls", async () => {
+    const source = `<?php
+function run(Rect $r) {
+  return $r->area();
+}
+`;
+    const { nodes, callCandidates } = await extract("run.php", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with the scope hint for Type::method() calls", async () => {
+    const source = `<?php
+function run() {
+  return Rect::defaultArea();
+}
+`;
+    const { nodes, callCandidates } = await extract("run.php", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "defaultArea",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a hint-less candidate for a bare call to a function not defined here", async () => {
+    const source = `<?php
+function run() {
+  return elsewhere(1);
+}
+`;
+    const { nodes, callCandidates } = await extract("run.php", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({ callerId: run.id, calleeName: "elsewhere" });
+  });
+
+  it("still resolves self::method() within the class instead of emitting a candidate", async () => {
+    const source = `<?php
+class Foo {
+  public function run() {
+    return self::helper();
+  }
+  public static function helper() {
+    return 1;
+  }
+}
+`;
+    const { nodes, edges, callCandidates } = await extract("foo.php", source);
+    const run = byLabel(nodes, "run")[0]!;
+    const helper = byLabel(nodes, "helper")[0]!;
+    expect(
+      edges.some((e) => e.relation === "calls" && e.source === run.id && e.target === helper.id),
+    ).toBe(true);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
   it("is registered for the php language", () => {
     expect(extractorFor("php")).toBe(phpExtractor);
   });
