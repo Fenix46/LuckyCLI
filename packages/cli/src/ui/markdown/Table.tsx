@@ -1,5 +1,5 @@
 import React, { type JSX } from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text } from '../../vendor/ink-compat.js'
 
 
 /* Table */

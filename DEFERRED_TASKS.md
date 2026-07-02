@@ -15,13 +15,11 @@ executed the main refactor but explicitly deferred: extracting render JSX,
 the launch update-check effect, and codex/antigravity model loaders.
 Complete that deferred follow-up work.
 
-## 3. Fix Table.tsx stray stock-ink import
-`packages/cli/src/ui/markdown/Table.tsx:2` still imports `Box`/`Text` from
-the stock npm `ink` package instead of the vendored fork used everywhere else
-in `ui/` (per `docs/tui-scroll-investigation.md`'s migration notes). Migrate
-it to the vendored fork and confirm whether the `ink` npm dependency in
-`packages/cli/package.json` can then be dropped entirely, or document why
-it's still needed.
+## 3. Fix Table.tsx stray stock-ink import — DONE 2026-07-02
+Migrated `Table.tsx` to `vendor/ink-compat.js`; it was the last stock-ink
+import, so the `ink` npm dependency was dropped from
+`packages/cli/package.json` entirely. Smoke-tested via `renderToScreen`
+in `Table.test.tsx`.
 
 ---
 Already done before the pause: SDK upgrades (`@anthropic-ai/sdk` 0.39→0.109,

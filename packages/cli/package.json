@@ -30,7 +30,6 @@
     "emoji-regex": "^10.6.0",
     "get-east-asian-width": "^1.6.0",
     "indent-string": "^5.0.0",
-    "ink": "^7.0.5",
     "lodash-es": "^4.17.21",
     "react": "^19.2.0",
     "react-reconciler": "^0.33.0",
