@@ -19,7 +19,6 @@ import {
   createSessionId,
   defaultEffortFor,
   deriveTitle,
-  detectSelfUpdate,
   discoverSkills,
   effortLevelsFor,
   fetchCodexModels,
@@ -27,7 +26,6 @@ import {
   fetchOpencodeZenModels,
   fetchOpenRouterModels,
   getProvider,
-  getAutoUpdatePolicy,
   getReasoningEffort,
   getActiveTaskListId,
   getThinkingEnabled,
@@ -41,7 +39,6 @@ import {
   type CodexModel,
   type Task,
 } from "@luckycli/core";
-import { applyUpdateNow, checkForUpdate, updateRows } from "../update.js";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { messagesToItems, patchLastTool } from "./lib/items.js";
@@ -67,13 +64,13 @@ import { formatStatusFooter } from "./lib/status.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import type { CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
+import { useUpdateCheck } from "./hooks/useUpdateCheck.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useStableActivity } from "./hooks/useStableActivity.js";
 import { useMcpPanel } from "./hooks/useMcpPanel.js";
 import { useSkillPanel } from "./hooks/useSkillPanel.js";
 import { useModalRouter, type ModalHandler } from "./hooks/useModalRouter.js";
 import { useTurnRunner } from "./hooks/useTurnRunner.js";
-import { APP_VERSION } from "./components/constants.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { PickerHint } from "./components/PickerHint.js";
 import { TaskPanel } from "./components/TaskPanel.js";
@@ -301,73 +298,8 @@ export function App({
   const { columns, rows } = useWindowSize();
   const terminalSize = { width: columns, height: rows };
 
-  useEffect(() => {
-    if (process.env.LUCKY_DISABLE_UPDATE_CHECK === "1") return;
-    const policy = getAutoUpdatePolicy(loadStoredConfig());
-    if (policy === "off") return;
-    let cancelled = false;
-    checkForUpdate(APP_VERSION)
-      .then(async (info) => {
-        if (cancelled || !info.updateAvailable) return;
-
-        // "auto": download, verify and install right away, narrating progress
-        // in the transcript. Swapping the on-disk binary is safe under a live
-        // session — the running process keeps its loaded image — so the user
-        // only has to restart lucky to be on the new version.
-        if (policy === "auto" && info.latestVersion && detectSelfUpdate().ok) {
-          const version = info.latestVersion;
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "command",
-              title: "Update",
-              rows: [
-                { label: "version", value: version },
-                { label: "status", value: "downloading in the background…" },
-              ],
-            },
-          ]);
-          try {
-            const result = await applyUpdateNow(version);
-            if (cancelled) return;
-            if (result.applied) {
-              setItems((prev) => [
-                ...prev,
-                {
-                  kind: "command",
-                  title: "Update installed",
-                  rows: [
-                    { label: "version", value: version },
-                    { label: "status", value: "restart lucky to use the new version" },
-                  ],
-                },
-              ]);
-              return;
-            }
-            // Could not self-update (dev runtime, unwritable dir): fall
-            // through to the notify banner with the manual command.
-          } catch {
-            // Download/verify failed; fall through to the notify banner.
-          }
-        }
-
-        if (cancelled) return;
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "command",
-            title: "Update Available",
-            rows: updateRows(info),
-          },
-        ]);
-      })
-      .catch(() => {
-        // Background update checks are best-effort. /update surfaces failures.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Launch-time update check (policy-driven); flow lives in useUpdateCheck.
+  useUpdateCheck(useCallback((item) => setItems((prev) => [...prev, item]), []));
 
   // Installed+enabled skills become direct `/<name>` commands. Discovered once
   // at mount (best-effort); installing mid-session is still usable via
