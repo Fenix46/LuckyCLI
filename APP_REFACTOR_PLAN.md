@@ -22,6 +22,9 @@ test(s) + a focused commit, the app stays shippable after every step.
 > - The ~400–500 line target was optimistic: the remaining bulk is render
 >   JSX, the launch update-check effect and the codex/antigravity model
 >   loaders. Extracting those is optional follow-up, not part of this plan.
+> - Follow-up completed 2026-07-02: useUpdateCheck, useModelCatalogs and the
+>   bottom-chrome components (Pickers/SlashMenu/StatusFooter) landed with
+>   tests; App.tsx is now ~1,080 lines of wiring, handlers and composition.
 
 ## Why
 

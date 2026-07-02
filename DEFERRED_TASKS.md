@@ -9,11 +9,13 @@ resolution (see task list). Resume these afterward, in this order:
 (similar in spirit to `APP_REFACTOR_PLAN.md`) and execute it: split into
 smaller components/hooks, add tests for extracted logic.
 
-## 2. Finish App.tsx JSX/model-loader extraction
-`packages/cli/src/ui/App.tsx` is still 1442 lines. `APP_REFACTOR_PLAN.md`
-executed the main refactor but explicitly deferred: extracting render JSX,
-the launch update-check effect, and codex/antigravity model loaders.
-Complete that deferred follow-up work.
+## 2. Finish App.tsx JSX/model-loader extraction — DONE 2026-07-02
+Completed in three commits: the launch update-check effect →
+`hooks/useUpdateCheck.ts` (flow fully unit-tested), the five live model
+catalogs → `hooks/useModelCatalogs.ts` (pure helpers tested), and the
+bottom-chrome render JSX (pickers, slash menu, status footer) →
+`components/Pickers.tsx` / `SlashMenu.tsx` / `StatusFooter.tsx` with
+renderToScreen smoke tests. App.tsx: 1442 → 1084 lines.
 
 ## 3. Fix Table.tsx stray stock-ink import — DONE 2026-07-02
 Migrated `Table.tsx` to `vendor/ink-compat.js`; it was the last stock-ink
