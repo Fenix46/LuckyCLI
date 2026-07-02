@@ -109,6 +109,51 @@ describe("kotlin extractor", () => {
     ).toBe(true);
   });
 
+  it("emits a candidate with a type-hinted receiver for param.method() calls", async () => {
+    const source = `fun run(r: Rect): Double {
+    return r.area()
+}
+`;
+    const { nodes, callCandidates } = await extract("Run.kt", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with the bare identifier hint for Type.method() calls", async () => {
+    const source = `fun run(): Double {
+    return Rect.defaultArea()
+}
+`;
+    const { nodes, callCandidates } = await extract("Run.kt", source);
+    const run = byLabel(nodes, "run")[0]!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "defaultArea",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("still resolves this.method() within the class instead of emitting a candidate", async () => {
+    const source = `class Foo {
+    fun run(): Double {
+        return this.helper()
+    }
+    fun helper(): Double = 1.0
+}
+`;
+    const { nodes, edges, callCandidates } = await extract("Foo.kt", source);
+    const run = byLabel(nodes, "run")[0]!;
+    const helper = byLabel(nodes, "helper")[0]!;
+    expect(
+      edges.some((e) => e.relation === "calls" && e.source === run.id && e.target === helper.id),
+    ).toBe(true);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
   it("is registered for the kotlin language", () => {
     expect(extractorFor("kotlin")).toBe(kotlinExtractor);
   });
