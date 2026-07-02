@@ -13,7 +13,6 @@ import {
   type Session,
   type TokenUsage,
   type ToolResultMetadata,
-  CodexModelCache,
   antigravityModelLabel,
   claudeEffortLevelsForModel,
   createSessionId,
@@ -21,11 +20,6 @@ import {
   deriveTitle,
   discoverSkills,
   effortLevelsFor,
-  fetchCodexModels,
-  fetchOllamaModels,
-  fetchOpencodeZenModels,
-  fetchOpenRouterModels,
-  getProvider,
   getReasoningEffort,
   getActiveTaskListId,
   getThinkingEnabled,
@@ -36,7 +30,6 @@ import {
   saveSession,
   saveStoredConfig,
   type SkillActivator,
-  type CodexModel,
   type Task,
 } from "@luckycli/core";
 import { THEMES, themeById, type Theme } from "./themes.js";
@@ -64,6 +57,7 @@ import { formatStatusFooter } from "./lib/status.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import type { CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
+import { useModelCatalogs } from "./hooks/useModelCatalogs.js";
 import { useUpdateCheck } from "./hooks/useUpdateCheck.js";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useStableActivity } from "./hooks/useStableActivity.js";
@@ -345,32 +339,13 @@ export function App({
     emit: (item) => setItems((prev) => [...prev, item]),
   });
   const agentsPanel = useAgentsPanel();
-  // Live Codex model catalog (openai-oauth only), fetched on demand and cached
-  // for the session. The picker reads these slugs instead of a hardcoded list.
-  const codexCacheRef = useRef<CodexModelCache | null>(null);
-  const [codexModels, setCodexModels] = useState<CodexModel[]>([]);
-  const antigravityModelsRef = useRef<Promise<string[]> | null>(null);
-  const [antigravityModels, setAntigravityModels] = useState<string[]>([]);
-  // Installed Ollama models, discovered from the daemon (/api/tags).
-  const ollamaModelsRef = useRef<Promise<string[]> | null>(null);
-  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-  // Live gateway catalogs, fetched when the /model picker opens.
-  const zenModelsRef = useRef<Promise<string[]> | null>(null);
-  const [zenModels, setZenModels] = useState<string[]>([]);
-  const openRouterModelsRef = useRef<Promise<string[]> | null>(null);
-  const [openRouterModels, setOpenRouterModels] = useState<string[]>([]);
-  const liveModels =
-    meta.provider === "openai-oauth"
-      ? codexModels.map((m) => m.slug)
-      : meta.provider === "antigravity"
-        ? antigravityModels
-        : meta.provider === "ollama"
-          ? ollamaModels
-          : meta.provider === "opencode-zen"
-            ? zenModels
-            : meta.provider === "openrouter"
-              ? openRouterModels
-              : undefined;
+  // Live model catalogs (Codex/Antigravity/Ollama/Zen/OpenRouter), fetched on
+  // demand when the picker opens and cached for the session (useModelCatalogs).
+  const { liveModels, codexModels } = useModelCatalogs({
+    provider: meta.provider,
+    input,
+    emit: useCallback((item: Item) => setItems((prev) => [...prev, item]), []),
+  });
 
   const modelPicker = getModelPickerState(input, meta.provider, meta.model, liveModels);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
@@ -657,170 +632,6 @@ export function App({
       if (key.ctrl && _in === "c" && !busy) exit();
     },
   });
-
-  // Fetch the live Codex catalog (memoized for the session). Returns [] on
-  // failure after surfacing an error item; the active model still works.
-  const loadCodexModels = useCallback(
-    async (refresh = false): Promise<CodexModel[]> => {
-      const creds = loadStoredConfig().credentials?.["openai-oauth"];
-      if (!creds || creds.type !== "openai-oauth") return [];
-      const tokens = creds;
-      if (!codexCacheRef.current) {
-        codexCacheRef.current = new CodexModelCache(() =>
-          fetchCodexModels({
-            access: tokens.access,
-            refresh: tokens.refresh,
-            expires: tokens.expires,
-            ...(tokens.accountId ? { accountId: tokens.accountId } : {}),
-          }),
-        );
-      }
-      try {
-        const models = await codexCacheRef.current.get({ refresh });
-        setCodexModels(models);
-        return models;
-      } catch (error) {
-        setItems((prev) => [
-          ...prev,
-          {
-            kind: "error",
-            text: `Could not fetch ChatGPT models: ${error instanceof Error ? error.message : error}`,
-          },
-        ]);
-        return [];
-      }
-    },
-    [],
-  );
-
-  const loadAntigravityModels = useCallback(
-    async (refresh = false): Promise<string[]> => {
-      const creds = loadStoredConfig().credentials?.antigravity;
-      if (!creds || creds.type !== "antigravity") return [];
-      if (!antigravityModelsRef.current || refresh) {
-        antigravityModelsRef.current = (async () => {
-          const provider = getProvider("antigravity", creds);
-          await provider.getStatus?.();
-          const models = provider.info.availableModels ?? [];
-          setAntigravityModels(models);
-          return models;
-        })().catch((error) => {
-          antigravityModelsRef.current = null;
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: "error",
-              text: `Could not fetch Antigravity models: ${error instanceof Error ? error.message : error}`,
-            },
-          ]);
-          return [];
-        });
-      }
-      return antigravityModelsRef.current;
-    },
-    [],
-  );
-
-  // Discover installed Ollama models when the picker opens. Returns [] if the
-  // daemon is unreachable; the active model still works (validation is lenient).
-  const loadOllamaModels = useCallback(
-    async (refresh = false): Promise<string[]> => {
-      const creds = loadStoredConfig().credentials?.ollama;
-      if (!creds || creds.type !== "ollama") return [];
-      if (!ollamaModelsRef.current || refresh) {
-        ollamaModelsRef.current = fetchOllamaModels(creds.baseUrl)
-          .then((models) => {
-            const ids = models.map((m) => m.id);
-            setOllamaModels(ids);
-            return ids;
-          })
-          .catch(() => {
-            ollamaModelsRef.current = null;
-            return [];
-          });
-      }
-      return ollamaModelsRef.current;
-    },
-    [],
-  );
-
-  // Fetch the live opencode Zen catalog when the picker opens. Falls back to the
-  // public key in core when no key is stored. Returns [] if unreachable.
-  const loadZenModels = useCallback(
-    async (refresh = false): Promise<string[]> => {
-      const creds = loadStoredConfig().credentials?.["opencode-zen"];
-      if (!creds || creds.type !== "opencode-zen") return [];
-      if (!zenModelsRef.current || refresh) {
-        zenModelsRef.current = fetchOpencodeZenModels(creds.apiKey)
-          .then((models) => {
-            const ids = models.map((m) => m.id);
-            setZenModels(ids);
-            return ids;
-          })
-          .catch(() => {
-            zenModelsRef.current = null;
-            return [];
-          });
-      }
-      return zenModelsRef.current;
-    },
-    [],
-  );
-
-  // Fetch the live OpenRouter catalog when the picker opens. Returns [] if
-  // unreachable; the active model still works (validation is lenient).
-  const loadOpenRouterModels = useCallback(
-    async (refresh = false): Promise<string[]> => {
-      const creds = loadStoredConfig().credentials?.openrouter;
-      if (!creds || creds.type !== "openrouter") return [];
-      if (!openRouterModelsRef.current || refresh) {
-        openRouterModelsRef.current = fetchOpenRouterModels(creds.apiKey)
-          .then((models) => {
-            const ids = models.map((m) => m.id);
-            setOpenRouterModels(ids);
-            return ids;
-          })
-          .catch(() => {
-            openRouterModelsRef.current = null;
-            return [];
-          });
-      }
-      return openRouterModelsRef.current;
-    },
-    [],
-  );
-
-  // Fetch the live Codex catalog when the picker opens for openai-oauth, and
-  // re-fetch on `/model --refresh`. Memoized for the session by the cache.
-  useEffect(() => {
-    if (!modelPicker.open || meta.provider !== "openai-oauth") return;
-    const refresh = input.slice("/model".length).trim() === "--refresh";
-    void loadCodexModels(refresh);
-  }, [modelPicker.open, meta.provider, input, loadCodexModels]);
-
-  useEffect(() => {
-    if (!modelPicker.open || meta.provider !== "antigravity") return;
-    const refresh = input.slice("/model".length).trim() === "--refresh";
-    void loadAntigravityModels(refresh);
-  }, [modelPicker.open, meta.provider, input, loadAntigravityModels]);
-
-  useEffect(() => {
-    if (!modelPicker.open || meta.provider !== "ollama") return;
-    const refresh = input.slice("/model".length).trim() === "--refresh";
-    void loadOllamaModels(refresh);
-  }, [modelPicker.open, meta.provider, input, loadOllamaModels]);
-
-  useEffect(() => {
-    if (!modelPicker.open || meta.provider !== "opencode-zen") return;
-    const refresh = input.slice("/model".length).trim() === "--refresh";
-    void loadZenModels(refresh);
-  }, [modelPicker.open, meta.provider, input, loadZenModels]);
-
-  useEffect(() => {
-    if (!modelPicker.open || meta.provider !== "openrouter") return;
-    const refresh = input.slice("/model".length).trim() === "--refresh";
-    void loadOpenRouterModels(refresh);
-  }, [modelPicker.open, meta.provider, input, loadOpenRouterModels]);
 
   const applyEffort = useCallback(
     (model: string, effort: string) => {
