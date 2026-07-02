@@ -594,3 +594,46 @@ end
     expect(resolved?.confidence).toBe("AMBIGUOUS");
   });
 });
+
+describe("graph build pipeline — cross-file calls (typescript)", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-ts-"));
+    await writeFile(
+      join(root, "rect.ts"),
+      `export function area(w: number, h: number): number {
+  return w * h;
+}
+`,
+    );
+    await writeFile(
+      join(root, "describer.ts"),
+      `import { area } from "./rect.js";
+
+export function describe(w: number, h: number): number {
+  return area(w, h);
+}
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves an imported-function call across files into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeFn = nodes.find((n) => n.label === "describe")!;
+    const areaFn = nodes.find((n) => n.label === "area")!;
+    expect(areaFn.sourceFile).toBe("rect.ts");
+    expect(describeFn.sourceFile).toBe("describer.ts");
+
+    const resolved = edges.find(
+      (e) => e.source === describeFn.id && e.target === areaFn.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});

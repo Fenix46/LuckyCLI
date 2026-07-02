@@ -88,6 +88,63 @@ describe("typescript extractor", () => {
     expect(calls.some((e) => e.source === render.id && e.target === alpha.id)).toBe(true);
   });
 
+  it("emits a hint-less candidate for a bare call to an imported function", async () => {
+    const source = `import { area } from "./rect.js";
+
+export function run(x: number) {
+  return area(x);
+}
+`;
+    const { nodes, callCandidates } = await extract("src/run.ts", source);
+    const run = byLabel(nodes, "run")!;
+    expect(callCandidates).toContainEqual({ callerId: run.id, calleeName: "area" });
+  });
+
+  it("emits a candidate with a type-hinted receiver for param.method() calls", async () => {
+    const source = `export function run(r: Rect): number {
+  return r.area();
+}
+`;
+    const { nodes, callCandidates } = await extract("src/run.ts", source);
+    const run = byLabel(nodes, "run")!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("emits a candidate with the bare identifier hint for Type.method() calls", async () => {
+    const source = `export const run = () => Rect.defaultArea();
+`;
+    const { nodes, callCandidates } = await extract("src/run.ts", source);
+    const run = byLabel(nodes, "run")!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "defaultArea",
+      receiverHint: "Rect",
+    });
+  });
+
+  it("still resolves this.method() within the class instead of emitting a candidate", async () => {
+    const source = `export class Foo {
+  run(): number {
+    return this.helper();
+  }
+  helper(): number {
+    return 1;
+  }
+}
+`;
+    const { nodes, edges, callCandidates } = await extract("src/foo.ts", source);
+    const run = byLabel(nodes, "run")!;
+    const helper = byLabel(nodes, "helper")!;
+    expect(
+      edges.some((e) => e.relation === "calls" && e.source === run.id && e.target === helper.id),
+    ).toBe(true);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
   it("handles plain JS and is registered for js/tsx", async () => {
     const { nodes } = await extract("src/util.js", "function helper() {}\nexport const go = () => helper();\n");
     expect(byLabel(nodes, "helper")?.kind).toBe("function");
