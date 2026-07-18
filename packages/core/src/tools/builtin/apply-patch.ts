@@ -2,7 +2,12 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { fileDiff, type FileDiff } from "../../diff.js";
-import { resolveExistingInsideCwd, resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
+import {
+  assertParentPathInsideCwd,
+  resolveExistingInsideCwd,
+  resolveInsideCwd,
+  resolveWritableInsideCwd,
+} from "../path.js";
 import { defineTool } from "../types.js";
 
 export const applyPatchTool = defineTool({
@@ -26,6 +31,7 @@ export const applyPatchTool = defineTool({
       for (const file of files) {
         if (file.operation === "add") {
           const target = resolveInsideCwd(ctx.cwd, file.path);
+          await assertParentPathInsideCwd(ctx.cwd, file.path);
           await mkdir(dirname(target), { recursive: true });
           const abs = await resolveWritableInsideCwd(ctx.cwd, file.path);
           const updated = applyFilePatch("", file);

@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -94,14 +95,24 @@ export function loadStoredConfig(): StoredConfig {
   }
 }
 
+/**
+ * Atomic tmp+rename write, matching session/store.ts and agents/profiles.ts.
+ * config.json holds every provider's credentials, so a crash or a concurrent
+ * writer (e.g. two OAuth token refreshes landing close together) must never
+ * be able to leave a truncated or interleaved file — loadStoredConfig()
+ * silently treats a corrupt file as "no config", which would otherwise mean
+ * losing every saved credential with no error surfaced to the user.
+ */
 export function saveStoredConfig(cfg: StoredConfig): void {
   mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(CONFIG_FILE, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
+  const tmp = join(CONFIG_DIR, `.config.${process.pid}.${Date.now()}.tmp`);
+  writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
   try {
-    chmodSync(CONFIG_FILE, 0o600);
+    chmodSync(tmp, 0o600);
   } catch {
     // best-effort on platforms without POSIX permissions
   }
+  renameSync(tmp, CONFIG_FILE);
 }
 
 /**

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { fileDiff } from "../../diff.js";
-import { resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
+import { assertParentPathInsideCwd, resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 
 export const writeFileTool = defineTool({
@@ -20,6 +20,7 @@ export const writeFileTool = defineTool({
   }),
   async execute({ path, content, overwrite }, ctx) {
     const target = resolveInsideCwd(ctx.cwd, path);
+    await assertParentPathInsideCwd(ctx.cwd, path);
     await mkdir(dirname(target), { recursive: true });
     const abs = await resolveWritableInsideCwd(ctx.cwd, path);
     // Capture the previous contents (if any) so the UI can show a real diff
