@@ -18,11 +18,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.109.0",
-    "@google/genai": "^2.10.0",
+    "@anthropic-ai/sdk": "^0.115.0",
+    "@google/genai": "^2.13.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "google-auth-library": "^9.15.1",
-    "openai": "^6.45.0",
+    "openai": "^6.49.0",
     "tree-sitter-wasms": "^0.1.13",
     "web-tree-sitter": "^0.25.10",
     "zod": "^3.24.1",
