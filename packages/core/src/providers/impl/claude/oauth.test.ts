@@ -53,4 +53,23 @@ describe("Claude OAuth context window", () => {
     expect(normalizeClaudeEffort("claude-sonnet-5", "max")).toBe("max");
     expect(normalizeClaudeEffort("claude-sonnet-5", "xhigh")).toBe("max");
   });
+
+  it("gives Opus 5 the full capability set", () => {
+    // These predicates are substring matches, so a model rename silently drops
+    // capabilities rather than failing loudly — pin them for the catalog model.
+    expect(claudeContextWindowForModel("claude-opus-5")).toBe(1_000_000);
+    expect(claudeEffortLevelsForModel("claude-opus-5")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(normalizeClaudeEffort("claude-opus-5", "xhigh")).toBe("max");
+  });
+
+  it("keeps Opus 4.8 working for pinned configs and saved profiles", () => {
+    expect(claudeContextWindowForModel("claude-opus-4-8")).toBe(1_000_000);
+    expect(normalizeClaudeEffort("claude-opus-4-8", "xhigh")).toBe("max");
+  });
 });

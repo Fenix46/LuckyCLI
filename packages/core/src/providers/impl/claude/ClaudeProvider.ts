@@ -47,7 +47,7 @@ const CLAUDE_CODE_BETA_HEADER = [
   "advanced-tool-use-2025-11-20",
 ].join(",");
 const CLAUDE_CODE_BILLING_SYSTEM =
-  "x-anthropic-billing-header: cc_version=2.1.198.cea; cc_entrypoint=cli; cch=d1656;";
+  "x-anthropic-billing-header: cc_version=2.1.220.cea; cc_entrypoint=cli; cch=d1656;";
 // Fallback model for OAuth token-count probes, used only when the caller gave
 // no model. Normally the probe runs on the conversation's own model so it can
 // read that model's prompt cache — see countTokensViaProbe.
@@ -374,7 +374,7 @@ export class ClaudeProvider implements IProvider {
           "anthropic-beta": CLAUDE_CODE_BETA_HEADER,
           "anthropic-dangerous-direct-browser-access": "true",
           "anthropic-version": "2023-06-01",
-          "User-Agent": "claude-cli/2.1.198 (external, cli)",
+          "User-Agent": "claude-cli/2.1.220 (external, cli)",
           "x-app": "cli",
         },
       });

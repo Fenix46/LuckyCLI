@@ -291,7 +291,7 @@ export async function fetchClaudeOAuthUsage(accessToken: string): Promise<Claude
     headers: authHeaders(accessToken, {
       "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER,
       "Content-Type": "application/json",
-      "User-Agent": "claude-cli/2.1.198 (external, cli)",
+      "User-Agent": "claude-cli/2.1.220 (external, cli)",
     }),
   }, "Claude OAuth usage");
   if (!res.ok) {
@@ -317,7 +317,7 @@ export async function fetchClaudeOAuthReferralEligibility(
         "anthropic-client-platform": "claude_code_cli",
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
-        "User-Agent": "claude-cli/2.1.198 (external, cli)",
+        "User-Agent": "claude-cli/2.1.220 (external, cli)",
         "x-organization-uuid": organizationUuid,
       }),
     },
@@ -447,6 +447,7 @@ export function claudeModelSupportsEffort(model: string): boolean {
     canonical.includes("sonnet-5") ||
     canonical.includes("opus-4-6") ||
     canonical.includes("opus-4-8") ||
+    canonical.includes("opus-5") ||
     canonical.includes("fable")
   );
 }
@@ -458,7 +459,12 @@ export function claudeModelSupportsAdaptiveThinking(model: string): boolean {
 export function claudeModelSupportsMaxEffort(model: string): boolean {
   const canonical = model.toLowerCase();
   // Sonnet 5 is the first Sonnet-tier model with xhigh/max effort support.
-  return canonical.includes("opus-4") || canonical.includes("sonnet-5") || canonical.includes("fable");
+  return (
+    canonical.includes("opus-4") ||
+    canonical.includes("opus-5") ||
+    canonical.includes("sonnet-5") ||
+    canonical.includes("fable")
+  );
 }
 
 export function normalizeClaudeEffort(
@@ -494,7 +500,8 @@ function modelSupportsClaude1m(model: string): boolean {
     canonical.includes("claude-sonnet-4") ||
     canonical.includes("claude-sonnet-5") ||
     canonical.includes("opus-4-6") ||
-    canonical.includes("opus-4-8")
+    canonical.includes("opus-4-8") ||
+    canonical.includes("opus-5")
   );
 }
 

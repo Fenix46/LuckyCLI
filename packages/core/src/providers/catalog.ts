@@ -41,13 +41,13 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     company: "Anthropic",
     availableModels: [
       "claude-fable-5",
-      "claude-opus-4-8",
+      "claude-opus-5",
       "claude-sonnet-5",
       "claude-haiku-4-5-20251001",
     ],
     models: modelEntries([
       { id: "claude-fable-5", source: "unknown" },
-      { id: "claude-opus-4-8", source: "unknown" },
+      { id: "claude-opus-5", source: "unknown" },
       { id: "claude-sonnet-5", source: "unknown" },
       { id: "claude-haiku-4-5-20251001", source: "unknown" },
     ]),
