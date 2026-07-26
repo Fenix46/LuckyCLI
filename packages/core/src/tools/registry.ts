@@ -40,6 +40,11 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
+  /** Every registered tool, in registration order. */
+  list(): Tool[] {
+    return [...this.tools.values()];
+  }
+
   get(name: string): Tool | undefined {
     return this.tools.get(name);
   }

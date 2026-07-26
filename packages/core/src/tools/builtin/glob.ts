@@ -21,8 +21,13 @@ export const globTool = defineTool({
   }),
   async execute({ pattern, path = "." }, ctx) {
     const root = await resolveExistingInsideCwd(ctx.cwd, path);
-    const rgMatches = await globWithRipgrep(root, pattern, ctx.signal);
-    if (rgMatches) return formatGlobMatches(rgMatches, pattern);
+    const rgResult = await globWithRipgrep(root, pattern, ctx.signal);
+    if (rgResult.status === "ok") return formatGlobMatches(rgResult.matches, pattern);
+    if (rgResult.status === "failed") {
+      // ripgrep ran and rejected the pattern; the JS matcher's glob dialect
+      // differs, so falling back would answer a different question silently.
+      return { content: `Glob failed: ${rgResult.message}`, isError: true };
+    }
 
     const matches: { relPath: string; mtimeMs: number }[] = [];
     for await (const file of walkFiles(root, ctx.signal)) {
@@ -40,14 +45,25 @@ async function globWithRipgrep(
   root: string,
   pattern: string,
   signal?: AbortSignal,
-): Promise<string[] | undefined> {
-  const stdout = await runRipgrep(
-    ["--files", "--glob", pattern, ...defaultIgnoreGlobs()],
+): Promise<
+  | { status: "ok"; matches: string[] }
+  | { status: "unavailable" }
+  | { status: "failed"; message: string }
+> {
+  const result = await runRipgrep(
+    [
+      "--files",
+      "--glob",
+      pattern,
+      // Each ignore glob needs its own --glob flag; passing them bare makes
+      // ripgrep read them as paths to search and fail with ENOENT.
+      ...defaultIgnoreGlobs().flatMap((glob) => ["--glob", glob]),
+    ],
     root,
     signal,
   );
-  if (stdout === undefined) return undefined;
-  return stdout.split(/\r?\n/).filter(Boolean);
+  if (result.status !== "ok") return result;
+  return { status: "ok", matches: result.stdout.split(/\r?\n/).filter(Boolean) };
 }
 
 function formatGlobMatches(matches: string[], pattern: string) {

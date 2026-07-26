@@ -374,6 +374,7 @@ export {
 export {
   adaptMcpTool,
   makeMcpToolName,
+  uniqueMcpToolName,
 } from "./mcp/tool-adapter.js";
 export { McpLocalClient } from "./mcp/local-client.js";
 export { McpRemoteClient } from "./mcp/remote-client.js";

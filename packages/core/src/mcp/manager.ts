@@ -1,6 +1,6 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { diffSnapshots, snapshotFiles, trackedGraphFiles } from "../graph/fs-snapshot.js";
-import { adaptMcpTool } from "./tool-adapter.js";
+import { adaptMcpTool, uniqueMcpToolName } from "./tool-adapter.js";
 import type { McpClient } from "./client.js";
 import { McpLocalClient, type McpLocalClientOptions } from "./local-client.js";
 import { McpRemoteClient } from "./remote-client.js";
@@ -141,22 +141,31 @@ export class McpManager {
   }
 
   tools(): Tool[] {
+    // Shared across every server: sanitized names from different servers can
+    // collide, and a duplicate would be dropped by the registry, silently
+    // hiding a configured tool.
+    const taken = new Set<string>();
     return [...this.servers.entries()].flatMap(([name, server]) =>
       server.tools.map((tool) =>
-        adaptMcpTool(name, tool, async (invocation, ctx) => {
-          // MCP tools are opaque: their result is text, so we can't see which
-          // files they wrote. Snapshot the graph's tracked files around the
-          // call and report any that changed, so external edits keep the graph
-          // fresh through the same hook built-in tools use. Bounded by the
-          // graph's file count and free when no graph exists (tracked is empty).
-          const tracked = ctx.onFilesChanged ? await trackedGraphFiles(ctx.cwd) : [];
-          const before = tracked.length ? snapshotFiles(ctx.cwd, tracked) : undefined;
+        adaptMcpTool(
+          name,
+          tool,
+          async (invocation, ctx) => {
+            // MCP tools are opaque: their result is text, so we can't see which
+            // files they wrote. Snapshot the graph's tracked files around the
+            // call and report any that changed, so external edits keep the graph
+            // fresh through the same hook built-in tools use. Bounded by the
+            // graph's file count and free when no graph exists (tracked is empty).
+            const tracked = ctx.onFilesChanged ? await trackedGraphFiles(ctx.cwd) : [];
+            const before = tracked.length ? snapshotFiles(ctx.cwd, tracked) : undefined;
 
-          const content = await server.client.callTool(invocation.tool, invocation.arguments);
+            const content = await server.client.callTool(invocation.tool, invocation.arguments);
 
-          if (before) reportChangedFiles(ctx, ctx.cwd, tracked, before);
-          return { content };
-        }),
+            if (before) reportChangedFiles(ctx, ctx.cwd, tracked, before);
+            return { content };
+          },
+          uniqueMcpToolName(name, tool.name, taken),
+        ),
       ),
     );
   }

@@ -5,7 +5,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry.js";
 import { globTool } from "./glob.js";
 import { grepTool } from "./grep.js";
-import { matchGlob } from "./fs-search.js";
+import { matchGlob, runRipgrep } from "./fs-search.js";
+
+/**
+ * ripgrep is an optional runtime dependency (the tools fall back to a JS
+ * walker), so cases that assert on rg's own behaviour only run where it exists.
+ */
+const hasRg = await (async () => {
+  const probe = await runRipgrep(["--version"], tmpdir());
+  return probe.status !== "unavailable";
+})();
 
 describe("matchGlob", () => {
   it("matches a basename pattern anywhere in the tree", () => {
@@ -23,6 +32,43 @@ describe("matchGlob", () => {
   it("supports brace alternation", () => {
     expect(matchGlob("*.{ts,tsx}", "a.tsx")).toBe(true);
     expect(matchGlob("*.{ts,tsx}", "a.js")).toBe(false);
+  });
+});
+
+describe("runRipgrep", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-rg-"));
+    await writeFile(join(root, "a.txt"), "hello\n", "utf8");
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it.runIf(hasRg)("reports ok with stdout for a successful search", async () => {
+    const result = await runRipgrep(["--no-heading", "hello", "."], root);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.stdout).toContain("hello");
+  });
+
+  it.runIf(hasRg)("treats 'no matches' (exit 1) as a successful empty search", async () => {
+    const result = await runRipgrep(["--no-heading", "zzzznope", "."], root);
+    expect(result).toEqual({ status: "ok", stdout: "" });
+  });
+
+  it.runIf(hasRg)("reports failure for a pattern ripgrep's engine rejects", async () => {
+    // Lookahead is valid JS regex but unsupported by Rust's regex crate, so rg
+    // exits 2. This must not be mistaken for "rg is not installed".
+    const result = await runRipgrep(["--no-heading", "(?=hello)", "."], root);
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") expect(result.message).toMatch(/regex parse error/i);
+  });
+
+  it("reports unavailable when the binary is missing", async () => {
+    const result = await runRipgrep(["x", "."], root, undefined, "rg-does-not-exist-lucky");
+    expect(result).toEqual({ status: "unavailable" });
   });
 });
 
@@ -71,6 +117,26 @@ describe("glob and grep tools", () => {
     const result = await registry.execute("grep", { pattern: "zzz" }, { cwd: root });
     expect(result.isError).toBeUndefined();
     expect(result.content).toMatch(/no matches/i);
+  });
+
+  it.runIf(hasRg)("runs glob through ripgrep without an argument error", async () => {
+    // Regression: the ignore globs were once passed bare instead of behind
+    // --glob, so ripgrep read them as paths, failed, and glob silently fell
+    // back to the JS walker on every call.
+    const result = await registry.execute("glob", { pattern: "**/*.ts" }, { cwd: root });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).not.toMatch(/no such file or directory/i);
+    expect(result.content).toContain(join("src", "a.ts"));
+  });
+
+  it.runIf(hasRg)("surfaces a ripgrep engine error instead of falling back", async () => {
+    // A lookahead parses as a JS RegExp (so the tool's own validation passes)
+    // but ripgrep rejects it. Falling back to the JS walker here would return
+    // matches from a different regex engine with no indication of the switch.
+    const result = await registry.execute("grep", { pattern: "(?=foo)" }, { cwd: root });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/search failed/i);
+    expect(result.content).not.toContain("a.ts");
   });
 
   it("includes surrounding lines when context is requested", async () => {

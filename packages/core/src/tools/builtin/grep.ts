@@ -53,7 +53,18 @@ export const grepTool = defineTool({
 
     const root = await resolveExistingInsideCwd(ctx.cwd, path);
     const rgResult = await grepWithRipgrep(root, pattern, include, context, ctx.signal);
-    if (rgResult) return formatHits(rgResult.hits, pattern, rgResult.truncated);
+    if (rgResult.status === "ok") {
+      return formatHits(rgResult.hits, pattern, rgResult.truncated);
+    }
+    if (rgResult.status === "failed") {
+      // Don't silently answer with the JS walker: its regex dialect differs from
+      // ripgrep's, so a pattern rg rejects (e.g. a lookahead) would return
+      // plausible-but-different results with no indication anything changed.
+      return {
+        content: `Search failed: ${rgResult.message}`,
+        isError: true,
+      };
+    }
 
     const hits: (GrepHit & { mtimeMs: number })[] = [];
     let truncated = false;
@@ -117,7 +128,11 @@ async function grepWithRipgrep(
   include: string | undefined,
   context: number,
   signal?: AbortSignal,
-): Promise<{ hits: GrepHit[]; truncated: boolean } | undefined> {
+): Promise<
+  | { status: "ok"; hits: GrepHit[]; truncated: boolean }
+  | { status: "unavailable" }
+  | { status: "failed"; message: string }
+> {
   const args = [
     "--line-number",
     "--no-heading",
@@ -133,10 +148,10 @@ async function grepWithRipgrep(
     pattern,
     ".",
   ];
-  const stdout = await runRipgrep(args, root, signal);
-  if (stdout === undefined) return undefined;
+  const result = await runRipgrep(args, root, signal);
+  if (result.status !== "ok") return result;
 
-  const hits = stdout
+  const hits = result.stdout
     .split(/\r?\n/)
     .filter((l) => l !== "" && l !== "--") // '--' separates context groups
     .map(parseRipgrepLine)
@@ -145,7 +160,7 @@ async function grepWithRipgrep(
   // Truncation is measured in matches, not lines: context lines inflate the
   // line count but ripgrep's --max-count already bounds matches per file.
   const matchCount = hits.filter((h) => h.isMatch).length;
-  return { hits, truncated: matchCount >= MAX_MATCHES };
+  return { status: "ok", hits, truncated: matchCount >= MAX_MATCHES };
 }
 
 // ripgrep prints matches as 'path:line:text' and context lines as

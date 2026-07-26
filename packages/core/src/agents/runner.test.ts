@@ -11,7 +11,8 @@ import {
   resetProvider,
 } from "../providers/registry.js";
 import type { AgentProfile } from "./profiles.js";
-import { runSubAgent } from "./runner.js";
+import { runSubAgent, subAgentToolRegistry } from "./runner.js";
+import { defaultToolRegistry } from "../tools/builtin/index.js";
 
 const INFO: ProviderInfo = {
   id: "claude",
@@ -53,6 +54,23 @@ const PROFILE: AgentProfile = {
 
 const FAKE_CREDS = { type: "claude" as const, apiKey: "test" };
 
+describe("subAgentToolRegistry", () => {
+  it("excludes exactly the tools a sub-agent has no channel for", () => {
+    const child = subAgentToolRegistry().list().map((t) => t.name);
+    const all = defaultToolRegistry().list().map((t) => t.name);
+
+    expect(all).toContain("spawn_agent"); // guards against a silent rename
+    expect(child).not.toContain("spawn_agent");
+    expect(child).not.toContain("ask_user");
+    expect(child).not.toContain("present_plan");
+    expect(all.filter((n) => !child.includes(n))).toEqual([
+      "present_plan",
+      "spawn_agent",
+      "ask_user",
+    ]);
+  });
+});
+
 describe("runSubAgent", () => {
   afterEach(() => resetProvider("claude"));
 
@@ -74,6 +92,36 @@ describe("runSubAgent", () => {
     expect(result.usage.outputTokens).toBe(20);
     // onUsage fired at least once with the running total.
     expect(usages.at(-1)?.inputTokens).toBe(100);
+  });
+
+  it("does not advertise interactive or delegating tools to the sub-agent", async () => {
+    const seen: string[] = [];
+    class ToolRecordingProvider extends ReportingProvider {
+      override async *generateStream(
+        _messages: unknown,
+        config: { tools?: { name: string }[] },
+      ): AsyncGenerator<StreamChunk> {
+        for (const t of config.tools ?? []) seen.push(t.name);
+        yield { textDelta: "done" };
+        yield { finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1 } };
+      }
+    }
+    registerProviderFactory("claude", () => new ToolRecordingProvider());
+
+    await runSubAgent({
+      profile: PROFILE,
+      task: "do the work",
+      cwd: process.cwd(),
+      system: "base prompt",
+      resolveCredentials: () => FAKE_CREDS,
+    });
+
+    expect(seen).not.toContain("spawn_agent");
+    expect(seen).not.toContain("ask_user");
+    expect(seen).not.toContain("present_plan");
+    // The rest of the toolset is still there — this is a filter, not a lockdown.
+    expect(seen).toContain("read_file");
+    expect(seen).toContain("write_file");
   });
 
   it("errors when the provider has no credentials", async () => {

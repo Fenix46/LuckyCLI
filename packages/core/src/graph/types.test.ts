@@ -63,6 +63,43 @@ describe("resolveCrossFileCalls", () => {
     ]);
   });
 
+  it("does not let a receiver hint match a longer class name ending in that hint", () => {
+    const caller = fnNode("a.go", "run");
+    // Only MyFoo.bark exists; a hint of "Foo" must not claim it, since the id
+    // (`..._myfoo_bark`) merely ends with the `foo_bark` suffix.
+    const myFooBark = methodNode("myfoo.go", "MyFoo", "bark");
+    const graph = graphWith([caller, myFooBark]);
+
+    const candidates: CallCandidate[] = [
+      { callerId: caller.id, calleeName: "bark", receiverHint: "Foo" },
+    ];
+    resolveCrossFileCalls(graph, candidates);
+
+    // Falls through to the bare-name tier, which is unique here, so the edge
+    // still lands — but via the honest fallback, not a bogus "hint matched".
+    expect(graph.edges).toEqual([
+      { source: caller.id, target: myFooBark.id, relation: "calls", confidence: "AMBIGUOUS" },
+    ]);
+  });
+
+  it("picks the exact class when a same-suffix decoy class exists", () => {
+    const caller = fnNode("a.go", "run");
+    const fooBark = methodNode("foo.go", "Foo", "bark");
+    const myFooBark = methodNode("myfoo.go", "MyFoo", "bark");
+    const graph = graphWith([caller, fooBark, myFooBark]);
+
+    const candidates: CallCandidate[] = [
+      { callerId: caller.id, calleeName: "bark", receiverHint: "Foo" },
+    ];
+    resolveCrossFileCalls(graph, candidates);
+
+    // Suffix matching without a boundary check would match both and, being
+    // ambiguous, drop the edge entirely.
+    expect(graph.edges).toEqual([
+      { source: caller.id, target: fooBark.id, relation: "calls", confidence: "AMBIGUOUS" },
+    ]);
+  });
+
   it("skips an ambiguous candidate rather than guessing wrong", () => {
     const caller = fnNode("a.go", "run");
     const dogBark = methodNode("dog.go", "Dog", "bark");

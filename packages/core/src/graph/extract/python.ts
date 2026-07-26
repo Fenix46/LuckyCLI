@@ -3,7 +3,8 @@
  *
  * Same contract and conventions as the TypeScript extractor, adapted to
  * Python's grammar: `def` (function_definition) and `class` (class_definition),
- * `import` / `from ... import`, and an intra-file call-graph second pass.
+ * `import` / `from ... import`, and a call-graph second pass that emits both
+ * intra-file `calls` edges and cross-file CallCandidates.
  *
  * A `def` directly inside a class body is a `method`; anywhere else it is a
  * `function`. Functions nested inside other functions are plain functions, so
@@ -13,7 +14,13 @@
  */
 import { basename } from "node:path";
 import type { Node } from "web-tree-sitter";
-import { type Extraction, type GraphEdge, type GraphNode, makeNodeId } from "../types.js";
+import {
+  type CallCandidate,
+  type Extraction,
+  type GraphEdge,
+  type GraphNode,
+  makeNodeId,
+} from "../types.js";
 import type { Extractor, ExtractorContext } from "./types.js";
 import { lineLabel } from "./types.js";
 
@@ -64,6 +71,7 @@ function extractPython(ctx: ExtractorContext): Extraction {
   const seenEdges = new Set<string>();
   /** Local callables addressable by a bare `name()` call → node id. */
   const callables = new Map<string, string>();
+  const callCandidates: CallCandidate[] = [];
 
   const fid = fileId(path);
   addNode({ id: fid, label: basename(path), kind: "file", sourceFile: path });
@@ -140,14 +148,30 @@ function extractPython(ctx: ExtractorContext): Extraction {
   }
   collect(root, fid, undefined);
 
-  // --- Pass 2: call graph (INFERRED `calls` between local symbols) -----------
-  function calls(node: Node, enclosing: string | undefined, className: string | undefined): void {
+  // --- Pass 2: call graph ----------------------------------------------------
+  // Locally resolvable calls become INFERRED `calls` edges; anything that leaves
+  // the file (`obj.method()`, or a bare name that is not a local callable —
+  // typically imported) becomes a CallCandidate for resolveCrossFileCalls.
+  //
+  // `className` is the class whose body we are directly in (cleared inside a
+  // function body, so nested defs get plain-function ids), while `selfClass`
+  // survives into method bodies — that is what `self.m()` resolves against.
+  function calls(
+    node: Node,
+    enclosing: string | undefined,
+    className: string | undefined,
+    selfClass: string | undefined,
+  ): void {
     let current = enclosing;
     let childClass = className;
+    let childSelfClass = selfClass;
     switch (node.type) {
-      case "class_definition":
-        childClass = node.childForFieldName("name")?.text ?? className;
+      case "class_definition": {
+        const name = node.childForFieldName("name")?.text;
+        childClass = name ?? className;
+        childSelfClass = name ?? selfClass;
         break;
+      }
       case "function_definition": {
         const name = node.childForFieldName("name")?.text;
         if (name) current = symbolId(path, className ? `${className}.${name}` : name);
@@ -156,20 +180,48 @@ function extractPython(ctx: ExtractorContext): Extraction {
       }
       case "call": {
         const callee = node.childForFieldName("function");
-        if (current && callee?.type === "identifier") {
+        if (!current || !callee) break;
+        if (callee.type === "identifier") {
           const target = callables.get(callee.text);
           if (target && target !== current) {
             addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+          } else if (!target) {
+            // No local callable with this name — typically an imported function.
+            callCandidates.push({ callerId: current, calleeName: callee.text });
+          }
+        } else if (callee.type === "attribute") {
+          const object = callee.childForFieldName("object");
+          const name = callee.childForFieldName("attribute")?.text;
+          if (!name) break;
+          if (object?.type === "identifier" && object.text === "self") {
+            // self.m() — same class, resolvable locally.
+            if (selfClass) {
+              const target = symbolId(path, `${selfClass}.${name}`);
+              if (seenNodes.has(target) && target !== current) {
+                addEdge({ source: current, target, relation: "calls", confidence: "INFERRED" });
+              }
+            }
+          } else {
+            // Receiver as written: a variable, module alias or class name. No
+            // type inference, so this is only ever a hint.
+            const receiverHint = object?.type === "identifier" ? object.text : undefined;
+            callCandidates.push({
+              callerId: current,
+              calleeName: name,
+              ...(receiverHint ? { receiverHint } : {}),
+            });
           }
         }
         break;
       }
     }
-    for (const child of node.namedChildren) if (child) calls(child, current, childClass);
+    for (const child of node.namedChildren) {
+      if (child) calls(child, current, childClass, childSelfClass);
+    }
   }
-  calls(root, undefined, undefined);
+  calls(root, undefined, undefined, undefined);
 
-  return { nodes, edges };
+  return { nodes, edges, ...(callCandidates.length ? { callCandidates } : {}) };
 }
 
 export const pythonExtractor: Extractor = { language: "python", extract: extractPython };

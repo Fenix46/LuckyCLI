@@ -86,6 +86,70 @@ describe("python extractor", () => {
     expect(calls.some((e) => e.source === beta.id)).toBe(false);
   });
 
+  it("emits a hint-less candidate for a bare call to an imported name", async () => {
+    const { nodes, callCandidates } = await extract("pkg/sample.py", SAMPLE);
+    const beta = byLabel(nodes, "beta")!;
+    // beta calls h(), imported from .utils — no local callable, so it leaves
+    // the file as a candidate instead of silently vanishing.
+    expect(callCandidates).toContainEqual({ callerId: beta.id, calleeName: "h" });
+  });
+
+  it("emits a candidate hinted with the variable name for obj.m calls", async () => {
+    const source = `def run(r):
+    return r.area()
+`;
+    const { nodes, callCandidates } = await extract("run.py", source);
+    const run = byLabel(nodes, "run")!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "area",
+      receiverHint: "r",
+    });
+  });
+
+  it("emits a candidate hinted with the module alias for pkg.fn calls", async () => {
+    const source = `import os
+
+def run():
+    return os.getcwd()
+`;
+    const { nodes, callCandidates } = await extract("run.py", source);
+    const run = byLabel(nodes, "run")!;
+    expect(callCandidates).toContainEqual({
+      callerId: run.id,
+      calleeName: "getcwd",
+      receiverHint: "os",
+    });
+  });
+
+  it("resolves self.m within the class instead of emitting a candidate", async () => {
+    const source = `class Foo:
+    def run(self):
+        return self.helper()
+
+    def helper(self):
+        return 1
+`;
+    const { nodes, edges, callCandidates } = await extract("foo.py", source);
+    const run = byLabel(nodes, "run")!;
+    const helper = byLabel(nodes, "helper")!;
+    expect(
+      edges.some((e) => e.relation === "calls" && e.source === run.id && e.target === helper.id),
+    ).toBe(true);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
+  it("emits no candidates for a file whose calls all resolve locally", async () => {
+    const source = `def alpha():
+    return beta()
+
+def beta():
+    return 1
+`;
+    const { callCandidates } = await extract("local.py", source);
+    expect(callCandidates ?? []).toHaveLength(0);
+  });
+
   it("is registered for the python language", () => {
     expect(extractorFor("python")).toBe(pythonExtractor);
   });

@@ -301,6 +301,19 @@ export function markExternalNodes(nodes: Iterable<GraphNode>): void {
  * Candidates are cleared after resolution; they never reach the persisted
  * graph (call sites are re-discovered on every build/update from source).
  */
+/**
+ * True when `id` ends with `suffix` on an underscore boundary — i.e. the suffix
+ * covers whole id segments, not a fragment of one. `makeNodeId` collapses every
+ * qualifier separator (`.`, `::`, `/`, …) to `_`, so a bare `endsWith` would let
+ * a hint of `Foo` match `MyFoo.bar`'s id (`..._myfoo_bar`) and attribute the
+ * call to an unrelated class.
+ */
+function endsWithSegment(id: string, suffix: string): boolean {
+  if (!id.endsWith(suffix)) return false;
+  const boundary = id.length - suffix.length;
+  return boundary === 0 || id[boundary - 1] === "_";
+}
+
 export function resolveCrossFileCalls(
   graph: Graph,
   candidates: readonly CallCandidate[],
@@ -337,7 +350,7 @@ export function resolveCrossFileCalls(
     let target: GraphNode | undefined;
     if (candidate.receiverHint) {
       const hintSuffix = makeNodeId(`${candidate.receiverHint}_${candidate.calleeName}`);
-      const hinted = sameName.filter((n) => n.id.endsWith(hintSuffix));
+      const hinted = sameName.filter((n) => endsWithSegment(n.id, hintSuffix));
       if (hinted.length === 1) target = hinted[0];
     }
     if (!target && sameName.length === 1) {

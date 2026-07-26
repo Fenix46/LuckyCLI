@@ -21,13 +21,38 @@ export function makeMcpToolName(server: string, tool: string): string {
   return `${sanitizeNamePart(server)}_${sanitizeNamePart(tool)}`;
 }
 
+/**
+ * Sanitization is lossy, so distinct server/tool pairs can produce the same
+ * name — `("docs/api", "search")` and `("docs", "api_search")` both give
+ * `docs_api_search`. The registry rejects duplicates, which would otherwise
+ * make a configured tool silently disappear from the model's toolset.
+ *
+ * Give the first claimant the natural name (stable for the overwhelmingly
+ * common no-collision case) and suffix later ones with `_2`, `_3`, … `taken`
+ * accumulates across calls so a caller can disambiguate against names already
+ * registered elsewhere.
+ */
+export function uniqueMcpToolName(
+  server: string,
+  tool: string,
+  taken: Set<string>,
+): string {
+  const base = makeMcpToolName(server, tool);
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}_${n}`;
+  taken.add(name);
+  return name;
+}
+
 export function adaptMcpTool(
   server: string,
   descriptor: McpToolDescriptor,
   invoke: McpToolInvoker,
+  /** Registry name, when the caller has already disambiguated collisions. */
+  name = makeMcpToolName(server, descriptor.name),
 ): Tool<z.ZodObject<z.ZodRawShape, "passthrough">> {
   return defineTool({
-    name: makeMcpToolName(server, descriptor.name),
+    name,
     description: descriptor.description ?? `MCP tool ${descriptor.name} from server ${server}.`,
     schema: z.object({}).passthrough(),
     parametersSchema: normalizeToolInputSchema(descriptor.inputSchema),

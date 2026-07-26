@@ -637,3 +637,68 @@ export function describe(w: number, h: number): number {
     expect(resolved?.confidence).toBe("AMBIGUOUS");
   });
 });
+
+describe("graph build pipeline — cross-file calls (python)", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "lucky-build-xfile-py-"));
+    await writeFile(
+      join(root, "shapes.py"),
+      `class Rect:
+    def area(self):
+        return 1.0
+
+
+def scale(x):
+    return x * 2
+`,
+    );
+    await writeFile(
+      join(root, "main.py"),
+      `from shapes import Rect, scale
+
+
+def describe(r):
+    return r.area()
+
+
+def resize(x):
+    return scale(x)
+`,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves a receiver method call across files into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const describeFn = nodes.find((n) => n.label === "describe")!;
+    const areaMethod = nodes.find((n) => n.label === "area")!;
+    expect(areaMethod.sourceFile).toBe("shapes.py");
+    expect(describeFn.sourceFile).toBe("main.py");
+
+    const resolved = edges.find(
+      (e) => e.source === describeFn.id && e.target === areaMethod.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+
+  it("resolves an imported-function call across files into an AMBIGUOUS calls edge", async () => {
+    const summary = await buildGraph(root);
+    const { nodes, edges } = summary.graph;
+
+    const resizeFn = nodes.find((n) => n.label === "resize")!;
+    const scaleFn = nodes.find((n) => n.label === "scale")!;
+    expect(scaleFn.sourceFile).toBe("shapes.py");
+
+    const resolved = edges.find(
+      (e) => e.source === resizeFn.id && e.target === scaleFn.id && e.relation === "calls",
+    );
+    expect(resolved?.confidence).toBe("AMBIGUOUS");
+  });
+});

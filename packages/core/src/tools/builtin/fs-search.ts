@@ -84,23 +84,45 @@ export interface WalkedFile {
   mtimeMs: number;
 }
 
+/**
+ * Outcome of a ripgrep invocation.
+ *
+ * `unavailable` (rg not installed) is the only case callers should silently
+ * fall back to the JS walker for. `failed` means rg ran and rejected the
+ * request — a pattern its Rust regex engine doesn't support, a bad flag, an
+ * unreadable root. Falling back there would quietly answer a *different*
+ * question (the JS walker's regex dialect and flags differ), so callers surface
+ * it instead.
+ */
+export type RipgrepResult =
+  | { status: "ok"; stdout: string }
+  | { status: "unavailable" }
+  | { status: "failed"; message: string };
+
 export async function runRipgrep(
   args: string[],
   cwd: string,
   signal?: AbortSignal,
-): Promise<string | undefined> {
+  /** Binary to invoke. Overridable so tests can exercise the missing-rg path. */
+  bin = "rg",
+): Promise<RipgrepResult> {
   try {
-    const { stdout } = await execFileAsync("rg", args, {
+    const { stdout } = await execFileAsync(bin, args, {
       cwd,
       maxBuffer: RG_MAX_BUFFER,
       ...(signal ? { signal } : {}),
     });
-    return stdout;
+    return { status: "ok", stdout };
   } catch (err) {
-    const e = err as { code?: unknown; stdout?: string };
-    if (e.code === 1) return e.stdout ?? "";
-    if (e.code === "ENOENT") return undefined;
-    return undefined;
+    const e = err as { code?: unknown; stdout?: string; stderr?: string; message?: string };
+    // Exit 1 is ripgrep's "no matches", which is a successful empty search.
+    if (e.code === 1) return { status: "ok", stdout: e.stdout ?? "" };
+    if (e.code === "ENOENT") return { status: "unavailable" };
+    // An aborted run isn't a ripgrep failure; let the caller's own signal
+    // handling take over via the (empty) fallback walk.
+    if (signal?.aborted) return { status: "ok", stdout: e.stdout ?? "" };
+    const detail = (e.stderr ?? "").trim() || e.message?.trim() || `exit code ${String(e.code)}`;
+    return { status: "failed", message: detail };
   }
 }
 

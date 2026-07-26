@@ -20,7 +20,7 @@ import type {
   TokenUsage,
 } from "../providers/types.js";
 import { isProviderId } from "../providers/types.js";
-import type { ToolRegistry } from "../tools/registry.js";
+import { ToolRegistry } from "../tools/registry.js";
 import { defaultToolRegistry } from "../tools/builtin/index.js";
 import type { AgentProfile } from "./profiles.js";
 
@@ -41,7 +41,10 @@ export interface SubAgentRequest {
   ) => ProviderCredentials | undefined | null;
   /** Base system prompt for the sub-agent (the profile persona is prepended). */
   system: string;
-  /** Optional explicit tool registry. Defaults to the full built-in set. */
+  /**
+   * Optional explicit tool registry. Defaults to the built-in set minus the
+   * tools a sub-agent cannot use (see {@link subAgentToolRegistry}).
+   */
   tools?: ToolRegistry;
   /** Called after every sub-agent turn with its cumulative usage so far. */
   onUsage?: (usage: TokenUsage) => void;
@@ -54,6 +57,32 @@ export interface SubAgentResult {
   report: string;
   /** Total tokens the sub-agent consumed. */
   usage: TokenUsage;
+}
+
+/**
+ * Tools a sub-agent must not be given.
+ *
+ * All three depend on a bridge the child is never wired with, so today they
+ * only ever return "no bridge configured" — but the model still sees them
+ * advertised and can waste a turn calling one. Filtering them explicitly also
+ * makes the no-recursion property a decision rather than an accident of
+ * wiring: `spawn_agent` stays out even if `runSubAgent` is later threaded into
+ * child agents for nested delegation.
+ *
+ * `ask_user` / `present_plan` are excluded because a sub-agent has no channel
+ * to the human: it runs headless and reports back through its caller. A child
+ * that needs clarification should say so in its report instead.
+ */
+const SUB_AGENT_EXCLUDED_TOOLS = new Set(["spawn_agent", "ask_user", "present_plan"]);
+
+/** The default tool set minus the tools a sub-agent cannot meaningfully use. */
+export function subAgentToolRegistry(): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const tool of defaultToolRegistry().list()) {
+    if (SUB_AGENT_EXCLUDED_TOOLS.has(tool.name)) continue;
+    registry.register(tool);
+  }
+  return registry;
 }
 
 /** Combine a profile persona with the base system prompt. */
@@ -95,7 +124,7 @@ export async function runSubAgent(
   const agent = new Agent({
     provider,
     model: req.profile.model,
-    tools: req.tools ?? defaultToolRegistry(),
+    tools: req.tools ?? subAgentToolRegistry(),
     system: composeSystemPrompt(req.system, req.profile),
     cwd: req.cwd,
     ...(req.onFilesChanged ? { onFilesChanged: req.onFilesChanged } : {}),
