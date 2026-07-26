@@ -183,6 +183,25 @@ describe("ClaudeProvider", () => {
     expect(usage).toEqual({ inputTokens: 1, outputTokens: 0 });
     expect(countTokensMock).not.toHaveBeenCalled();
     const probe = createMock.mock.calls.at(-1)?.[0];
+    // The probe runs on the conversation's own model, not a cheaper one:
+    // prompt caches are model-scoped, so probing elsewhere would re-bill the
+    // whole transcript at cache-write price instead of reading it back at ~0.1x.
+    expect(probe).toMatchObject({ model: "claude-test", max_tokens: 1 });
+  });
+
+  it("falls back to the small probe model when no model is given", async () => {
+    const provider = new ClaudeProvider({
+      type: "claude",
+      authMethod: "oauth",
+      accessToken: "oauth-access-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+
+    await provider.countTokens(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { model: "" },
+    );
+    const probe = createMock.mock.calls.at(-1)?.[0];
     expect(probe).toMatchObject({ model: "claude-haiku-4-5-20251001", max_tokens: 1 });
   });
 

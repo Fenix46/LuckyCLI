@@ -48,7 +48,9 @@ const CLAUDE_CODE_BETA_HEADER = [
 ].join(",");
 const CLAUDE_CODE_BILLING_SYSTEM =
   "x-anthropic-billing-header: cc_version=2.1.198.cea; cc_entrypoint=cli; cch=d1656;";
-// Small/fast model used for OAuth token-count probes (see countTokensViaProbe).
+// Fallback model for OAuth token-count probes, used only when the caller gave
+// no model. Normally the probe runs on the conversation's own model so it can
+// read that model's prompt cache — see countTokensViaProbe.
 const CLAUDE_COUNT_PROBE_MODEL = "claude-haiku-4-5-20251001";
 // Ephemeral prompt-cache marker. Placed on the stable prefix of every request
 // (system prompt + tool definitions) and on a moving breakpoint at the end of
@@ -192,10 +194,10 @@ export class ClaudeProvider implements IProvider {
     await this.ensureFreshToken();
     // OAuth tokens cannot call the dedicated /count_tokens endpoint (it is not
     // covered by the user:inference scope). Instead we probe with a real
-    // inference request capped at one output token on the small/fast model and
-    // read the input usage it reports back — the same approach claude-code uses
-    // as its count fallback. The model only affects price/latency here, not the
-    // input token count of the transcript, so we always use Haiku.
+    // inference request capped at one output token and read back the input
+    // usage it reports. The model does not change the transcript's input token
+    // count, but it does decide which prompt cache we hit, so the probe runs on
+    // the conversation's model (see countTokensViaProbe).
     if (this.credentials.authMethod === "oauth") {
       return this.countTokensViaProbe(messages, config);
     }
@@ -222,11 +224,20 @@ export class ClaudeProvider implements IProvider {
    * Count input tokens for a transcript without the /count_tokens endpoint, by
    * issuing a minimal inference request (max_tokens: 1) and reading usage.
    * Used for OAuth, where /count_tokens is unavailable.
+   *
+   * The probe runs on the *conversation's* model, not a cheaper one. That looks
+   * backwards, but prompt caches are model-scoped: probing on a different model
+   * can never read the cache the conversation just wrote, so it re-bills the
+   * whole transcript at the 1.25x cache-write rate every time. Probing on the
+   * same model turns that into a ~0.1x cache read, which is far cheaper than
+   * the per-token saving from a smaller model — and the input token count is
+   * what we're after, which is identical either way.
    */
   private async countTokensViaProbe(
     messages: Message[],
     config: GenerationConfig,
   ): Promise<TokenUsage | undefined> {
+    const probeModel = config.model || CLAUDE_COUNT_PROBE_MODEL;
     const { system, messages: anthropicMessages } = toAnthropic(
       messages,
       config.systemPrompt,
@@ -239,11 +250,11 @@ export class ClaudeProvider implements IProvider {
         : [{ role: "user", content: "count" }];
     try {
       const request = {
-        model: CLAUDE_COUNT_PROBE_MODEL,
+        model: probeModel,
         max_tokens: 1,
         ...this.systemParam(system),
         messages: probeMessages,
-        ...buildOptions(config, CLAUDE_COUNT_PROBE_MODEL),
+        ...buildOptions(config, probeModel),
       } as unknown as Anthropic.MessageCreateParamsNonStreaming;
       const response = await this.client.messages.create(
         request,

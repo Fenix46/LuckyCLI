@@ -615,4 +615,62 @@ describe("Agent loop", () => {
     expect(status.usedTokens).toBe(10_000);
     expect(status.tokenCounter).toBe("provider");
   });
+
+  it("does not re-count an unchanged transcript", async () => {
+    // Counting is a real billed round-trip on Claude OAuth, so repeated status
+    // reads on identical history must reuse the memoized count.
+    let counts = 0;
+    class CountingProvider extends ScriptedProvider {
+      override async countTokens(): Promise<TokenUsage | undefined> {
+        counts++;
+        return { inputTokens: 1_000, outputTokens: 0 };
+      }
+    }
+    const agent = new Agent({
+      provider: new CountingProvider([[{ finishReason: "stop" }]]),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    await agent.contextStatus();
+    await agent.contextStatus();
+    await agent.contextStatus();
+    expect(counts).toBe(1);
+
+    // A new turn changes the transcript, so the next read must count again.
+    await collect(agent.send("hello"));
+    await agent.contextStatus();
+    expect(counts).toBe(2);
+  });
+
+  it("does not send the agent system prompt with compaction summaries", async () => {
+    // The summarization prompt is self-contained; shipping the multi-thousand
+    // token system prompt would be pure waste and can't hit the cache.
+    const seen: (string | undefined)[] = [];
+    class RecordingProvider extends ScriptedProvider {
+      override async generate(
+        _messages: Message[],
+        config: GenerationConfig,
+      ): Promise<GenerationResponse> {
+        seen.push(config.systemPrompt);
+        return { content: [{ type: "text", text: "summary" }], finishReason: "stop" };
+      }
+    }
+    const agent = new Agent({
+      provider: new RecordingProvider([
+        [{ finishReason: "stop" }],
+        [{ finishReason: "stop" }],
+      ]),
+      model: "mock",
+      system: "SYSTEM PROMPT THAT MUST NOT BE SENT",
+      tools: new ToolRegistry(),
+    });
+
+    await collect(agent.send("one"));
+    await collect(agent.send("two"));
+    await agent.compactNow();
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((s) => s === undefined)).toBe(true);
+  });
 });

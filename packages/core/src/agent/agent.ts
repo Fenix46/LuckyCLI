@@ -118,6 +118,8 @@ export class Agent {
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
   private lastUsage: TokenUsage | undefined;
+  /** Memoized provider token count, keyed by a fingerprint of the transcript. */
+  private countCache: { fingerprint: string; usage: TokenUsage } | undefined;
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   private readonly history: Message[] = [];
 
@@ -199,10 +201,16 @@ export class Agent {
     };
   }
 
-  async compactNow(): Promise<CompactionResult> {
-    // Manual /compact is an explicit user request: compress now whenever there
-    // is anything to compress, even on a short conversation that hasn't yet
-    // grown past keepRecentTurns. The automatic path stays threshold-gated.
+  /**
+   * Compact on explicit user request (`/compact`). Compresses whenever there is
+   * anything to compress, even on a short conversation that hasn't yet grown
+   * past keepRecentTurns; the automatic path stays threshold-gated.
+   *
+   * The returned `status` is the post-compaction context, already measured
+   * here — callers should display it rather than calling `contextStatus()`
+   * again, which on Claude OAuth costs another billed round-trip.
+   */
+  async compactNow(): Promise<CompactionResult & { status: ContextStatus }> {
     return this.compactHistory(undefined, { force: true });
   }
 
@@ -226,9 +234,16 @@ export class Agent {
     const beforeStatus = await this.cheapContextStatus();
     yield { type: "context", status: beforeStatus };
     if (this.shouldCompact(beforeStatus)) {
-      const result = await this.compactHistory(beforeStatus.usedTokens);
+      // compactHistory already measured the post-compaction transcript; reuse
+      // that status instead of measuring the same history a second time. On
+      // Claude OAuth a status call is a real billed request (no free
+      // /count_tokens), so the duplicate was costing an extra full-transcript
+      // round-trip on every compaction.
+      const { status: afterStatus, ...result } = await this.compactHistory(
+        beforeStatus.usedTokens,
+      );
       yield { type: "context_compacted", result };
-      yield { type: "context", status: await this.contextStatus() };
+      yield { type: "context", status: afterStatus };
     }
 
     // Unbounded by default: the loop ends when the model stops requesting tools
@@ -432,11 +447,22 @@ export class Agent {
   }
 
   private async contextStatusFor(messages: Message[]): Promise<ContextStatus> {
+    // Counting can be expensive — on Claude OAuth there is no free
+    // /count_tokens, so it costs a real inference round-trip. Memoize on the
+    // transcript so repeated status reads (/context then /status, or a
+    // re-render) don't each pay for it. Any edit to the history changes the
+    // fingerprint and forces a fresh count.
+    const fingerprint = this.countFingerprint(messages);
     let usage: TokenUsage | undefined;
-    try {
-      usage = await this.provider.countTokens(messages, this.generationConfig());
-    } catch {
-      usage = undefined;
+    if (this.countCache?.fingerprint === fingerprint) {
+      usage = this.countCache.usage;
+    } else {
+      try {
+        usage = await this.provider.countTokens(messages, this.generationConfig());
+      } catch {
+        usage = undefined;
+      }
+      if (usage) this.countCache = { fingerprint, usage };
     }
     const info = this.currentModelInfo();
     const contextWindow = info.contextWindow;
@@ -458,6 +484,36 @@ export class Agent {
     return this.contextStatusFromUsage(usage, { ...base, tokenCounter: "provider" });
   }
 
+  /**
+   * Cheap identity for a transcript + the settings that affect its token count.
+   * Sizes rather than full text: hashing megabytes of transcript on every
+   * status read would cost more than it saves, and any real edit changes a
+   * length, a part count, or the trailing content.
+   */
+  private countFingerprint(messages: Message[]): string {
+    const parts: string[] = [this.model, String(messages.length)];
+    for (const message of messages) {
+      parts.push(message.role, String(message.content.length));
+      for (const part of message.content) {
+        switch (part.type) {
+          case "text":
+            parts.push("t", String(part.text.length));
+            break;
+          case "tool_call":
+            parts.push("c", part.id, String(JSON.stringify(part.arguments).length));
+            break;
+          case "tool_result":
+            parts.push("r", part.toolCallId, String(part.content.length));
+            break;
+          case "image":
+            parts.push("i", String(part.data.length));
+            break;
+        }
+      }
+    }
+    return parts.join("|");
+  }
+
   private shouldCompact(status: ContextStatus): boolean {
     if (!this.compaction.enabled) return false;
     // Decide purely from the same context numbers the UI already shows for
@@ -473,10 +529,15 @@ export class Agent {
     return status.usedTokens >= status.usableTokens * this.compaction.thresholdRatio;
   }
 
+  /**
+   * Compact the transcript. Returns the usual {@link CompactionResult} plus the
+   * post-compaction {@link ContextStatus} it had to compute anyway, so callers
+   * can report the new context size without paying for a second measurement.
+   */
   private async compactHistory(
     beforeTokens?: number,
     opts: { force?: boolean } = {},
-  ): Promise<CompactionResult> {
+  ): Promise<CompactionResult & { status: ContextStatus }> {
     // Normally we keep the last keepRecentTurns user turns verbatim and compact
     // everything before them. On a short conversation that split point is 0
     // (not enough turns yet). The automatic path bails there — it only fires
@@ -488,12 +549,15 @@ export class Agent {
       splitIndex = findRecentTurnStart(this.history, 1);
     }
     if (splitIndex <= 0) {
+      // Nothing changed, so the caller's pre-compaction view is still accurate:
+      // reuse it rather than paying for a measurement of an untouched history.
       return {
         beforeTokens,
         afterTokens: beforeTokens,
         removedMessages: 0,
         keptMessages: this.history.length,
         summary: "Nothing to compact yet.",
+        status: await this.cheapContextStatus(),
       };
     }
 
@@ -510,6 +574,8 @@ export class Agent {
       ],
     };
     this.history.splice(0, this.history.length, summaryMessage, ...tail);
+    // The transcript was rewritten wholesale; any memoized count is now stale.
+    this.countCache = undefined;
     const after = await this.contextStatus();
     return {
       beforeTokens,
@@ -517,6 +583,7 @@ export class Agent {
       removedMessages: compactable.length,
       keptMessages: tail.length,
       summary,
+      status: after,
     };
   }
 
@@ -524,11 +591,15 @@ export class Agent {
     const transcript = serializeForSummary(messages);
     const prompt = `${buildSummarizationPrompt()}\n\n${transcript}`;
     const model = this.summarizationModel();
+    // Deliberately no systemPrompt: the summarization prompt is self-contained,
+    // and the agent's system prompt (identity, tool-use, skills, environment —
+    // several thousand tokens) is both irrelevant to summarizing and unable to
+    // hit the cache here, since this request usually runs on a different,
+    // cheaper model and caches are model-scoped.
     const response = await this.provider.generate(
       [{ role: "user", content: [{ type: "text", text: prompt }] }],
       {
         model,
-        ...(this.system ? { systemPrompt: this.system } : {}),
         maxTokens: Math.min(2048, this.currentModelInfo().maxOutputTokens ?? 2048),
       },
     );

@@ -120,6 +120,10 @@ describe("/update apply", () => {
 describe("/compact", () => {
   it("compacts, refreshes context, persists and reports", async () => {
     const contextStatus = { contextWindow: 100 };
+    // compactNow reports the post-compaction status it already measured; the
+    // command must reuse it rather than asking again (a billed round-trip on
+    // Claude OAuth).
+    const contextStatusSpy = vi.fn(async () => contextStatus);
     const h = harness({
       agent: {
         compactNow: vi.fn(async () => ({
@@ -127,13 +131,15 @@ describe("/compact", () => {
           keptMessages: 2,
           beforeTokens: 9000,
           afterTokens: 1000,
+          status: contextStatus,
         })),
-        contextStatus: vi.fn(async () => contextStatus),
+        contextStatus: contextStatusSpy,
       },
     });
     await h.run("/compact");
     expect(h.ui.setCompacting.mock.calls).toEqual([[true], [false]]);
     expect(h.ui.setContextStatus).toHaveBeenCalledWith(contextStatus);
+    expect(contextStatusSpy).not.toHaveBeenCalled();
     expect(h.ui.persistSession).toHaveBeenCalledOnce();
     const item = h.emitted[0]!;
     if (item.kind !== "command") throw new Error("expected command item");
