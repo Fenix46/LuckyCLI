@@ -890,6 +890,146 @@ describe("Agent loop", () => {
     expect(events.some((e) => e.type === "text")).toBe(false);
   });
 
+  it("gives up when the model repeats the same failing tool call", async () => {
+    // A model stuck re-issuing an unknown tool must not burn the whole
+    // maxSteps budget: the turn ends with a clear error after 3 attempts.
+    const calls: string[] = [];
+    class RepeatFailProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        yield { toolCall: { type: "tool_call", id: `t${calls.length}`, name: "nope", arguments: { a: 1 } } };
+        yield { finishReason: "tool_calls" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new RepeatFailProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    const error = events.find((e) => e.type === "error");
+    expect(error).toMatchObject({
+      type: "error",
+      message: "Tool 'nope' failed 3 consecutive times with identical arguments; ending the turn.",
+    });
+  });
+
+  it("resets the failure counter when the same tool call succeeds", async () => {
+    // One success between failures clears the streak, so the loop keeps going.
+    let step = 0;
+    class FlakyToolProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        if (step < 2) {
+          step += 1;
+          yield { toolCall: { type: "tool_call", id: `t${step}`, name: "flaky", arguments: {} } };
+          yield { finishReason: "tool_calls" };
+        } else {
+          yield { textDelta: "done" };
+          yield { finishReason: "stop" };
+        }
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const flaky = defineTool({
+      name: "flaky",
+      description: "Flaky tool",
+      schema: z.object({}),
+      execute: async () => {
+        step += 1;
+        if (step === 2) return { content: "boom", isError: true };
+        return { content: "ok" };
+      },
+    });
+    const registry = new ToolRegistry();
+    registry.register(flaky);
+
+    const agent = new Agent({
+      provider: new FlakyToolProvider(),
+      model: "mock",
+      tools: registry,
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "text" && e.delta === "done")).toBe(true);
+  });
+
+  it("records an aborted tool call cleanly in the transcript", async () => {
+    // An abort during tool execution must end the turn with an `aborted` event
+    // and leave a consistent transcript (assistant call + tool result +
+    // interruption marker) — never a synthetic follow-up stream.
+    let generated = 0;
+    class AbortingToolProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        generated += 1;
+        yield { toolCall: { type: "tool_call", id: "t1", name: "slow", arguments: {} } };
+        yield { finishReason: "tool_calls" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const abortController = new AbortController();
+    const registry = new ToolRegistry();
+    registry.register(
+      defineTool({
+        name: "slow",
+        description: "Slow tool",
+        schema: z.object({}),
+        execute: async (_input, ctx) => {
+          abortController.abort();
+          if (ctx.signal?.aborted) throw new Error("aborted");
+          return { content: "never" };
+        },
+      }),
+    );
+
+    const agent = new Agent({
+      provider: new AbortingToolProvider(),
+      model: "mock",
+      tools: registry,
+    });
+
+    const events = await collect(agent.send("hi", abortController.signal));
+    expect(events.some((e) => e.type === "aborted")).toBe(true);
+    expect(generated).toBe(1);
+    const toolResults = agent.messages.filter((m) => m.role === "tool");
+    expect(toolResults).toHaveLength(1);
+    const interrupted = agent.messages.filter(
+      (m) => m.role === "user" && m.content.some((c) => c.type === "text" && c.text === "[Request interrupted by user]"),
+    );
+    expect(interrupted).toHaveLength(1);
+  });
+
   it("manual compaction compresses a short conversation below keepRecentTurns", async () => {
     // Default keepRecentTurns is 6. A two-turn chat would leave the
     // turn-count split at 0, so the old compactHistory bailed with

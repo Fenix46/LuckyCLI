@@ -120,6 +120,8 @@ export class Agent {
   private lastUsage: TokenUsage | undefined;
   /** Memoized provider token count, keyed by a fingerprint of the transcript. */
   private countCache: { fingerprint: string; usage: TokenUsage } | undefined;
+  /** Consecutive failures per tool-call signature, reset on success. */
+  private readonly repeatedToolFailures = new Map<string, number>();
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   private readonly history: Message[] = [];
 
@@ -224,6 +226,9 @@ export class Agent {
     const content: ContentPart[] =
       typeof userInput === "string" ? [{ type: "text", text: userInput }] : userInput;
     this.history.push({ role: "user", content });
+    // Failure tracking is per turn: a new user message resets the counters so
+    // a tool that legitimately recovered isn't throttled by an old failure.
+    this.repeatedToolFailures.clear();
 
     // Use the cheap, already-known context size for the routine pre-turn check.
     // The previous stream's final usage measured the full transcript we sent, so
@@ -453,6 +458,53 @@ export class Agent {
           isError: result.isError ?? false,
           ...(result.metadata ? { metadata: result.metadata } : {}),
         };
+
+        // The interruption landed while the tool was running (or was rejected
+        // mid-approval): record the tool's outcome so the transcript stays
+        // consistent, mark the interruption, and end the turn — no further
+        // steps, no synthetic retry of a tool that never got to run.
+        if (signal?.aborted) {
+          resultBlocks.push({
+            type: "tool_result",
+            toolCallId: call.id,
+            name: call.name,
+            content: result.content,
+            ...(result.isError ? { isError: true } : {}),
+          });
+          this.history.push({ role: "tool", content: resultBlocks });
+          this.finalizeInterrupted();
+          yield { type: "aborted" };
+          return;
+        }
+
+        // A model stuck re-issuing the same failing call (unknown tool, invalid
+        // arguments, policy denial, or a tool that keeps throwing) would burn
+        // the whole maxSteps budget retrying it. Count identical failures and
+        // give up on the turn once the same call has failed several times
+        // consecutively — the user sees a clear error instead of a spinner.
+        const callKey = `${call.name}:${JSON.stringify(call.arguments ?? {})}`;
+        if (result.isError) {
+          const failures = (this.repeatedToolFailures.get(callKey) ?? 0) + 1;
+          this.repeatedToolFailures.set(callKey, failures);
+          if (failures >= MAX_REPEATED_TOOL_FAILURES) {
+            resultBlocks.push({
+              type: "tool_result",
+              toolCallId: call.id,
+              name: call.name,
+              content: result.content,
+              ...(result.isError ? { isError: true } : {}),
+            });
+            this.history.push({ role: "tool", content: resultBlocks });
+            yield {
+              type: "error",
+              message: `Tool '${call.name}' failed ${failures} consecutive times with identical arguments; ending the turn.`,
+            };
+            return;
+          }
+        } else {
+          this.repeatedToolFailures.delete(callKey);
+        }
+
         resultBlocks.push({
           type: "tool_result",
           toolCallId: call.id,
@@ -762,6 +814,8 @@ function isAbortError(err: unknown): boolean {
 const MAX_TRANSIENT_RETRIES = 2;
 /** Base backoff for transient retries; doubles per attempt (500ms, 1s). */
 const TRANSIENT_RETRY_BACKOFF_MS = 500;
+/** Consecutive identical tool-call failures before the turn gives up. */
+const MAX_REPEATED_TOOL_FAILURES = 3;
 
 /**
  * Whether a provider error is worth a transparent retry: throttling (429),
