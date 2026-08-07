@@ -288,11 +288,13 @@ export class Agent {
         let attempts = 0;
         while (true) {
           let yieldedThisStep = false;
+          let sawAnyChunk = false;
           try {
             for await (const chunk of this.provider.generateStream(
               [...this.history],
               this.generationConfig(signal),
             )) {
+              sawAnyChunk = true;
               if (chunk.textDelta) {
                 yieldedThisStep = true;
                 textBuf += chunk.textDelta;
@@ -305,6 +307,15 @@ export class Agent {
               }
               if (chunk.finishReason) finishReason = chunk.finishReason;
               if (chunk.usage) usage = chunk.usage;
+            }
+            // A stream that completes without a single chunk is a broken model
+            // response, not a decision to stay silent: the caller only learns
+            // about it through events, so surface it as an error instead of
+            // silently ending the turn with nothing visible.
+            if (!sawAnyChunk) {
+              throw new Error(
+                "Model returned an empty response (no content, no finish reason).",
+              );
             }
             break;
           } catch (err) {

@@ -829,6 +829,67 @@ describe("Agent loop", () => {
     expect(events.some((e) => e.type === "error")).toBe(true);
   });
 
+  it("surfaces an error when the model stream completes with zero chunks", async () => {
+    class EmptyStreamProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        return;
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new EmptyStreamProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    const error = events.find((e) => e.type === "error");
+    expect(error).toMatchObject({
+      type: "error",
+      message: "Model returned an empty response (no content, no finish reason).",
+    });
+  });
+
+  it("does not error when the stream carries only a finish reason", async () => {
+    // A finishReason-only response is a legitimate "model said nothing" — the
+    // turn ends cleanly without an error event or a poisoned transcript.
+    class FinishOnlyProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        yield { finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new FinishOnlyProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "text")).toBe(false);
+  });
+
   it("manual compaction compresses a short conversation below keepRecentTurns", async () => {
     // Default keepRecentTurns is 6. A two-turn chat would leave the
     // turn-count split at 0, so the old compactHistory bailed with
