@@ -697,6 +697,138 @@ describe("Agent loop", () => {
     expect(seen[2]?.at(-1)).toMatchObject({ role: "tool" });
   });
 
+  it("retries a transient provider error before the stream yields anything", async () => {
+    // A 429 before the first token must not kill the turn: the loop retries
+    // with backoff and the reply lands normally.
+    let calls = 0;
+    class FlakyProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("Anthropic API error (429) - rate limit: hit");
+        }
+        yield { textDelta: "recovered" };
+        yield { finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new FlakyProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(calls).toBe(2);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "text" && e.delta === "recovered")).toBe(true);
+  });
+
+  it("gives up on a persistently transient provider error", async () => {
+    let calls = 0;
+    class PersistentFlakyProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        calls += 1;
+        throw new Error("upstream 502 bad gateway");
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new PersistentFlakyProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    // 1 original attempt + 2 retries, then the turn reports the error.
+    expect(calls).toBe(3);
+    const error = events.find((e) => e.type === "error");
+    expect(error).toMatchObject({ type: "error", message: "upstream 502 bad gateway" });
+  });
+
+  it("does not retry a mid-stream failure after text was already streamed", async () => {
+    // Partial output must never be replayed: a failure after the first delta
+    // ends the turn with an error instead of duplicating the text.
+    let calls = 0;
+    class MidStreamFailProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        calls += 1;
+        yield { textDelta: "partial" };
+        throw new Error("connection reset by peer (ECONNRESET)");
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new MidStreamFailProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(calls).toBe(1);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+  });
+
+  it("does not retry deterministic provider errors", async () => {
+    let calls = 0;
+    class DeterministicFailProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        calls += 1;
+        throw new Error("Anthropic API error (400) - invalid request");
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new DeterministicFailProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(calls).toBe(1);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+  });
+
   it("manual compaction compresses a short conversation below keepRecentTurns", async () => {
     // Default keepRecentTurns is 6. A two-turn chat would leave the
     // turn-count split at 0, so the old compactHistory bailed with

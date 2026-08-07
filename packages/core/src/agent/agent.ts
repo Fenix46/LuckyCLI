@@ -281,18 +281,45 @@ export class Agent {
       let textBuf = "";
 
       try {
-        for await (const chunk of this.provider.generateStream(
-          [...this.history],
-          this.generationConfig(signal),
-        )) {
-          if (chunk.textDelta) {
-            textBuf += chunk.textDelta;
-            yield { type: "text", delta: chunk.textDelta };
+        // Transient provider failures (429/5xx, network resets) are retried
+        // with backoff — but only while NOTHING has been streamed yet: replaying
+        // a partially consumed stream would hand the caller duplicated text or
+        // tool calls. A permanent error or a mid-stream failure ends the turn.
+        let attempts = 0;
+        while (true) {
+          let yieldedThisStep = false;
+          try {
+            for await (const chunk of this.provider.generateStream(
+              [...this.history],
+              this.generationConfig(signal),
+            )) {
+              if (chunk.textDelta) {
+                yieldedThisStep = true;
+                textBuf += chunk.textDelta;
+                yield { type: "text", delta: chunk.textDelta };
+              }
+              if (chunk.reasoning) yield { type: "reasoning" };
+              if (chunk.toolCall) {
+                yieldedThisStep = true;
+                toolCalls.push(chunk.toolCall);
+              }
+              if (chunk.finishReason) finishReason = chunk.finishReason;
+              if (chunk.usage) usage = chunk.usage;
+            }
+            break;
+          } catch (err) {
+            if (
+              yieldedThisStep ||
+              signal?.aborted ||
+              attempts >= MAX_TRANSIENT_RETRIES ||
+              !isTransientError(err)
+            ) {
+              throw err;
+            }
+            attempts += 1;
+            await sleep(TRANSIENT_RETRY_BACKOFF_MS * 2 ** (attempts - 1));
+            if (signal?.aborted) throw err;
           }
-          if (chunk.reasoning) yield { type: "reasoning" };
-          if (chunk.toolCall) toolCalls.push(chunk.toolCall);
-          if (chunk.finishReason) finishReason = chunk.finishReason;
-          if (chunk.usage) usage = chunk.usage;
         }
       } catch (err) {
         // A user-triggered abort surfaces as a provider error mid-stream. Treat
@@ -718,6 +745,27 @@ function isAbortError(err: unknown): boolean {
   const e = err as { name?: string; message?: string; code?: string };
   if (e.name === "AbortError" || e.code === "ABORT_ERR") return true;
   return typeof e.message === "string" && /\baborted?\b/i.test(e.message);
+}
+
+/** How many times a transient provider failure is retried per step. */
+const MAX_TRANSIENT_RETRIES = 2;
+/** Base backoff for transient retries; doubles per attempt (500ms, 1s). */
+const TRANSIENT_RETRY_BACKOFF_MS = 500;
+
+/**
+ * Whether a provider error is worth a transparent retry: throttling (429),
+ * server-side (5xx) and network-level failures are usually transient, while
+ * 4xx validation/auth errors are deterministic and must surface immediately.
+ */
+function isTransientError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /(^|\D)(429|5\d\d)(\D|$)|timeout|timed out|econnreset|etimedout|eai_again|network error|temporarily unavailable|overloaded|rate limit/i.test(
+    message,
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function findRecentTurnStart(messages: Message[], keepRecentTurns: number): number {
