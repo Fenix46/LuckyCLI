@@ -191,6 +191,16 @@ export interface ProviderInfo {
    * their model name is arbitrary and not in the static catalog.
    */
   defaultContextWindow?: number;
+  /**
+   * Whether the usage reported for a request already includes cached tokens.
+   * OpenAI-family APIs report `prompt_tokens` including
+   * `prompt_tokens_details.cached_tokens` (a subset), so adding cacheReadTokens
+   * on top would double count. Claude and Gemini report cache tokens as
+   * separate fields on top of `input_tokens`, so those providers must SUM all
+   * three. Defaults to false (sum), which keeps Claude/Gemini accounting
+   * correct; set to true on the OpenAI-family adapters.
+   */
+  usageTokensIncludeCache?: boolean;
 }
 
 export interface ModelInfo {

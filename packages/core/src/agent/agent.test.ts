@@ -437,6 +437,60 @@ describe("Agent loop", () => {
     });
   });
 
+  it("does not double-count cached tokens when the provider reports them inside input_tokens", async () => {
+    // OpenAI-family APIs report prompt_tokens INCLUDING prompt_tokens_details
+    // .cached_tokens, so the agent must not add cacheReadTokens on top: the
+    // inflated sum would push usedTokens toward the compaction threshold early
+    // (e.g. ~40% real usage would already look like 75%+ in a cached session).
+    class OpenAiStyleProvider implements IProvider {
+      readonly info: ProviderInfo = {
+        ...INFO,
+        usageTokensIncludeCache: true,
+      };
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        yield {
+          textDelta: "ok",
+          finishReason: "stop",
+          usage: {
+            inputTokens: 10_000,
+            outputTokens: 500,
+            cacheReadTokens: 8_000,
+            cacheWriteTokens: 1_000,
+          },
+        };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new OpenAiStyleProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    const contexts = events.filter((e) => e.type === "context");
+    const latest = contexts.at(-1);
+    expect(latest).toMatchObject({
+      type: "context",
+      status: {
+        // input_tokens already includes the cached tokens: 10_000, not 19_000.
+        usedTokens: 10_000,
+        currentInputTokens: 10_000,
+        currentCacheReadTokens: 8_000,
+        currentCacheWriteTokens: 1_000,
+      },
+    });
+  });
+
   it("passes askUser bridge to tools", async () => {
     const provider = new ScriptedProvider([
       [

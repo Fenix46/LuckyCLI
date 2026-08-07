@@ -32,6 +32,7 @@ const INFO: ProviderInfo = {
   supportsStreaming: true,
   supportsVision: true,
   supportsTools: true,
+  usageTokensIncludeCache: true,
 };
 
 const CHATGPT_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage";

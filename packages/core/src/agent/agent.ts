@@ -630,7 +630,16 @@ export class Agent {
   ): ContextStatus {
     const info = this.currentModelInfo();
     const contextWindow = base?.contextWindow ?? info.contextWindow;
-    const usedTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+    // The sum (input + cache read + cache write) is the total request size for
+    // providers whose `input_tokens` excludes cached tokens (Claude, Gemini).
+    // OpenAI-family providers already include cached tokens inside
+    // `input_tokens`/`prompt_tokens`, so adding them again would double count
+    // and inflate the used-context percentage toward premature compaction.
+    const usedTokens =
+      usage.inputTokens +
+      (this.provider.info.usageTokensIncludeCache
+        ? 0
+        : (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0));
     const usableTokens = contextWindow ? this.usableInputTokens(contextWindow) : undefined;
     const ratio = usableTokens ? usedTokens / usableTokens : undefined;
     const usedPercentage = ratio !== undefined ? Math.min(100, Math.max(0, Math.round(ratio * 100))) : undefined;
