@@ -609,6 +609,94 @@ describe("Agent loop", () => {
     });
   });
 
+  it("compacts mid-turn when a long tool loop pushes context pressure", async () => {
+    // One user turn can outgrow the window through large tool results alone.
+    // The pre-turn gate saw a small context (11%), but after the first tool
+    // step the usage jumps to 77% — the mid-turn gate must compact the OLD
+    // turns before the next stream, keeping the current turn verbatim.
+    const seen: Message[][] = [];
+    class GrowingUsageProvider implements IProvider {
+      readonly info: ProviderInfo = {
+        ...INFO,
+        models: {
+          mock: {
+            id: "mock",
+            contextWindow: 1_000,
+            maxOutputTokens: 100,
+            source: "provider",
+          },
+        },
+      };
+      private turn = 0;
+      async *generateStream(messages: Message[]): AsyncGenerator<StreamChunk> {
+        seen.push([...messages]);
+        switch (this.turn++) {
+          case 0:
+            yield {
+              textDelta: "first reply",
+              finishReason: "stop",
+              usage: { inputTokens: 100, outputTokens: 10 },
+            };
+            return;
+          case 1:
+            yield { toolCall: { type: "tool_call", id: "t1", name: "echo", arguments: { value: "x" } } };
+            yield {
+              finishReason: "tool_calls",
+              usage: { inputTokens: 700, outputTokens: 10 },
+            };
+            return;
+          default:
+            yield {
+              textDelta: "done",
+              finishReason: "stop",
+              usage: { inputTokens: 50, outputTokens: 10 },
+            };
+        }
+      }
+      async generate(): Promise<GenerationResponse> {
+        return {
+          content: [{ type: "text", text: "summary of earlier turns" }],
+          finishReason: "stop",
+        };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new GrowingUsageProvider(),
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+      compaction: { thresholdRatio: 0.5, keepRecentTurns: 1 },
+    });
+
+    await collect(agent.send("first"));
+    const events = await collect(agent.send("second"));
+
+    // Compaction fired mid-turn, between the tool step and the next stream.
+    const compactedIndex = events.findIndex((e) => e.type === "context_compacted");
+    expect(compactedIndex).toBeGreaterThan(-1);
+    const lastToolEndBeforeCompact = events
+      .slice(0, compactedIndex)
+      .filter((e) => e.type === "tool_end").length;
+    expect(lastToolEndBeforeCompact).toBe(1);
+
+    // The first stream of the second turn saw the full history (no pre-turn
+    // compaction); the second stream saw the compacted one.
+    expect(seen[1]?.[0]?.role).not.toBe("system");
+    expect(seen[2]?.[0]).toMatchObject({
+      role: "system",
+      content: [{ type: "text", text: expect.stringContaining("summary of earlier turns") }],
+    });
+    // The current turn survived compaction: the latest message is the tool
+    // result that triggered the pressure.
+    expect(seen[2]?.at(-1)).toMatchObject({ role: "tool" });
+  });
+
   it("manual compaction compresses a short conversation below keepRecentTurns", async () => {
     // Default keepRecentTurns is 6. A two-turn chat would leave the
     // turn-count split at 0, so the old compactHistory bailed with

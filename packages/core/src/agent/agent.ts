@@ -233,6 +233,7 @@ export class Agent {
     // (/context, /status) or as a fallback when there is no prior usage yet.
     const beforeStatus = await this.cheapContextStatus();
     yield { type: "context", status: beforeStatus };
+    let compactedThisTurn = false;
     if (this.shouldCompact(beforeStatus)) {
       // compactHistory already measured the post-compaction transcript; reuse
       // that status instead of measuring the same history a second time. On
@@ -244,6 +245,7 @@ export class Agent {
       );
       yield { type: "context_compacted", result };
       yield { type: "context", status: afterStatus };
+      compactedThisTurn = true;
     }
 
     // Unbounded by default: the loop ends when the model stops requesting tools
@@ -255,6 +257,22 @@ export class Agent {
         this.finalizeInterrupted();
         yield { type: "aborted" };
         return;
+      }
+
+      // Re-check context pressure between steps, not just once per turn: a
+      // long tool loop can pile on large tool results and overflow the window
+      // mid-turn with no recovery. The check is free (reuses the last stream's
+      // usage) and compacts only older turns, keeping the current one intact.
+      if (!compactedThisTurn) {
+        const midStatus = await this.cheapContextStatus();
+        if (this.shouldCompact(midStatus)) {
+          const { status: afterStatus, ...result } = await this.compactHistory(
+            midStatus.usedTokens,
+          );
+          yield { type: "context_compacted", result };
+          yield { type: "context", status: afterStatus };
+          compactedThisTurn = true;
+        }
       }
 
       let finishReason: FinishReason = "stop";
