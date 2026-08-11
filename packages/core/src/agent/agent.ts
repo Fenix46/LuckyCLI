@@ -120,6 +120,8 @@ export class Agent {
   private lastUsage: TokenUsage | undefined;
   /** Memoized provider token count, keyed by a fingerprint of the transcript. */
   private countCache: { fingerprint: string; usage: TokenUsage } | undefined;
+  /** Consecutive failures per tool-call signature, reset on success. */
+  private readonly repeatedToolFailures = new Map<string, number>();
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   private readonly history: Message[] = [];
 
@@ -224,6 +226,9 @@ export class Agent {
     const content: ContentPart[] =
       typeof userInput === "string" ? [{ type: "text", text: userInput }] : userInput;
     this.history.push({ role: "user", content });
+    // Failure tracking is per turn: a new user message resets the counters so
+    // a tool that legitimately recovered isn't throttled by an old failure.
+    this.repeatedToolFailures.clear();
 
     // Use the cheap, already-known context size for the routine pre-turn check.
     // The previous stream's final usage measured the full transcript we sent, so
@@ -233,6 +238,7 @@ export class Agent {
     // (/context, /status) or as a fallback when there is no prior usage yet.
     const beforeStatus = await this.cheapContextStatus();
     yield { type: "context", status: beforeStatus };
+    let compactedThisTurn = false;
     if (this.shouldCompact(beforeStatus)) {
       // compactHistory already measured the post-compaction transcript; reuse
       // that status instead of measuring the same history a second time. On
@@ -244,6 +250,7 @@ export class Agent {
       );
       yield { type: "context_compacted", result };
       yield { type: "context", status: afterStatus };
+      compactedThisTurn = true;
     }
 
     // Unbounded by default: the loop ends when the model stops requesting tools
@@ -257,24 +264,78 @@ export class Agent {
         return;
       }
 
+      // Re-check context pressure between steps, not just once per turn: a
+      // long tool loop can pile on large tool results and overflow the window
+      // mid-turn with no recovery. The check is free (reuses the last stream's
+      // usage) and compacts only older turns, keeping the current one intact.
+      if (!compactedThisTurn) {
+        const midStatus = await this.cheapContextStatus();
+        if (this.shouldCompact(midStatus)) {
+          const { status: afterStatus, ...result } = await this.compactHistory(
+            midStatus.usedTokens,
+          );
+          yield { type: "context_compacted", result };
+          yield { type: "context", status: afterStatus };
+          compactedThisTurn = true;
+        }
+      }
+
       let finishReason: FinishReason = "stop";
       let usage: TokenUsage | undefined;
       const toolCalls: ToolCallPart[] = [];
       let textBuf = "";
 
       try {
-        for await (const chunk of this.provider.generateStream(
-          [...this.history],
-          this.generationConfig(signal),
-        )) {
-          if (chunk.textDelta) {
-            textBuf += chunk.textDelta;
-            yield { type: "text", delta: chunk.textDelta };
+        // Transient provider failures (429/5xx, network resets) are retried
+        // with backoff — but only while NOTHING has been streamed yet: replaying
+        // a partially consumed stream would hand the caller duplicated text or
+        // tool calls. A permanent error or a mid-stream failure ends the turn.
+        let attempts = 0;
+        while (true) {
+          let yieldedThisStep = false;
+          let sawAnyChunk = false;
+          try {
+            for await (const chunk of this.provider.generateStream(
+              [...this.history],
+              this.generationConfig(signal),
+            )) {
+              sawAnyChunk = true;
+              if (chunk.textDelta) {
+                yieldedThisStep = true;
+                textBuf += chunk.textDelta;
+                yield { type: "text", delta: chunk.textDelta };
+              }
+              if (chunk.reasoning) yield { type: "reasoning" };
+              if (chunk.toolCall) {
+                yieldedThisStep = true;
+                toolCalls.push(chunk.toolCall);
+              }
+              if (chunk.finishReason) finishReason = chunk.finishReason;
+              if (chunk.usage) usage = chunk.usage;
+            }
+            // A stream that completes without a single chunk is a broken model
+            // response, not a decision to stay silent: the caller only learns
+            // about it through events, so surface it as an error instead of
+            // silently ending the turn with nothing visible.
+            if (!sawAnyChunk) {
+              throw new Error(
+                "Model returned an empty response (no content, no finish reason).",
+              );
+            }
+            break;
+          } catch (err) {
+            if (
+              yieldedThisStep ||
+              signal?.aborted ||
+              attempts >= MAX_TRANSIENT_RETRIES ||
+              !isTransientError(err)
+            ) {
+              throw err;
+            }
+            attempts += 1;
+            await sleep(TRANSIENT_RETRY_BACKOFF_MS * 2 ** (attempts - 1));
+            if (signal?.aborted) throw err;
           }
-          if (chunk.reasoning) yield { type: "reasoning" };
-          if (chunk.toolCall) toolCalls.push(chunk.toolCall);
-          if (chunk.finishReason) finishReason = chunk.finishReason;
-          if (chunk.usage) usage = chunk.usage;
         }
       } catch (err) {
         // A user-triggered abort surfaces as a provider error mid-stream. Treat
@@ -397,6 +458,53 @@ export class Agent {
           isError: result.isError ?? false,
           ...(result.metadata ? { metadata: result.metadata } : {}),
         };
+
+        // The interruption landed while the tool was running (or was rejected
+        // mid-approval): record the tool's outcome so the transcript stays
+        // consistent, mark the interruption, and end the turn — no further
+        // steps, no synthetic retry of a tool that never got to run.
+        if (signal?.aborted) {
+          resultBlocks.push({
+            type: "tool_result",
+            toolCallId: call.id,
+            name: call.name,
+            content: result.content,
+            ...(result.isError ? { isError: true } : {}),
+          });
+          this.history.push({ role: "tool", content: resultBlocks });
+          this.finalizeInterrupted();
+          yield { type: "aborted" };
+          return;
+        }
+
+        // A model stuck re-issuing the same failing call (unknown tool, invalid
+        // arguments, policy denial, or a tool that keeps throwing) would burn
+        // the whole maxSteps budget retrying it. Count identical failures and
+        // give up on the turn once the same call has failed several times
+        // consecutively — the user sees a clear error instead of a spinner.
+        const callKey = `${call.name}:${JSON.stringify(call.arguments ?? {})}`;
+        if (result.isError) {
+          const failures = (this.repeatedToolFailures.get(callKey) ?? 0) + 1;
+          this.repeatedToolFailures.set(callKey, failures);
+          if (failures >= MAX_REPEATED_TOOL_FAILURES) {
+            resultBlocks.push({
+              type: "tool_result",
+              toolCallId: call.id,
+              name: call.name,
+              content: result.content,
+              ...(result.isError ? { isError: true } : {}),
+            });
+            this.history.push({ role: "tool", content: resultBlocks });
+            yield {
+              type: "error",
+              message: `Tool '${call.name}' failed ${failures} consecutive times with identical arguments; ending the turn.`,
+            };
+            return;
+          }
+        } else {
+          this.repeatedToolFailures.delete(callKey);
+        }
+
         resultBlocks.push({
           type: "tool_result",
           toolCallId: call.id,
@@ -630,7 +738,16 @@ export class Agent {
   ): ContextStatus {
     const info = this.currentModelInfo();
     const contextWindow = base?.contextWindow ?? info.contextWindow;
-    const usedTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+    // The sum (input + cache read + cache write) is the total request size for
+    // providers whose `input_tokens` excludes cached tokens (Claude, Gemini).
+    // OpenAI-family providers already include cached tokens inside
+    // `input_tokens`/`prompt_tokens`, so adding them again would double count
+    // and inflate the used-context percentage toward premature compaction.
+    const usedTokens =
+      usage.inputTokens +
+      (this.provider.info.usageTokensIncludeCache
+        ? 0
+        : (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0));
     const usableTokens = contextWindow ? this.usableInputTokens(contextWindow) : undefined;
     const ratio = usableTokens ? usedTokens / usableTokens : undefined;
     const usedPercentage = ratio !== undefined ? Math.min(100, Math.max(0, Math.round(ratio * 100))) : undefined;
@@ -691,6 +808,29 @@ function isAbortError(err: unknown): boolean {
   const e = err as { name?: string; message?: string; code?: string };
   if (e.name === "AbortError" || e.code === "ABORT_ERR") return true;
   return typeof e.message === "string" && /\baborted?\b/i.test(e.message);
+}
+
+/** How many times a transient provider failure is retried per step. */
+const MAX_TRANSIENT_RETRIES = 2;
+/** Base backoff for transient retries; doubles per attempt (500ms, 1s). */
+const TRANSIENT_RETRY_BACKOFF_MS = 500;
+/** Consecutive identical tool-call failures before the turn gives up. */
+const MAX_REPEATED_TOOL_FAILURES = 3;
+
+/**
+ * Whether a provider error is worth a transparent retry: throttling (429),
+ * server-side (5xx) and network-level failures are usually transient, while
+ * 4xx validation/auth errors are deterministic and must surface immediately.
+ */
+function isTransientError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /(^|\D)(429|5\d\d)(\D|$)|timeout|timed out|econnreset|etimedout|eai_again|network error|temporarily unavailable|overloaded|rate limit/i.test(
+    message,
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function findRecentTurnStart(messages: Message[], keepRecentTurns: number): number {

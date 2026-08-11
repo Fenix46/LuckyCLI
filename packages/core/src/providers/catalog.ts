@@ -105,6 +105,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
+    usageTokensIncludeCache: true,
     authMethods: [
       {
         id: "api_key",
@@ -270,6 +271,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     supportsStreaming: true,
     supportsVision: false,
     supportsTools: true,
+    usageTokensIncludeCache: true,
     authMethods: [
       {
         id: "base_url",
@@ -293,6 +295,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     supportsStreaming: true,
     supportsVision: false,
     supportsTools: true,
+    usageTokensIncludeCache: true,
     authMethods: [
       {
         id: "base_url",
@@ -313,6 +316,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     supportsStreaming: true,
     supportsVision: false,
     supportsTools: true,
+    usageTokensIncludeCache: true,
     authMethods: [
       {
         id: "base_url",
@@ -333,6 +337,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     supportsStreaming: true,
     supportsVision: false,
     supportsTools: true,
+    usageTokensIncludeCache: true,
     authMethods: [
       {
         id: "base_url",
@@ -356,6 +361,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
+    usageTokensIncludeCache: true,
     authMethods: [
       {
         id: "api_key",
@@ -379,6 +385,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
+    usageTokensIncludeCache: true,
     authMethods: [
       {
         id: "api_key",

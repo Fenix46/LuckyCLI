@@ -311,19 +311,37 @@ export class GeminiProvider implements IProvider {
       // Context counting still works with the stale/static catalog; don't fail
       // token counting just because the live model metadata endpoint is down.
     });
+    // countTokens only receives the message contents: the system prompt and
+    // tool definitions would be silently omitted, under-counting every request
+    // that carries them. Approximate the full request by folding both into a
+    // leading user part — same trick used for compaction summaries, which
+    // Gemini only accepts as user turns.
+    const countingParts: Part[] = [];
+    if (config.systemPrompt) countingParts.push({ text: config.systemPrompt });
+    for (const tool of config.tools ?? []) {
+      countingParts.push({
+        text: JSON.stringify({
+          name: tool.name,
+          description: tool.description,
+          parameters: toGeminiSchema(tool.parameters),
+        }),
+      });
+    }
+    const contents = [
+      ...(countingParts.length > 0
+        ? [{ role: "user" as const, parts: countingParts }]
+        : []),
+      ...toGeminiContents(messages),
+    ];
     const result = this.codeAssistClient
       ? await this.withAuthRetry(() =>
-          this.codeAssistClient!.countTokens(
-            model,
-            toGeminiContents(messages),
-            config.abortSignal,
-          ),
+          this.codeAssistClient!.countTokens(model, contents, config.abortSignal),
         )
       : await (async () => {
           await this.ensureValidAuth();
           return this.client.models.countTokens({
             model,
-            contents: toGeminiContents(messages),
+            contents,
           });
         })();
     return { inputTokens: result.totalTokens ?? 0, outputTokens: 0 };

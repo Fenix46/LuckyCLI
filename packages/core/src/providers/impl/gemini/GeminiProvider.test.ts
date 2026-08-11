@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   codeAssistGenerateContent: vi.fn(),
   codeAssistGenerateContentStream: vi.fn(),
   codeAssistCountTokens: vi.fn(),
+  sdkCountTokens: vi.fn().mockResolvedValue({ totalTokens: 42 }),
 }));
 
 vi.mock("@google/genai", () => {
@@ -28,7 +29,7 @@ vi.mock("@google/genai", () => {
           ],
         },
       ]),
-      countTokens: vi.fn().mockResolvedValue({ totalTokens: 42 }),
+      countTokens: mocks.sdkCountTokens,
     },
   }));
   return { GoogleGenAI };
@@ -460,5 +461,67 @@ describe("GeminiProvider", () => {
     for (const part of modelTurn.parts) {
       expect(part.thoughtSignature).toBe("skip_thought_signature_validator");
     }
+  });
+
+  it("counts system prompt and tool definitions in SDK token counting", async () => {
+    const provider = new GeminiProvider({
+      type: "gemini",
+      authMethod: "api_key",
+      apiKey: "test-api-key",
+    });
+
+    const usage = await provider.countTokens(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      {
+        model: "gemini-2.5-pro",
+        systemPrompt: "You are a helpful assistant.",
+        tools: [
+          {
+            name: "exec",
+            description: "Run a shell command",
+            parameters: { type: "object", properties: { cmd: { type: "string" } } },
+          },
+        ],
+      },
+    );
+
+    expect(usage).toEqual({ inputTokens: 42, outputTokens: 0 });
+    const { contents } = mocks.sdkCountTokens.mock.calls.at(-1)![0];
+    // Leading user part carries system prompt + tool definition, then the message.
+    expect(contents).toHaveLength(2);
+    expect(contents[0].role).toBe("user");
+    expect(contents[0].parts[0].text).toContain("helpful assistant");
+    expect(contents[0].parts[1].text).toContain("Run a shell command");
+    expect(contents[1].role).toBe("user");
+    expect(contents[1].parts[0].text).toBe("hi");
+  });
+
+  it("counts system prompt and tool definitions in Code Assist token counting", async () => {
+    const provider = new GeminiProvider({
+      type: "gemini",
+      authMethod: "oauth",
+      accessToken: "test-access-token",
+    });
+
+    await provider.countTokens(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      {
+        model: "gemini-2.5-pro",
+        systemPrompt: "You are a helpful assistant.",
+        tools: [
+          {
+            name: "exec",
+            description: "Run a shell command",
+            parameters: { type: "object", properties: { cmd: { type: "string" } } },
+          },
+        ],
+      },
+    );
+
+    const contents = mocks.codeAssistCountTokens.mock.calls.at(-1)![1];
+    expect(contents).toHaveLength(2);
+    expect(contents[0].parts[0].text).toContain("helpful assistant");
+    expect(contents[0].parts[1].text).toContain("Run a shell command");
+    expect(contents[1].parts[0].text).toBe("hi");
   });
 });

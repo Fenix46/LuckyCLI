@@ -437,6 +437,60 @@ describe("Agent loop", () => {
     });
   });
 
+  it("does not double-count cached tokens when the provider reports them inside input_tokens", async () => {
+    // OpenAI-family APIs report prompt_tokens INCLUDING prompt_tokens_details
+    // .cached_tokens, so the agent must not add cacheReadTokens on top: the
+    // inflated sum would push usedTokens toward the compaction threshold early
+    // (e.g. ~40% real usage would already look like 75%+ in a cached session).
+    class OpenAiStyleProvider implements IProvider {
+      readonly info: ProviderInfo = {
+        ...INFO,
+        usageTokensIncludeCache: true,
+      };
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        yield {
+          textDelta: "ok",
+          finishReason: "stop",
+          usage: {
+            inputTokens: 10_000,
+            outputTokens: 500,
+            cacheReadTokens: 8_000,
+            cacheWriteTokens: 1_000,
+          },
+        };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new OpenAiStyleProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    const contexts = events.filter((e) => e.type === "context");
+    const latest = contexts.at(-1);
+    expect(latest).toMatchObject({
+      type: "context",
+      status: {
+        // input_tokens already includes the cached tokens: 10_000, not 19_000.
+        usedTokens: 10_000,
+        currentInputTokens: 10_000,
+        currentCacheReadTokens: 8_000,
+        currentCacheWriteTokens: 1_000,
+      },
+    });
+  });
+
   it("passes askUser bridge to tools", async () => {
     const provider = new ScriptedProvider([
       [
@@ -553,6 +607,427 @@ describe("Agent loop", () => {
       role: "assistant",
       content: [{ type: "text", text: "ok" }],
     });
+  });
+
+  it("compacts mid-turn when a long tool loop pushes context pressure", async () => {
+    // One user turn can outgrow the window through large tool results alone.
+    // The pre-turn gate saw a small context (11%), but after the first tool
+    // step the usage jumps to 77% — the mid-turn gate must compact the OLD
+    // turns before the next stream, keeping the current turn verbatim.
+    const seen: Message[][] = [];
+    class GrowingUsageProvider implements IProvider {
+      readonly info: ProviderInfo = {
+        ...INFO,
+        models: {
+          mock: {
+            id: "mock",
+            contextWindow: 1_000,
+            maxOutputTokens: 100,
+            source: "provider",
+          },
+        },
+      };
+      private turn = 0;
+      async *generateStream(messages: Message[]): AsyncGenerator<StreamChunk> {
+        seen.push([...messages]);
+        switch (this.turn++) {
+          case 0:
+            yield {
+              textDelta: "first reply",
+              finishReason: "stop",
+              usage: { inputTokens: 100, outputTokens: 10 },
+            };
+            return;
+          case 1:
+            yield { toolCall: { type: "tool_call", id: "t1", name: "echo", arguments: { value: "x" } } };
+            yield {
+              finishReason: "tool_calls",
+              usage: { inputTokens: 700, outputTokens: 10 },
+            };
+            return;
+          default:
+            yield {
+              textDelta: "done",
+              finishReason: "stop",
+              usage: { inputTokens: 50, outputTokens: 10 },
+            };
+        }
+      }
+      async generate(): Promise<GenerationResponse> {
+        return {
+          content: [{ type: "text", text: "summary of earlier turns" }],
+          finishReason: "stop",
+        };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new GrowingUsageProvider(),
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+      compaction: { thresholdRatio: 0.5, keepRecentTurns: 1 },
+    });
+
+    await collect(agent.send("first"));
+    const events = await collect(agent.send("second"));
+
+    // Compaction fired mid-turn, between the tool step and the next stream.
+    const compactedIndex = events.findIndex((e) => e.type === "context_compacted");
+    expect(compactedIndex).toBeGreaterThan(-1);
+    const lastToolEndBeforeCompact = events
+      .slice(0, compactedIndex)
+      .filter((e) => e.type === "tool_end").length;
+    expect(lastToolEndBeforeCompact).toBe(1);
+
+    // The first stream of the second turn saw the full history (no pre-turn
+    // compaction); the second stream saw the compacted one.
+    expect(seen[1]?.[0]?.role).not.toBe("system");
+    expect(seen[2]?.[0]).toMatchObject({
+      role: "system",
+      content: [{ type: "text", text: expect.stringContaining("summary of earlier turns") }],
+    });
+    // The current turn survived compaction: the latest message is the tool
+    // result that triggered the pressure.
+    expect(seen[2]?.at(-1)).toMatchObject({ role: "tool" });
+  });
+
+  it("retries a transient provider error before the stream yields anything", async () => {
+    // A 429 before the first token must not kill the turn: the loop retries
+    // with backoff and the reply lands normally.
+    let calls = 0;
+    class FlakyProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("Anthropic API error (429) - rate limit: hit");
+        }
+        yield { textDelta: "recovered" };
+        yield { finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new FlakyProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(calls).toBe(2);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "text" && e.delta === "recovered")).toBe(true);
+  });
+
+  it("gives up on a persistently transient provider error", async () => {
+    let calls = 0;
+    class PersistentFlakyProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        calls += 1;
+        throw new Error("upstream 502 bad gateway");
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new PersistentFlakyProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    // 1 original attempt + 2 retries, then the turn reports the error.
+    expect(calls).toBe(3);
+    const error = events.find((e) => e.type === "error");
+    expect(error).toMatchObject({ type: "error", message: "upstream 502 bad gateway" });
+  });
+
+  it("does not retry a mid-stream failure after text was already streamed", async () => {
+    // Partial output must never be replayed: a failure after the first delta
+    // ends the turn with an error instead of duplicating the text.
+    let calls = 0;
+    class MidStreamFailProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        calls += 1;
+        yield { textDelta: "partial" };
+        throw new Error("connection reset by peer (ECONNRESET)");
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new MidStreamFailProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(calls).toBe(1);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+  });
+
+  it("does not retry deterministic provider errors", async () => {
+    let calls = 0;
+    class DeterministicFailProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        calls += 1;
+        throw new Error("Anthropic API error (400) - invalid request");
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new DeterministicFailProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(calls).toBe(1);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+  });
+
+  it("surfaces an error when the model stream completes with zero chunks", async () => {
+    class EmptyStreamProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        return;
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new EmptyStreamProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    const error = events.find((e) => e.type === "error");
+    expect(error).toMatchObject({
+      type: "error",
+      message: "Model returned an empty response (no content, no finish reason).",
+    });
+  });
+
+  it("does not error when the stream carries only a finish reason", async () => {
+    // A finishReason-only response is a legitimate "model said nothing" — the
+    // turn ends cleanly without an error event or a poisoned transcript.
+    class FinishOnlyProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        yield { finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new FinishOnlyProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "text")).toBe(false);
+  });
+
+  it("gives up when the model repeats the same failing tool call", async () => {
+    // A model stuck re-issuing an unknown tool must not burn the whole
+    // maxSteps budget: the turn ends with a clear error after 3 attempts.
+    const calls: string[] = [];
+    class RepeatFailProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        yield { toolCall: { type: "tool_call", id: `t${calls.length}`, name: "nope", arguments: { a: 1 } } };
+        yield { finishReason: "tool_calls" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const agent = new Agent({
+      provider: new RepeatFailProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+
+    const events = await collect(agent.send("hi"));
+    const error = events.find((e) => e.type === "error");
+    expect(error).toMatchObject({
+      type: "error",
+      message: "Tool 'nope' failed 3 consecutive times with identical arguments; ending the turn.",
+    });
+  });
+
+  it("resets the failure counter when the same tool call succeeds", async () => {
+    // One success between failures clears the streak, so the loop keeps going.
+    let step = 0;
+    class FlakyToolProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        if (step < 2) {
+          step += 1;
+          yield { toolCall: { type: "tool_call", id: `t${step}`, name: "flaky", arguments: {} } };
+          yield { finishReason: "tool_calls" };
+        } else {
+          yield { textDelta: "done" };
+          yield { finishReason: "stop" };
+        }
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const flaky = defineTool({
+      name: "flaky",
+      description: "Flaky tool",
+      schema: z.object({}),
+      execute: async () => {
+        step += 1;
+        if (step === 2) return { content: "boom", isError: true };
+        return { content: "ok" };
+      },
+    });
+    const registry = new ToolRegistry();
+    registry.register(flaky);
+
+    const agent = new Agent({
+      provider: new FlakyToolProvider(),
+      model: "mock",
+      tools: registry,
+    });
+
+    const events = await collect(agent.send("hi"));
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "text" && e.delta === "done")).toBe(true);
+  });
+
+  it("records an aborted tool call cleanly in the transcript", async () => {
+    // An abort during tool execution must end the turn with an `aborted` event
+    // and leave a consistent transcript (assistant call + tool result +
+    // interruption marker) — never a synthetic follow-up stream.
+    let generated = 0;
+    class AbortingToolProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        generated += 1;
+        yield { toolCall: { type: "tool_call", id: "t1", name: "slow", arguments: {} } };
+        yield { finishReason: "tool_calls" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+
+    const abortController = new AbortController();
+    const registry = new ToolRegistry();
+    registry.register(
+      defineTool({
+        name: "slow",
+        description: "Slow tool",
+        schema: z.object({}),
+        execute: async (_input, ctx) => {
+          abortController.abort();
+          if (ctx.signal?.aborted) throw new Error("aborted");
+          return { content: "never" };
+        },
+      }),
+    );
+
+    const agent = new Agent({
+      provider: new AbortingToolProvider(),
+      model: "mock",
+      tools: registry,
+    });
+
+    const events = await collect(agent.send("hi", abortController.signal));
+    expect(events.some((e) => e.type === "aborted")).toBe(true);
+    expect(generated).toBe(1);
+    const toolResults = agent.messages.filter((m) => m.role === "tool");
+    expect(toolResults).toHaveLength(1);
+    const interrupted = agent.messages.filter(
+      (m) => m.role === "user" && m.content.some((c) => c.type === "text" && c.text === "[Request interrupted by user]"),
+    );
+    expect(interrupted).toHaveLength(1);
   });
 
   it("manual compaction compresses a short conversation below keepRecentTurns", async () => {
