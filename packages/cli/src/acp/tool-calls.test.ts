@@ -175,6 +175,61 @@ describe("diffContents", () => {
     expect(content).toEqual({ type: "diff", path: "/repo/new.ts", newText: "hello" });
   });
 
+  it("repeats kind and title on the closing update", () => {
+    // A client that rebuilds a tool call from its latest update must still see
+    // that this was an edit; without kind it reads as a generic "other" call
+    // and the diff never gets rendered.
+    const update = toolCallEnd(
+      "s1",
+      {
+        id: "c1",
+        name: "edit_file",
+        input: { path: "src/a.ts" },
+        content: "Edited src/a.ts (+1 -1)",
+        isError: false,
+        metadata: { diff: [fileDiff("src/a.ts", "a\n", "b\n")] },
+      },
+      "/repo",
+    ).update as Record<string, unknown>;
+
+    expect(update.kind).toBe("edit");
+    expect(update.title).toBe("edit_file src/a.ts");
+  });
+
+  it("puts the diff before the summary text", () => {
+    const update = toolCallEnd(
+      "s1",
+      {
+        id: "c1",
+        name: "edit_file",
+        input: { path: "src/a.ts" },
+        content: "Edited src/a.ts (+1 -1)",
+        isError: false,
+        metadata: { diff: [fileDiff("src/a.ts", "a\n", "b\n")] },
+      },
+      "/repo",
+    ).update as { content: { type: string }[] };
+
+    expect(update.content.map((c) => c.type)).toEqual(["diff", "content"]);
+  });
+
+  it("still points at the target file when a write fails with no diff", () => {
+    const update = toolCallEnd(
+      "s1",
+      {
+        id: "c1",
+        name: "write_file",
+        input: { path: "src/a.ts" },
+        content: "Failed: permission denied",
+        isError: true,
+      },
+      "/repo",
+    ).update as Record<string, unknown>;
+
+    expect(update.status).toBe("failed");
+    expect(update.locations).toEqual([{ path: "/repo/src/a.ts" }]);
+  });
+
   it("attaches diffs and locations to the closing update", () => {
     const update = toolCallEnd(
       "s1",

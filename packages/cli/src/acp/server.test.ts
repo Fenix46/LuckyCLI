@@ -551,12 +551,26 @@ describe("acp server prompt streaming", () => {
       locations: [{ path: "/repo/src/a.ts" }],
     });
     const end = (updates[1] as { update: Record<string, unknown> }).update;
-    expect(end).toMatchObject({ toolCallId: "call-1", status: "completed" });
-    expect((end.content as unknown[])[1]).toMatchObject({
+    // The closing update repeats kind/title and carries the file's location,
+    // so a client that renders only the latest update still knows this was an
+    // edit and which file it touched.
+    expect(end).toMatchObject({
+      toolCallId: "call-1",
+      status: "completed",
+      // "other" because this fixture tool is not a built-in; what matters is
+      // that the field is present at all (see tool-calls.test.ts for edit).
+      kind: "other",
+      title: "fake_edit src/a.ts",
+      locations: [{ path: "/repo/src/a.ts" }],
+    });
+    // The diff comes first: a client rendering a single content block should
+    // get the change, not the "Edited …" summary line.
+    expect((end.content as unknown[])[0]).toMatchObject({
       type: "diff",
       path: "/repo/src/a.ts",
       newText: "hi",
     });
+    expect((end.content as unknown[])[1]).toMatchObject({ type: "content" });
   });
 
   it("hides task_* and ask_user tool calls from the editor", async () => {
@@ -1234,6 +1248,115 @@ describe("acp server slash commands", () => {
 
     expect(response.stopReason).toBe("end_turn");
     expect(replies(updates).join("")).toContain("disk on fire");
+  });
+});
+
+describe("acp server plan updates", () => {
+  /**
+   * A session whose single tool creates `count` tasks one at a time — the way
+   * a model actually builds a checklist, and the burst that used to produce
+   * one `plan` update per task.
+   */
+  async function planningSession(count: number): Promise<{
+    plans: () => { update: { entries: { content: string }[] } }[];
+    run: () => Promise<void>;
+  }> {
+    const { createTask, defineTool } = await import("@luckycli/core");
+    const { z } = await import("zod");
+    // The tool writes into whichever list the turn made active, which is the
+    // session id — resolved at execute time, once the session exists.
+    let listId = "";
+    const tools = new ToolRegistry().register(
+      defineTool({
+        name: "plan_it",
+        description: "fake planner",
+        schema: z.object({}),
+        readonly: true,
+        execute: async () => {
+          for (let i = 0; i < count; i++) {
+            createTask(listId, {
+              subject: `step ${i + 1}`,
+              description: "",
+              status: "pending",
+            });
+          }
+          return { content: "planned" };
+        },
+      }),
+    );
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () =>
+        fakeRuntime(
+          new EngineAgent({
+            provider: scriptedProvider([
+              [
+                {
+                  toolCall: { type: "tool_call", id: "p1", name: "plan_it", arguments: {} },
+                  finishReason: "tool_calls",
+                },
+              ],
+              [{ textDelta: "done" }, { finishReason: "stop" }],
+            ]),
+            model: "mock",
+            tools,
+          }),
+        )) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    listId = sessionId;
+    return {
+      // Read after the turn: `updates` fills in as the prompt runs.
+      plans: () =>
+        updates.filter(
+          (u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate === "plan",
+        ) as { update: { entries: { content: string }[] } }[],
+      run: async () => {
+        await editor.prompt({ sessionId, prompt: [{ type: "text", text: "plan it" }] });
+      },
+    };
+  }
+
+  it("collapses a burst of task writes into one plan update", async () => {
+    const { plans, run } = await planningSession(4);
+    await run();
+
+    // Four tasks created one at a time used to mean four near-identical plans
+    // stacked in the transcript; they now arrive as one settled checklist.
+    expect(plans()).toHaveLength(1);
+    expect(plans()[0]!.update.entries.map((e) => e.content)).toEqual([
+      "step 1",
+      "step 2",
+      "step 3",
+      "step 4",
+    ]);
+  });
+
+  it("still reports the plan when only one task is created", async () => {
+    const { plans, run } = await planningSession(1);
+    await run();
+
+    // Coalescing must not swallow the result: the checklist the user ends up
+    // looking at has to reach the editor.
+    expect(plans()).toHaveLength(1);
+    expect(plans()[0]!.update.entries.map((e) => e.content)).toEqual(["step 1"]);
+  });
+
+  it("sends no plan update for a turn that never planned anything", async () => {
+    const agent = engineAgent([[{ textDelta: "just talking" }, { finishReason: "stop" }]]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+
+    // An empty plan would clear whatever the editor is already showing.
+    expect(
+      updates.filter(
+        (u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate === "plan",
+      ),
+    ).toEqual([]);
   });
 });
 

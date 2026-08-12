@@ -60,6 +60,12 @@ export interface AcpSession {
    */
   lastToolCallId: string | null;
   /**
+   * Input of the most recently announced tool call. `tool_end` carries no
+   * arguments, but the closing ACP update repeats the call's title and
+   * location, both of which are derived from them.
+   */
+  lastToolInput?: unknown;
+  /**
    * Latest context-window reading from the engine, published to the editor as
    * `_meta` and reported by `/context`. Absent until the first turn produces
    * one (a provider that cannot count tokens never does).

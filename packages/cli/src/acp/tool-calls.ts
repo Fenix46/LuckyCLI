@@ -145,12 +145,23 @@ export function toolCallStart(
 export interface ToolEndEvent {
   id: string;
   name: string;
+  input?: unknown;
   content: string;
   isError: boolean;
   metadata?: ToolResultMetadata;
 }
 
-/** The `tool_call_update` closing a call: status, output text, diffs. */
+/**
+ * The `tool_call_update` closing a call: status, diffs, output text.
+ *
+ * `kind` and `title` are repeated here even though the opening `tool_call`
+ * already carried them. Clients are not required to merge updates with the row
+ * they opened, and one that rebuilds the call from its latest update would
+ * otherwise see kind "other" and never look for a diff to render.
+ *
+ * Diffs come before the text blob for the same reason: a client that renders
+ * only the first content block should get the change, not "Edited x (+1 -1)".
+ */
 export function toolCallEnd(
   sessionId: string,
   event: ToolEndEvent,
@@ -158,25 +169,28 @@ export function toolCallEnd(
 ): SessionNotification {
   const diffs = event.metadata?.diff?.length ? diffContents(event.metadata.diff, cwd) : [];
   const content: ToolCallContent[] = [
+    ...diffs,
     ...(event.content
       ? [{ type: "content" as const, content: { type: "text" as const, text: event.content } }]
       : []),
-    ...diffs,
   ];
+  // Prefer the paths the change actually touched; fall back to the call's own
+  // path argument so a failed write still points at the file it meant to edit.
+  const locations = event.metadata?.diff?.length
+    ? event.metadata.diff.map((d) => ({
+        path: isAbsolute(d.path) ? d.path : join(cwd, d.path),
+      }))
+    : locationsFor(event.input, cwd);
   return {
     sessionId,
     update: {
       sessionUpdate: "tool_call_update",
       toolCallId: event.id,
+      title: toolCallTitle(event.name, event.input),
+      kind: toolKind(event.name),
       status: event.isError ? "failed" : "completed",
       ...(content.length > 0 ? { content } : {}),
-      ...(event.metadata?.diff?.length
-        ? {
-            locations: event.metadata.diff.map((d) => ({
-              path: isAbsolute(d.path) ? d.path : join(cwd, d.path),
-            })),
-          }
-        : {}),
+      ...(locations ? { locations } : {}),
     },
   };
 }

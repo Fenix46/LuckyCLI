@@ -88,6 +88,14 @@ import { isSelectableModel, modelRoster, parseModelId } from "./models.js";
 import { planBodyUpdate, planUpdateFromProposal, planUpdateFromTasks } from "./plan.js";
 import { diffContents, toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
 
+/**
+ * How long to gather task-store writes before sending one `plan` update.
+ * The store fires per individual write, so a plan created in one model turn
+ * arrives as a burst; a short window collapses it into a single update
+ * without making the checklist feel laggy.
+ */
+const PLAN_COALESCE_MS = 50;
+
 /** Guidance surfaced whenever the stored config can't drive a session. */
 export const AUTH_GUIDANCE =
   "LuckyCLI manages credentials outside the editor: run `lucky` once in a terminal to pick a provider and log in, then reconnect.";
@@ -705,13 +713,33 @@ export class LuckyAcpAgent implements Agent {
     // session for the duration of the turn and mirror every change to the
     // editor as a plan update — the ACP counterpart of the TUI's TaskPanel.
     setActiveTaskListId(params.sessionId);
+    // The store notifies once per individual task write, so building a
+    // three-item plan fires three times. Per spec each `plan` update carries
+    // the COMPLETE list and the client replaces what it had — but a client
+    // that appends instead renders a wall of near-identical plans, and even a
+    // correct one has no use for the intermediate states. So coalesce bursts
+    // into one update per tick and drop any that would repeat the last plan
+    // we sent.
+    let planTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastPlan: string | undefined;
+    const flushPlan = async (): Promise<void> => {
+      planTimer = undefined;
+      const tasks = listTasks(params.sessionId);
+      // A turn that never planned anything has no checklist to report; sending
+      // an empty plan would just clear whatever the editor is showing.
+      if (tasks.length === 0) return;
+      const notification = planUpdateFromTasks(params.sessionId, tasks);
+      const fingerprint = JSON.stringify(notification.update);
+      if (fingerprint === lastPlan) return;
+      lastPlan = fingerprint;
+      await this.conn.sessionUpdate(notification).catch(() => {
+        /* a dropped notification must never break the turn */
+      });
+    };
     const unsubscribeTasks = onTasksUpdated((listId) => {
       if (listId !== params.sessionId) return;
-      void this.conn
-        .sessionUpdate(planUpdateFromTasks(params.sessionId, listTasks(listId)))
-        .catch(() => {
-          /* a dropped notification must never break the turn */
-        });
+      if (planTimer) clearTimeout(planTimer);
+      planTimer = setTimeout(() => void flushPlan(), PLAN_COALESCE_MS);
     });
     let stopReason: PromptResponse["stopReason"] = "end_turn";
     let usage: TokenUsage | undefined;
@@ -744,6 +772,7 @@ export class LuckyAcpAgent implements Agent {
             break;
           case "tool_start":
             session.lastToolCallId = event.id;
+            session.lastToolInput = event.input;
             if (!HIDDEN_TOOLS.has(event.name)) {
               await this.conn.sessionUpdate(
                 withContextMeta(toolCallStart(params.sessionId, event, session.cwd)),
@@ -753,7 +782,15 @@ export class LuckyAcpAgent implements Agent {
           case "tool_end":
             if (!HIDDEN_TOOLS.has(event.name)) {
               await this.conn.sessionUpdate(
-                withContextMeta(toolCallEnd(params.sessionId, event, session.cwd)),
+                withContextMeta(
+                  toolCallEnd(
+                    params.sessionId,
+                    // tool_end carries no arguments; reuse the ones the call
+                    // was announced with so its title and location survive.
+                    { ...event, ...(event.id === session.lastToolCallId ? { input: session.lastToolInput } : {}) },
+                    session.cwd,
+                  ),
+                ),
               );
             }
             break;
@@ -782,10 +819,15 @@ export class LuckyAcpAgent implements Agent {
     } finally {
       session.abort = null;
       unsubscribeTasks();
+      if (planTimer) clearTimeout(planTimer);
       // Persist after every turn (like the TUI) so the conversation can be
       // resumed from either surface — including after an error or a cancel.
       this.persistSession(session);
     }
+    // Emit the plan's final state, which a pending coalesce would otherwise
+    // swallow — the last thing the user sees must be where the work ended up.
+    // Awaited (unlike the in-turn ones) so it lands before the response.
+    await flushPlan();
     // Non-standard but honest: surface what the turn cost and where the
     // context window stands. Editors ignore unknown _meta by contract, and
     // `/context` reports the same figures for those that do.
