@@ -104,4 +104,35 @@ describe("fileDiff", () => {
     expect(d.created).toBe(true);
     expect(d.additions).toBe(1);
   });
+
+  it("keeps the full before/after text alongside the hunks", () => {
+    // Hunks omit the unchanged regions between them, so they cannot be
+    // reassembled into a file. Consumers that must hand a real before/after
+    // pair to something else (the ACP diff block an editor renders) need these.
+    const before = "a\nb\nc\n";
+    const after = "a\nB\nc\n";
+
+    const d = fileDiff("src/a.ts", before, after);
+
+    expect(d.oldText).toBe(before);
+    expect(d.newText).toBe(after);
+  });
+
+  it("keeps the text of regions no hunk covers", () => {
+    const before = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+    const after = before.replace("line 2", "SECOND").replace("line 28", "TWENTY-EIGHTH");
+
+    const d = fileDiff("src/a.ts", before, after);
+
+    // Line 15 sits between the two hunks and appears in neither of them...
+    expect(d.hunks.flatMap((h) => h.lines).some((l) => l.text === "line 15")).toBe(false);
+    // ...but is present in the full text.
+    expect(d.newText).toContain("line 15");
+  });
+
+  it("records an empty original for a creation", () => {
+    const d = fileDiff("src/new.ts", "", "hello\n", { created: true });
+    expect(d.oldText).toBe("");
+    expect(d.newText).toBe("hello\n");
+  });
 });

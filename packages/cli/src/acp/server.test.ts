@@ -1460,11 +1460,13 @@ describe("acp server pre-approval diffs", () => {
       expect(kinds(updates).slice(0, 2)).toEqual(["tool_call", "tool_call_update"]);
       expect(updateAt(updates, 0)).toMatchObject({ status: "in_progress" });
 
+      // The blocks carry the file's whole contents, which is what the editor
+      // diffs against the buffer it has open — not just the changed hunk.
       const expectedDiff = {
         type: "diff",
         path: join(root, "a.txt"),
-        oldText: "one\ntwo\nthree",
-        newText: "one\nTWO\nthree",
+        oldText: "one\ntwo\nthree\n",
+        newText: "one\nTWO\nthree\n",
       };
       expect(updateAt(updates, 1)).toMatchObject({
         toolCallId: "c1",
@@ -1511,7 +1513,7 @@ describe("acp server pre-approval diffs", () => {
       expect(updateAt(updates, 1)).toMatchObject({
         status: "pending",
         // A creation carries no oldText at all.
-        content: [{ type: "diff", path: join(root, "new.txt"), newText: "hello" }],
+        content: [{ type: "diff", path: join(root, "new.txt"), newText: "hello\n" }],
       });
       expect(
         (updateAt(updates, 1).content as { oldText?: string }[])[0]!.oldText,
@@ -1540,7 +1542,7 @@ describe("acp server pre-approval diffs", () => {
     try {
       expect(updateAt(updates, 1)).toMatchObject({
         status: "pending",
-        content: [{ type: "diff", oldText: "one\ntwo\nthree", newText: "one\nTWO\nthree" }],
+        content: [{ type: "diff", oldText: "one\ntwo\nthree\n", newText: "one\nTWO\nthree\n" }],
       });
       expect(await readFile(join(root, "a.txt"), "utf8")).toBe("one\ntwo\nthree\n");
     } finally {
@@ -1565,10 +1567,10 @@ describe("acp server pre-approval diffs", () => {
     });
     try {
       const buffered = updateAt(withBuffer.updates, 1).content as { oldText: string }[];
-      expect(buffered[0]!.oldText).toBe("unsaved\none\ntwo\nthree");
+      expect(buffered[0]!.oldText).toBe("unsaved\none\ntwo\nthree\n");
       // With no buffer to serve, the preview falls back to the disk contents.
       const fromDisk = updateAt(withoutBuffer.updates, 1).content as { oldText: string }[];
-      expect(fromDisk[0]!.oldText).toBe("one\ntwo\nthree");
+      expect(fromDisk[0]!.oldText).toBe("one\ntwo\nthree\n");
     } finally {
       await withBuffer.cleanup();
       await withoutBuffer.cleanup();

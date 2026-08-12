@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FileDiff } from "@luckycli/core";
+import { fileDiff, type FileDiff } from "@luckycli/core";
 import {
   diffContents,
   toolCallEnd,
@@ -107,7 +107,8 @@ describe("diffContents", () => {
     ],
   };
 
-  it("reconstructs old/new text per hunk with an absolute path", () => {
+  it("falls back to hunk reconstruction for a diff with no full text", () => {
+    // Hand-built and serialized diffs may predate the oldText/newText fields.
     expect(diffContents([diff], "/repo")).toEqual([
       {
         type: "diff",
@@ -116,6 +117,42 @@ describe("diffContents", () => {
         newText: "const a = 1;\nconst b = 3;\nexport {};",
       },
     ]);
+  });
+
+  it("sends the file's whole contents, not just the changed hunk", () => {
+    // What editors need: they diff these against the file they have open, so
+    // a hunk excerpt would not line up with anything.
+    const before = "one\ntwo\nthree\nfour\nfive\n";
+    const after = "one\nTWO\nthree\nfour\nfive\n";
+
+    const [content] = diffContents([fileDiff("src/a.ts", before, after)], "/repo");
+
+    expect(content).toEqual({
+      type: "diff",
+      path: "/repo/src/a.ts",
+      oldText: before,
+      newText: after,
+    });
+  });
+
+  it("keeps the untouched region between two distant hunks", () => {
+    // The regression this guards: reconstructing from hunks concatenated the
+    // changed regions and silently dropped everything in between, so a client
+    // saw the gap as a huge deletion.
+    const before = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+    const after = before.replace("line 3", "THIRD").replace("line 33", "THIRTY-THIRD");
+
+    const [content] = diffContents([fileDiff("b.ts", before, after)], "/repo") as {
+      oldText: string;
+      newText: string;
+    }[];
+
+    expect(content!.oldText).toBe(before);
+    expect(content!.newText).toBe(after);
+    // Both sides still have every line; only the two edits differ.
+    expect(content!.oldText.split("\n")).toHaveLength(41);
+    expect(content!.newText.split("\n")).toHaveLength(41);
+    expect(content!.newText).toContain("line 20");
   });
 
   it("omits oldText for created files", () => {

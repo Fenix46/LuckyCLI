@@ -34,6 +34,20 @@ export interface FileDiff {
   hunks: DiffHunk[];
   /** True when the file did not exist before (pure creation). */
   created?: boolean;
+  /**
+   * The complete file contents before and after the change.
+   *
+   * Hunks alone cannot be reassembled into a file: they omit the unchanged
+   * regions between them. Consumers that must hand a real before/after pair to
+   * something else — the ACP `diff` content block, which editors render as a
+   * side-by-side view of the file — need these. Terminal renderers that draw
+   * hunks directly can ignore them.
+   *
+   * Absent when the producer never had the full text (a preview built from a
+   * snippet, an older serialized diff).
+   */
+  oldText?: string;
+  newText?: string;
 }
 
 /** Context lines kept around each change when grouping into hunks. */
@@ -78,7 +92,11 @@ export function diffLines(
   return buildHunks(a, b, prefix, ops, context);
 }
 
-/** Convenience wrapper carrying the path and creation flag. */
+/**
+ * Convenience wrapper carrying the path, the creation flag, and the full
+ * before/after text (see {@link FileDiff.oldText} — hunks alone cannot be
+ * reassembled into a file).
+ */
 export function fileDiff(
   path: string,
   oldText: string,
@@ -92,6 +110,8 @@ export function fileDiff(
     deletions,
     hunks,
     ...(opts.created ? { created: true } : {}),
+    oldText,
+    newText,
   };
 }
 

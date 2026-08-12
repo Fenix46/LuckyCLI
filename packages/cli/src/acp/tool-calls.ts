@@ -76,36 +76,43 @@ function rawInputOf(input: unknown): Record<string, unknown> {
 }
 
 /**
- * ACP diff blocks from the engine's structured diff metadata. Core diffs are
- * hunk-based, so old/new text are reconstructed per hunk (deleted+context vs
- * added+context lines) — the editor's diff view then shows exactly the changed
- * regions. A created file has no old text at all.
+ * ACP diff blocks from the engine's structured diff metadata.
+ *
+ * Per spec these carry the file's ORIGINAL and MODIFIED contents — the editor
+ * runs its own diff over them to paint the familiar red/green view. Sending
+ * hunk excerpts instead does not work: the excerpts do not match the file the
+ * editor has open, and with two or more hunks the gaps between them collapse,
+ * so the client sees the unchanged lines in between as an enormous deletion.
+ *
+ * The full texts come from {@link FileDiff.oldText}/`newText`. Older or
+ * snippet-derived diffs may lack them; the hunk reconstruction is kept as a
+ * fallback so those still render *something* rather than nothing.
  */
 export function diffContents(diffs: FileDiff[], cwd: string): ToolCallContent[] {
   return diffs.map((diff) => {
-    const oldText = diff.hunks
-      .map((hunk) =>
-        hunk.lines
-          .filter((line) => line.type !== "add")
-          .map((line) => line.text)
-          .join("\n"),
-      )
-      .join("\n");
-    const newText = diff.hunks
-      .map((hunk) =>
-        hunk.lines
-          .filter((line) => line.type !== "del")
-          .map((line) => line.text)
-          .join("\n"),
-      )
-      .join("\n");
+    const oldText = diff.oldText ?? reconstruct(diff, "old");
+    const newText = diff.newText ?? reconstruct(diff, "new");
     return {
       type: "diff",
       path: isAbsolute(diff.path) ? diff.path : join(cwd, diff.path),
+      // A created file has no original contents at all.
       ...(diff.created ? {} : { oldText }),
       newText,
     };
   });
+}
+
+/** Best-effort side of a diff from its hunks, for diffs with no full text. */
+function reconstruct(diff: FileDiff, side: "old" | "new"): string {
+  const drop = side === "old" ? "add" : "del";
+  return diff.hunks
+    .map((hunk) =>
+      hunk.lines
+        .filter((line) => line.type !== drop)
+        .map((line) => line.text)
+        .join("\n"),
+    )
+    .join("\n");
 }
 
 export interface ToolStartEvent {
