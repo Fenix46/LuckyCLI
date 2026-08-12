@@ -174,6 +174,13 @@ export {
 export type { GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
 export { renderGraphHtml } from "./graph/view.js";
 export {
+  GraphContextEnricher,
+  extractMentionCandidates,
+  matchMentions,
+  renderGraphContext,
+} from "./graph/enrich.js";
+export type { MentionCandidate } from "./graph/enrich.js";
+export {
   GRAPH_DIR,
   GRAPH_FILE,
   edgesFrom,
