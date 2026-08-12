@@ -3,8 +3,8 @@
  * handler keeps between calls, and the mapping from ACP-supplied MCP servers
  * to LuckyCLI's own config shape.
  */
-import type { Agent, McpServerConfig } from "@luckycli/core";
-import type { McpServer } from "@zed-industries/agent-client-protocol";
+import type { Agent, ContentPart, McpServerConfig } from "@luckycli/core";
+import { RequestError, type ContentBlock, type McpServer } from "@zed-industries/agent-client-protocol";
 
 /** One live editor conversation: the engine agent plus its turn state. */
 export interface AcpSession {
@@ -43,6 +43,27 @@ export function mapAcpMcpServers(servers: McpServer[]): Record<string, McpServer
     }
   }
   return out;
+}
+
+/**
+ * Convert an ACP prompt (ContentBlock[]) to the engine's canonical parts.
+ * Only what we advertised in initialize is accepted: text and images. Any
+ * other block is a client bug — reject the request instead of silently
+ * dropping user-visible context.
+ */
+export function toContentParts(blocks: ContentBlock[]): ContentPart[] {
+  return blocks.map((block): ContentPart => {
+    switch (block.type) {
+      case "text":
+        return { type: "text", text: block.text };
+      case "image":
+        return { type: "image", data: block.data, mimeType: block.mimeType };
+      default:
+        throw RequestError.invalidParams({
+          details: `Unsupported prompt content block "${block.type}" (LuckyCLI accepts text and image).`,
+        });
+    }
+  });
 }
 
 /**

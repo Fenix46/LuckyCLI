@@ -6,7 +6,14 @@ import {
   type Client,
   type Stream,
 } from "@zed-industries/agent-client-protocol";
-import { GraphContextEnricher, SkillActivator, type ResolvedConfig } from "@luckycli/core";
+import {
+  Agent as EngineAgent,
+  GraphContextEnricher,
+  SkillActivator,
+  ToolRegistry,
+  type IProvider,
+  type ResolvedConfig,
+} from "@luckycli/core";
 import type { BuiltAgentRuntime } from "../runtime.js";
 import {
   AUTH_GUIDANCE,
@@ -27,21 +34,96 @@ function connectedStreams(): [Stream, Stream] {
 }
 
 /** Minimal editor stub: records session updates, never grants permissions. */
-function stubClient(): Client {
+function stubClient(updates: unknown[] = []): Client {
   return {
     async requestPermission() {
       throw new Error("unexpected permission request in this test");
     },
-    async sessionUpdate() {},
+    async sessionUpdate(params) {
+      updates.push(params);
+    },
   };
 }
 
 /** A connected [server, editor] pair over in-memory streams. */
-function connect(options: LuckyAcpAgentOptions = {}): { editor: ClientSideConnection } {
+function connect(options: LuckyAcpAgentOptions = {}): {
+  editor: ClientSideConnection;
+  updates: unknown[];
+  serverAgent: () => LuckyAcpAgent;
+} {
   const [agentStream, clientStream] = connectedStreams();
-  serveAcp(agentStream, (conn) => new LuckyAcpAgent(conn, options));
-  const editor = new ClientSideConnection(() => stubClient(), clientStream);
-  return { editor };
+  let serverAgent: LuckyAcpAgent | undefined;
+  serveAcp(agentStream, (conn) => {
+    serverAgent = new LuckyAcpAgent(conn, options);
+    return serverAgent;
+  });
+  const updates: unknown[] = [];
+  const editor = new ClientSideConnection(() => stubClient(updates), clientStream);
+  return { editor, updates, serverAgent: () => serverAgent! };
+}
+
+/** Chunks shaped like the engine's StreamChunk (not exported from core). */
+type Chunk = {
+  textDelta?: string;
+  finishReason?: "stop" | "tool_calls";
+  usage?: { inputTokens: number; outputTokens: number };
+};
+
+/**
+ * Scripted engine provider (same pattern as core's agent tests): one batch of
+ * chunks per generateStream call. When `hang` is set, the stream yields its
+ * batch and then stalls until the abort signal fires — for cancel tests.
+ */
+function scriptedProvider(script: Chunk[][], opts: { hang?: boolean } = {}): IProvider {
+  let turn = 0;
+  return {
+    info: {
+      id: "claude",
+      displayName: "Scripted",
+      availableModels: ["mock"],
+      defaultModel: "mock",
+      supportsStreaming: true,
+      supportsVision: true,
+      supportsTools: true,
+    },
+    async *generateStream(_messages, config) {
+      const batch = script[turn++] ?? [{ finishReason: "stop" as const }];
+      for (const chunk of batch) yield chunk;
+      // Only batches without a finish reason stall: they model a stream the
+      // user interrupts, while finished batches complete normally.
+      if (opts.hang && !batch.some((chunk) => chunk.finishReason)) {
+        await new Promise<void>((_resolve, reject) => {
+          const signal = config?.abortSignal;
+          if (signal?.aborted) reject(abortError());
+          signal?.addEventListener("abort", () => reject(abortError()));
+        });
+      }
+    },
+    async generate() {
+      return { content: [], finishReason: "stop" as const };
+    },
+    async countTokens() {
+      return undefined;
+    },
+    async healthCheck() {
+      return { ok: true };
+    },
+  } as unknown as IProvider;
+}
+
+function abortError(): Error {
+  const err = new Error("The operation was aborted");
+  err.name = "AbortError";
+  return err;
+}
+
+/** A real engine agent driven by a scripted provider — no network, no disk. */
+function engineAgent(script: Chunk[][], opts: { hang?: boolean } = {}): EngineAgent {
+  return new EngineAgent({
+    provider: scriptedProvider(script, opts),
+    model: "mock",
+    tools: new ToolRegistry(),
+  });
 }
 
 function fakeConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
@@ -57,13 +139,28 @@ function fakeConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
   };
 }
 
-/** A runtime whose agent is an inert stub — enough for session bookkeeping. */
-function fakeRuntime(): BuiltAgentRuntime {
+/** A runtime around a given engine agent (or an inert stub for bookkeeping). */
+function fakeRuntime(agent?: EngineAgent): BuiltAgentRuntime {
   return {
-    agent: {} as BuiltAgentRuntime["agent"],
+    agent: (agent ?? ({} as BuiltAgentRuntime["agent"])) as BuiltAgentRuntime["agent"],
     skillActivator: new SkillActivator(),
     graphEnricher: new GraphContextEnricher("/tmp"),
   };
+}
+
+/** A connected editor whose single session runs the given engine agent. */
+async function editorWithSession(agent: EngineAgent): Promise<{
+  editor: ClientSideConnection;
+  updates: unknown[];
+  sessionId: string;
+  serverAgent: () => LuckyAcpAgent;
+}> {
+  const { editor, updates, serverAgent } = connect({
+    config: fakeConfig(),
+    buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+  });
+  const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+  return { editor, updates, sessionId, serverAgent };
 }
 
 describe("acp server initialize", () => {
@@ -110,14 +207,14 @@ describe("acp server milestone gates", () => {
     ).rejects.toMatchObject({ code: -32000, data: { details: AUTH_GUIDANCE } });
   });
 
-  it("rejects session methods not yet implemented with method-not-found", async () => {
+  it("rejects a prompt for an unknown session with invalid-params", async () => {
     const { editor } = connect();
     await expect(
       editor.prompt({
         sessionId: "nope",
         prompt: [{ type: "text", text: "hi" }],
       }),
-    ).rejects.toMatchObject({ code: -32601 });
+    ).rejects.toMatchObject({ code: -32602 });
   });
 
   it("swallows stray cancel notifications without crashing the connection", async () => {
@@ -181,6 +278,120 @@ describe("acp server sessions", () => {
     await editor.newSession({ cwd: "/repo", mcpServers: [] });
     const opts = buildRuntime.mock.calls[0]![0];
     expect(await opts.approveTool?.("write_file", {})).toBe("deny");
+  });
+});
+
+describe("acp server prompt streaming", () => {
+  it("streams text as agent_message_chunk updates and stops with end_turn", async () => {
+    const agent = engineAgent([
+      [
+        { textDelta: "Hello" },
+        { textDelta: " editor" },
+        { finishReason: "stop", usage: { inputTokens: 5, outputTokens: 2 } },
+      ],
+    ]);
+    const { editor, updates, sessionId } = await editorWithSession(agent);
+
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+    });
+
+    expect(response.stopReason).toBe("end_turn");
+    expect(response._meta).toEqual({
+      "dev.luckycli/usage": { inputTokens: 5, outputTokens: 2 },
+    });
+    expect(updates).toEqual([
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Hello" },
+        },
+      },
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " editor" },
+        },
+      },
+    ]);
+  });
+
+  it("accepts image blocks and records them on the user turn", async () => {
+    const agent = engineAgent([[{ textDelta: "seen" }, { finishReason: "stop" }]]);
+    const { editor, sessionId } = await editorWithSession(agent);
+
+    await editor.prompt({
+      sessionId,
+      prompt: [
+        { type: "text", text: "what is this?" },
+        { type: "image", data: "aGk=", mimeType: "image/png" },
+      ],
+    });
+
+    expect(agent.messages[0]!.content).toEqual([
+      { type: "text", text: "what is this?" },
+      { type: "image", data: "aGk=", mimeType: "image/png" },
+    ]);
+  });
+
+  it("rejects unsupported content blocks with invalid-params", async () => {
+    const agent = engineAgent([[{ textDelta: "unused" }, { finishReason: "stop" }]]);
+    const { editor, sessionId } = await editorWithSession(agent);
+
+    await expect(
+      editor.prompt({
+        sessionId,
+        prompt: [
+          { type: "resource_link", name: "x", uri: "file:///x" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it("rejects a second prompt while one is in flight", async () => {
+    const agent = engineAgent([[{ textDelta: "…" }]], { hang: true });
+    const { editor, sessionId } = await editorWithSession(agent);
+
+    const first = editor.prompt({ sessionId, prompt: [{ type: "text", text: "go" }] });
+    // Give the first prompt a beat to start streaming before the second lands.
+    await new Promise((r) => setTimeout(r, 20));
+    await expect(
+      editor.prompt({ sessionId, prompt: [{ type: "text", text: "again" }] }),
+    ).rejects.toMatchObject({ code: -32600 });
+
+    await editor.cancel({ sessionId });
+    await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
+  });
+
+  it("cancels an in-flight prompt and keeps the session usable", async () => {
+    const agent = engineAgent(
+      [[{ textDelta: "partial" }], [{ textDelta: "recovered" }, { finishReason: "stop" }]],
+      { hang: true },
+    );
+    const { editor, sessionId } = await editorWithSession(agent);
+
+    const inFlight = editor.prompt({ sessionId, prompt: [{ type: "text", text: "go" }] });
+    await new Promise((r) => setTimeout(r, 20));
+    await editor.cancel({ sessionId });
+    const cancelled = await inFlight;
+    expect(cancelled.stopReason).toBe("cancelled");
+
+    // Only the first batch (no finish reason) stalls; the second completes.
+    const next = await editor.prompt({ sessionId, prompt: [{ type: "text", text: "on" }] });
+    expect(next.stopReason).toBe("end_turn");
+  });
+
+  it("aborts every in-flight prompt on abortAll (editor disconnected)", async () => {
+    const agent = engineAgent([[{ textDelta: "…" }]], { hang: true });
+    const { editor, sessionId, serverAgent } = await editorWithSession(agent);
+
+    const inFlight = editor.prompt({ sessionId, prompt: [{ type: "text", text: "go" }] });
+    await new Promise((r) => setTimeout(r, 20));
+    serverAgent().abortAll();
+    await expect(inFlight).resolves.toMatchObject({ stopReason: "cancelled" });
   });
 });
 

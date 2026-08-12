@@ -36,10 +36,15 @@ import {
   type PromptResponse,
   type Stream,
 } from "@zed-industries/agent-client-protocol";
-import { createSessionId, type ResolvedConfig } from "@luckycli/core";
+import { createSessionId, type ResolvedConfig, type TokenUsage } from "@luckycli/core";
 import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
-import { mapAcpMcpServers, mergeMcpServers, type AcpSession } from "./sessions.js";
+import {
+  mapAcpMcpServers,
+  mergeMcpServers,
+  toContentParts,
+  type AcpSession,
+} from "./sessions.js";
 
 /** Guidance surfaced whenever the stored config can't drive a session. */
 export const AUTH_GUIDANCE =
@@ -149,19 +154,77 @@ export class LuckyAcpAgent implements Agent {
     return this.config;
   }
 
-  async prompt(_params: PromptRequest): Promise<PromptResponse> {
-    throw notYetImplemented("session/prompt");
+  async prompt(params: PromptRequest): Promise<PromptResponse> {
+    const session = this.requireSession(params.sessionId);
+    if (session.abort) {
+      throw RequestError.invalidRequest({
+        details: "A prompt is already running for this session.",
+      });
+    }
+    const content = toContentParts(params.prompt);
+
+    const abort = new AbortController();
+    session.abort = abort;
+    let stopReason: PromptResponse["stopReason"] = "end_turn";
+    let usage: TokenUsage | undefined;
+    try {
+      for await (const event of session.agent.send(content, abort.signal)) {
+        switch (event.type) {
+          case "text":
+            await this.conn.sessionUpdate({
+              sessionId: params.sessionId,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: event.delta },
+              },
+            });
+            break;
+          case "aborted":
+            stopReason = "cancelled";
+            break;
+          case "turn_end":
+            usage = event.usage;
+            break;
+          case "error":
+            // The engine already recorded the failed turn consistently; the
+            // editor gets a JSON-RPC error, and the session stays usable.
+            throw RequestError.internalError({ details: event.message });
+          default:
+            // reasoning (no text payload), context, compaction, tool events —
+            // tool reporting lands in milestone 3, the rest has no ACP shape.
+            break;
+        }
+      }
+    } finally {
+      session.abort = null;
+    }
+    return {
+      stopReason,
+      // Non-standard but honest: surface what the turn cost. Editors ignore
+      // unknown _meta by contract.
+      ...(usage ? { _meta: { "dev.luckycli/usage": usage } } : {}),
+    };
   }
 
-  async cancel(_params: CancelNotification): Promise<void> {
-    // Nothing to cancel until sessions exist (milestone 2); a stray cancel
-    // notification must never crash the server.
+  async cancel(params: CancelNotification): Promise<void> {
+    // Per spec a cancel for an unknown session (or an idle one) is a no-op —
+    // it must never crash the server.
+    this.sessions.get(params.sessionId)?.abort?.abort();
   }
-}
 
-/** Milestone gate: a clean JSON-RPC error instead of a crash or a hang. */
-function notYetImplemented(method: string): RequestError {
-  return RequestError.methodNotFound(method);
+  /** Abort every in-flight prompt; called when the editor drops the pipe. */
+  abortAll(): void {
+    for (const session of this.sessions.values()) session.abort?.abort();
+  }
+
+  /** The live session, or a clean invalid-params error for a bogus id. */
+  protected requireSession(sessionId: string): AcpSession {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw RequestError.invalidParams({ details: `Unknown session "${sessionId}".` });
+    }
+    return session;
+  }
 }
 
 /**

@@ -51,7 +51,11 @@ export interface AcpCommandIO {
 
 /** Serve ACP on this process's stdio until the editor closes the pipe. */
 async function serveOnStdio(config: ResolvedConfig): Promise<void> {
-  serveAcp(stdioStream(), (conn) => makeAgent(conn, config));
+  let agent: LuckyAcpAgent | undefined;
+  serveAcp(stdioStream(), (conn) => {
+    agent = makeAgent(conn, config);
+    return agent;
+  });
   // The connection lives as long as stdin: when the editor exits or drops the
   // subprocess, stdin ends and we leave. Errors on stdin also end the loop.
   await new Promise<void>((resolve) => {
@@ -59,6 +63,9 @@ async function serveOnStdio(config: ResolvedConfig): Promise<void> {
     process.stdin.once("close", resolve);
     process.stdin.once("error", resolve);
   });
+  // The editor is gone: stop any in-flight turn so the process exits cleanly
+  // (the engine records the interruption in each session's transcript).
+  agent?.abortAll();
 }
 
 function makeAgent(conn: AgentSideConnection, config: ResolvedConfig): LuckyAcpAgent {
