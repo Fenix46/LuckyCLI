@@ -21,6 +21,7 @@
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",
     "@luckycli/core": "0.4.8",
+    "@zed-industries/agent-client-protocol": "^0.4.4",
     "auto-bind": "^5.0.1",
     "bidi-js": "^1.0.3",
     "chalk": "^5.6.2",
