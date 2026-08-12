@@ -361,6 +361,44 @@ browser pop-up.
 - Live `tools/list_changed` updates aren't watched yet — a server's tools are
   captured when it connects.
 
+## Use LuckyCLI from your editor
+
+LuckyCLI speaks the [Agent Client Protocol](https://agentclientprotocol.com)
+(ACP) — the open standard, created by Zed, that lets editors host external
+coding agents. Any ACP editor can spawn `lucky acp` as a subprocess and use
+LuckyCLI as its agent: streaming replies, tool calls with live diffs, approval
+prompts (Allow once / Allow always / Reject), plan and task reporting, session
+modes (ask-first / accept-edits / bypass), and resume of sessions shared with
+the terminal — a conversation started in the TUI continues in the editor and
+vice versa. When the editor exposes its filesystem over ACP, the agent reads
+**unsaved buffers** and lands edits back into them.
+
+Log in once from a terminal (`lucky`) — credentials are managed outside the
+editor — then point your editor at the command:
+
+**Zed** (`settings.json`):
+
+```json
+{
+  "agent_servers": {
+    "LuckyCLI": { "command": "lucky", "args": ["acp"] }
+  }
+}
+```
+
+**JetBrains IDEs**: native ACP support — add a custom agent with command
+`lucky acp` in the AI chat's agent settings.
+
+**Neovim**: via an ACP plugin such as CodeCompanion or avante.nvim, configure
+an external agent with command `lucky acp`.
+
+**VS Code**: no native ACP yet; community ACP extensions can launch
+`lucky acp` the same way.
+
+Flags: `lucky acp -p <provider> -m <model>` overrides the stored default.
+The protocol runs on stdout; logs go to stderr. Sessions persist to
+`~/.luckycli/sessions` like TUI ones.
+
 ## Knowledge graph
 
 LuckyCLI can build a **knowledge graph** of your project — a precomputed map of
@@ -661,6 +699,8 @@ approach.
 - [x] Structural graph for data/markup (JSON, TOML, HTML)
 - [x] Interactive HTML graph visualization (`lucky graph view`)
 - [x] MCP client: local + remote (Streamable HTTP) servers, OAuth, in-app registry panel
+- [x] ACP server (`lucky acp`): use LuckyCLI from Zed, JetBrains, and other ACP editors
+- [x] Automatic graph context injection (symbols/files mentioned in a message get their graph card appended to the turn)
 - [ ] Proper graph benchmark suite (multiple prompts, repeated real-LLM runs, exact tokens)
 - [ ] More non-code graph nodes (Markdown/text documents, shell scripts, YAML)
 - [ ] Recorded fixtures / end-to-end tests against the live APIs

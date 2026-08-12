@@ -2,6 +2,18 @@
 
 Branch di lavoro: `feat/acp` (base: `feat/graph-context-injection`)
 
+> **Stato (2026-08-12): tutte le milestone implementative sono CHIUSE.**
+> Commit di riferimento per task:
+> 0.1 `17230cb` · 1.1 `91587a1` · 1.2 `e89a810` · 2.1 `f187fe6` ·
+> 2.2+2.3 `f6974fa` · 3.1+3.2 `868c242` · 4.1+4.2 `25e46fc` ·
+> 5.1 `e0d4412` · 5.2 `8677f86` · 5.3 `5e7092c` · 6.1 `2f387ab` ·
+> 6.2 `20dd831` · 7.1 `a9e8c2b` · 7.2 (docs) questo commit.
+> Varianti rispetto al piano: 2.2/2.3, 3.1/3.2 e 4.1/4.2 sono atterrate in
+> coppia (modifiche coese, un commit ciascuna); 5.2 è più ricca dello studio
+> (ask_user con opzioni passa da request_permission, solo il free-text
+> degrada). Resta aperta la sola verifica manuale con un editor reale (Zed)
+> contro un provider vero — punto "Test" della task 7.2.
+
 Obiettivo: implementare l'**Agent Client Protocol** (ACP, lo standard di Zed —
 JSON-RPC 2.0 su stdio) così che Zed, JetBrains, Neovim/Emacs e VS Code (via
 estensioni ACP) possano lanciare `lucky acp` come sottoprocesso e usare LuckyCLI
