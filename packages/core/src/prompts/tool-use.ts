@@ -60,7 +60,8 @@ Operational rules:
 
 const GRAPH_LIFECYCLE = `# Graph lifecycle
 
-- The graph updates itself after file edits; you do not need to rebuild it after normal changes.`;
+- The graph updates itself after file edits; you do not need to rebuild it after normal changes.
+- A user turn may end with an auto-generated <graph-context> block: graph matches for symbols or files the message mentions (location, callers, callees). Treat it as a head start — go straight to the cited locations instead of re-running graph_query find for the same names. It is navigation metadata, not file contents: still read the source before editing.`;
 
 const NO_GRAPH_GUIDANCE = `# Navigation
 
