@@ -48,6 +48,7 @@ import {
 } from "@luckycli/core";
 import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
+import type { AskUserRequest } from "@luckycli/core";
 import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope } from "../approval.js";
 import { HIDDEN_TOOLS } from "../hidden-tools.js";
 import {
@@ -64,6 +65,13 @@ import { toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-call
 /** Guidance surfaced whenever the stored config can't drive a session. */
 export const AUTH_GUIDANCE =
   "LuckyCLI manages credentials outside the editor: run `lucky` once in a terminal to pick a provider and log in, then reconnect.";
+
+/**
+ * What ask_user reports when a free-text answer is impossible over ACP. The
+ * model reads this as the tool result and recovers by asking in its reply.
+ */
+export const ASK_USER_FALLBACK =
+  "Free-text questions cannot be collected mid-turn in this editor. Ask the user directly in your reply and end the turn — their answer will arrive as the next message.";
 
 /** How a session's engine runtime is built; injectable so tests stay offline. */
 export type RuntimeBuilder = (
@@ -153,6 +161,7 @@ export class LuckyAcpAgent implements Agent {
       composeSystemFromContext: true,
       permissions: config.permissions,
       approveTool: (name, input) => this.requestToolPermission(sessionId, session, name, input),
+      askUser: (request) => this.askUser(sessionId, request),
       presentPlan: (plan) => this.presentPlan(sessionId, plan),
       cwd: params.cwd,
       // Editor-supplied servers extend the user's own MCP config; the local
@@ -195,6 +204,38 @@ export class LuckyAcpAgent implements Agent {
     if (mode.id === "default" && session.mode !== "default") session.approved.clear();
     session.mode = mode.id as AcpSessionMode;
     return {};
+  }
+
+  /**
+   * The ask_user bridge. With predefined options the question maps cleanly
+   * onto the permission surface (one option per choice); free-text has no
+   * ACP channel mid-turn, so the tool gets an instruction-error telling the
+   * model to ask in its reply and end the turn (see ASK_USER_FALLBACK).
+   */
+  protected async askUser(sessionId: string, request: AskUserRequest): Promise<string> {
+    if (request.options?.length) {
+      const response = await this.conn.requestPermission({
+        sessionId,
+        toolCall: {
+          toolCallId: `ask:${sessionId}`,
+          title: request.question,
+          kind: "think",
+          status: "pending",
+        },
+        options: request.options.map((option, index) => ({
+          optionId: `option-${index}`,
+          kind: "allow_once" as const,
+          name: option,
+        })),
+      });
+      if (response.outcome.outcome === "selected") {
+        const index = Number(response.outcome.optionId.replace("option-", ""));
+        const chosen = request.options[index];
+        if (chosen !== undefined) return chosen;
+      }
+      // Cancelled (or an id we didn't issue): fall through to the fallback.
+    }
+    throw new Error(ASK_USER_FALLBACK);
   }
 
   /**

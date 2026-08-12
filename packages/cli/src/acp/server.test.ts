@@ -679,6 +679,39 @@ describe("acp server permissions and modes", () => {
     expect(kinds.slice(0, 2)).toEqual(["plan", "agent_message_chunk"]);
   });
 
+  it("serves ask_user options through the permission surface and degrades free text", async () => {
+    const { ASK_USER_FALLBACK } = await import("./server.js");
+    const outcomes: Array<{ outcome: "selected"; optionId: string } | { outcome: "cancelled" }> = [
+      { outcome: "selected", optionId: "option-1" },
+      { outcome: "cancelled" },
+    ];
+    let askUser: ((req: unknown) => Promise<string>) | undefined;
+    const { editor } = connect(
+      {
+        config: fakeConfig(),
+        buildRuntime: (async (opts: Parameters<RuntimeBuilder>[0]) => {
+          askUser = opts.askUser as typeof askUser;
+          return fakeRuntime();
+        }) as RuntimeBuilder,
+      },
+      async () => ({ outcome: outcomes.shift()! }),
+    );
+    await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    // A selected option resolves to its text.
+    await expect(
+      askUser!({ question: "Which db?", options: ["sqlite", "postgres"], allowFreeText: true }),
+    ).resolves.toBe("postgres");
+    // A cancelled picker falls back to the instruction error.
+    await expect(
+      askUser!({ question: "Which db?", options: ["sqlite", "postgres"], allowFreeText: true }),
+    ).rejects.toThrow(ASK_USER_FALLBACK);
+    // Free text has no ACP channel at all.
+    await expect(
+      askUser!({ question: "Name the branch", allowFreeText: true }),
+    ).rejects.toThrow(ASK_USER_FALLBACK);
+  });
+
   it("advertises the mode roster on session/new", async () => {
     const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
     const { editor } = connect({
