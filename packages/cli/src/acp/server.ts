@@ -36,11 +36,26 @@ import {
   type PromptResponse,
   type Stream,
 } from "@zed-industries/agent-client-protocol";
+import { createSessionId, type ResolvedConfig } from "@luckycli/core";
+import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
+import { mapAcpMcpServers, mergeMcpServers, type AcpSession } from "./sessions.js";
 
 /** Guidance surfaced whenever the stored config can't drive a session. */
 export const AUTH_GUIDANCE =
   "LuckyCLI manages credentials outside the editor: run `lucky` once in a terminal to pick a provider and log in, then reconnect.";
+
+/** How a session's engine runtime is built; injectable so tests stay offline. */
+export type RuntimeBuilder = (
+  opts: Parameters<typeof buildAgentRuntime>[0],
+) => Promise<BuiltAgentRuntime>;
+
+export interface LuckyAcpAgentOptions {
+  /** Resolved headless config; absent means every session request is refused. */
+  config?: ResolvedConfig;
+  /** Runtime factory, defaulting to the real one. */
+  buildRuntime?: RuntimeBuilder;
+}
 
 /**
  * The agent-side handler for one editor connection. Owns no I/O of its own —
@@ -48,11 +63,16 @@ export const AUTH_GUIDANCE =
  * used to push updates back (session/update, permission requests, …).
  */
 export class LuckyAcpAgent implements Agent {
-  /** The connection back to the editor; used from milestone 2 onward. */
+  /** The connection back to the editor (session updates, permissions, fs). */
   protected readonly conn: AgentSideConnection;
+  protected readonly config: ResolvedConfig | undefined;
+  protected readonly buildRuntime: RuntimeBuilder;
+  protected readonly sessions = new Map<string, AcpSession>();
 
-  constructor(conn: AgentSideConnection) {
+  constructor(conn: AgentSideConnection, options: LuckyAcpAgentOptions = {}) {
     this.conn = conn;
+    this.config = options.config;
+    this.buildRuntime = options.buildRuntime ?? buildAgentRuntime;
   }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
@@ -72,8 +92,10 @@ export class LuckyAcpAgent implements Agent {
           audio: false,
           embeddedContext: false,
         },
-        // Declared once client-supplied MCP servers are wired (task 2.1).
-        mcpCapabilities: { http: false, sse: false },
+        // McpManager speaks Streamable HTTP with an SSE fallback, and stdio
+        // servers are mandatory for every agent — all three transports map
+        // onto LuckyCLI's own MCP config (see sessions.ts).
+        mcpCapabilities: { http: true, sse: true },
       },
       // No in-editor auth: credentials come from the stored CLI config.
       authMethods: [],
@@ -88,8 +110,43 @@ export class LuckyAcpAgent implements Agent {
     throw RequestError.invalidRequest({ details: AUTH_GUIDANCE });
   }
 
-  async newSession(_params: NewSessionRequest): Promise<NewSessionResponse> {
-    throw notYetImplemented("session/new");
+  async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+    const config = this.requireConfig();
+    const built = await this.buildRuntime({
+      provider: config.provider!,
+      model: config.model!,
+      credentials: config.credentials!,
+      system: config.system,
+      // Recompose the system prompt from this session's context (graph
+      // presence, tools, cwd), exactly as the TUI does per activation.
+      composeSystemFromContext: true,
+      permissions: config.permissions,
+      // Milestone-4 stub: until session/request_permission is wired, every
+      // ask-level tool is denied rather than silently allowed.
+      approveTool: () => "deny" as const,
+      cwd: params.cwd,
+      // Editor-supplied servers extend the user's own MCP config; the local
+      // config wins on a name conflict (the user's auth/pins are explicit).
+      mcp: mergeMcpServers(mapAcpMcpServers(params.mcpServers), config.mcp),
+      ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
+      ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
+      ...(config.reasoningEffort ? { reasoningEffort: config.reasoningEffort } : {}),
+      ...(config.thinkingEnabled !== undefined
+        ? { thinkingEnabled: config.thinkingEnabled }
+        : {}),
+    });
+
+    const sessionId = createSessionId();
+    this.sessions.set(sessionId, { agent: built.agent, cwd: params.cwd, abort: null });
+    return { sessionId };
+  }
+
+  /** The stored config, or the ACP auth-required error with the real fix. */
+  protected requireConfig(): ResolvedConfig {
+    if (!this.config || this.config.needsSetup) {
+      throw RequestError.authRequired({ details: AUTH_GUIDANCE });
+    }
+    return this.config;
   }
 
   async prompt(_params: PromptRequest): Promise<PromptResponse> {

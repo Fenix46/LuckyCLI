@@ -61,9 +61,8 @@ async function serveOnStdio(config: ResolvedConfig): Promise<void> {
   });
 }
 
-// Indirection so milestone 2 swaps in the session-capable agent in one place.
-function makeAgent(conn: AgentSideConnection, _config: ResolvedConfig): LuckyAcpAgent {
-  return new LuckyAcpAgent(conn);
+function makeAgent(conn: AgentSideConnection, config: ResolvedConfig): LuckyAcpAgent {
+  return new LuckyAcpAgent(conn, { config });
 }
 
 /** Entry point for `lucky acp [...args]`. Returns the process exit code. */

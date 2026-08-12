@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -6,7 +6,15 @@ import {
   type Client,
   type Stream,
 } from "@zed-industries/agent-client-protocol";
-import { AUTH_GUIDANCE, serveAcp } from "./server.js";
+import { GraphContextEnricher, SkillActivator, type ResolvedConfig } from "@luckycli/core";
+import type { BuiltAgentRuntime } from "../runtime.js";
+import {
+  AUTH_GUIDANCE,
+  LuckyAcpAgent,
+  serveAcp,
+  type LuckyAcpAgentOptions,
+  type RuntimeBuilder,
+} from "./server.js";
 
 /** Two cross-wired in-memory ACP streams: [agentSide, clientSide]. */
 function connectedStreams(): [Stream, Stream] {
@@ -29,11 +37,33 @@ function stubClient(): Client {
 }
 
 /** A connected [server, editor] pair over in-memory streams. */
-function connect(): { editor: ClientSideConnection } {
+function connect(options: LuckyAcpAgentOptions = {}): { editor: ClientSideConnection } {
   const [agentStream, clientStream] = connectedStreams();
-  serveAcp(agentStream);
+  serveAcp(agentStream, (conn) => new LuckyAcpAgent(conn, options));
   const editor = new ClientSideConnection(() => stubClient(), clientStream);
   return { editor };
+}
+
+function fakeConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
+  return {
+    provider: "claude",
+    model: "claude-sonnet-4-6",
+    system: "sys",
+    credentials: { kind: "api-key", apiKey: "sk-test" } as ResolvedConfig["credentials"],
+    mcp: {},
+    permissions: {},
+    needsSetup: false,
+    ...overrides,
+  };
+}
+
+/** A runtime whose agent is an inert stub — enough for session bookkeeping. */
+function fakeRuntime(): BuiltAgentRuntime {
+  return {
+    agent: {} as BuiltAgentRuntime["agent"],
+    skillActivator: new SkillActivator(),
+    graphEnricher: new GraphContextEnricher("/tmp"),
+  };
 }
 
 describe("acp server initialize", () => {
@@ -73,11 +103,15 @@ describe("acp server milestone gates", () => {
     });
   });
 
-  it("rejects session methods not yet implemented with method-not-found", async () => {
+  it("rejects session/new without a usable config as auth-required", async () => {
     const { editor } = connect();
     await expect(
       editor.newSession({ cwd: "/tmp", mcpServers: [] }),
-    ).rejects.toMatchObject({ code: -32601 });
+    ).rejects.toMatchObject({ code: -32000, data: { details: AUTH_GUIDANCE } });
+  });
+
+  it("rejects session methods not yet implemented with method-not-found", async () => {
+    const { editor } = connect();
     await expect(
       editor.prompt({
         sessionId: "nope",
@@ -87,6 +121,71 @@ describe("acp server milestone gates", () => {
   });
 
   it("swallows stray cancel notifications without crashing the connection", async () => {
+    const { editor } = connect();
+    await editor.cancel({ sessionId: "nope" });
+    // The connection must still answer requests after the stray notification.
+    const response = await editor.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: {},
+    });
+    expect(response.protocolVersion).toBe(PROTOCOL_VERSION);
+  });
+});
+
+describe("acp server sessions", () => {
+  it("builds a runtime anchored to the editor's cwd and returns a session id", async () => {
+    const buildRuntime = vi.fn(async () => fakeRuntime()) as unknown as RuntimeBuilder & {
+      mock: { calls: [Parameters<RuntimeBuilder>[0]][] };
+    };
+    const { editor } = connect({ config: fakeConfig(), buildRuntime });
+
+    const first = await editor.newSession({ cwd: "/repo/a", mcpServers: [] });
+    const second = await editor.newSession({ cwd: "/repo/b", mcpServers: [] });
+
+    expect(first.sessionId).toBeTruthy();
+    expect(second.sessionId).toBeTruthy();
+    expect(first.sessionId).not.toBe(second.sessionId);
+    const cwds = buildRuntime.mock.calls.map(([opts]) => opts.cwd);
+    expect(cwds).toEqual(["/repo/a", "/repo/b"]);
+  });
+
+  it("merges editor MCP servers under the user's own config", async () => {
+    const buildRuntime = vi.fn(async () => fakeRuntime()) as unknown as RuntimeBuilder & {
+      mock: { calls: [Parameters<RuntimeBuilder>[0]][] };
+    };
+    const config = fakeConfig({
+      mcp: { docs: { type: "local", command: ["user-pinned"] } },
+    });
+    const { editor } = connect({ config, buildRuntime });
+
+    await editor.newSession({
+      cwd: "/repo",
+      mcpServers: [
+        { name: "docs", command: "editor-supplied", args: [], env: [] },
+        { name: "extra", type: "http", url: "https://mcp.example.com", headers: [] },
+      ],
+    });
+
+    const opts = buildRuntime.mock.calls[0]![0];
+    expect(opts.mcp).toEqual({
+      docs: { type: "local", command: ["user-pinned"] },
+      extra: { type: "remote", url: "https://mcp.example.com" },
+    });
+  });
+
+  it("denies ask-level tools through the milestone-4 approval stub", async () => {
+    const buildRuntime = vi.fn(async () => fakeRuntime()) as unknown as RuntimeBuilder & {
+      mock: { calls: [Parameters<RuntimeBuilder>[0]][] };
+    };
+    const { editor } = connect({ config: fakeConfig(), buildRuntime });
+    await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    const opts = buildRuntime.mock.calls[0]![0];
+    expect(await opts.approveTool?.("write_file", {})).toBe("deny");
+  });
+});
+
+describe("acp server misc", () => {
+  it("keeps answering after a cancel for an unknown session", async () => {
     const { editor } = connect();
     await editor.cancel({ sessionId: "nope" });
     // The connection must still answer requests after the stray notification.

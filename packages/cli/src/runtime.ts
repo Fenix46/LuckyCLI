@@ -66,6 +66,12 @@ function createGraphMaintainer(cwd: string): (paths: string[]) => void {
 export interface BuildAgentOptions {
   provider: ProviderId;
   model: string;
+  /**
+   * Working directory the agent (tools, graph, project memory, system-prompt
+   * environment) is anchored to. Defaults to process.cwd(); ACP sessions pass
+   * the directory the editor opened.
+   */
+  cwd?: string;
   credentials: ProviderCredentials;
   system: string;
   temperature?: number;
@@ -163,7 +169,7 @@ export interface BuiltAgentRuntime {
 export function buildAgent(opts: BuildAgentOptions): Agent {
   resetProvider(opts.provider);
   const provider = getProvider(opts.provider, opts.credentials);
-  const cwd = process.cwd();
+  const cwd = opts.cwd ?? process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
   const skillActivator = opts.skillActivator ?? new SkillActivator();
@@ -192,6 +198,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   return new Agent({
     provider,
     model: opts.model,
+    cwd,
     tools,
     system: appendProjectMemoryToSystemPrompt(composed, projectMemory),
     permissions: opts.permissions,
