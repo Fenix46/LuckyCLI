@@ -48,6 +48,13 @@ export interface CommandContext {
     /** Propagate a changed MCP config to the live manager. */
     setMcpConfig(next: Record<string, McpServerConfig>): void;
     persistSession(): void;
+    /**
+     * Notify session-scoped injectors (skills, graph enricher) that the
+     * transcript was compacted, so anything injected earlier — possibly
+     * summarized away — may re-activate when next relevant. Must be called
+     * after a manual /compact, mirroring the auto-compaction path.
+     */
+    contextCompacted(): void;
   };
 }
 

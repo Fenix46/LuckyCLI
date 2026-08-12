@@ -27,6 +27,7 @@ import {
   saveReasoningEffort,
   saveSession,
   saveStoredConfig,
+  type GraphContextEnricher,
   type SkillActivator,
   type Task,
 } from "@luckycli/core";
@@ -100,6 +101,8 @@ interface AppProps {
   agent: Agent;
   /** Session skill activator, shared with the agent (skill_load marks active). */
   skillActivator: SkillActivator;
+  /** Graph context enricher, shared with the agent; cleared on compaction. */
+  graphEnricher: GraphContextEnricher;
   meta: AppMeta;
   approvalRequest: ApprovalRequest | null;
   setApprovalRequest: (req: ApprovalRequest | null) => void;
@@ -125,6 +128,7 @@ interface AppProps {
 export function App({
   agent,
   skillActivator,
+  graphEnricher,
   meta,
   approvalRequest,
   setApprovalRequest,
@@ -281,6 +285,7 @@ export function App({
     onUsage,
     persist: persistSession,
     skills: skillActivator,
+    graphEnricher,
   });
   const { elapsedSeconds, activityFrame } = useElapsedTimer(
     busy || compacting,
@@ -792,6 +797,13 @@ export function App({
             },
             setMcpConfig: onMcpConfigChange,
             persistSession,
+            contextCompacted: () => {
+              // Mirror the auto-compaction path: injected skill blocks and
+              // graph cards may have been summarized away, so both may
+              // re-activate when next relevant.
+              skillActivator.onCompacted();
+              graphEnricher.onCompacted();
+            },
           },
         };
         await dispatchCommand(text, commandRegistry, ctx);
@@ -814,7 +826,7 @@ export function App({
       setInput("");
       await runTurn(content);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator],
+    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

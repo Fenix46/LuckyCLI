@@ -27,6 +27,7 @@ import {
   getProfile,
   resolveCredentials,
   runSubAgent as runSubAgentCore,
+  type GraphContextEnricher,
   type SkillActivator,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt, commandPrefix } from "@luckycli/core";
@@ -50,6 +51,7 @@ interface ActiveRuntime {
   model: string;
   credentials: ProviderCredentials;
   skillActivator: SkillActivator;
+  graphEnricher: GraphContextEnricher;
   mcpManager?: McpManager;
 }
 
@@ -333,6 +335,7 @@ export function Root({
         model: next.model,
         credentials: next.credentials,
         skillActivator: built.skillActivator,
+        graphEnricher: built.graphEnricher,
         ...(built.mcpManager ? { mcpManager: built.mcpManager } : {}),
       };
     });
@@ -494,6 +497,7 @@ export function Root({
       key={resumeSession.id}
       agent={runtime.agent}
       skillActivator={runtime.skillActivator}
+      graphEnricher={runtime.graphEnricher}
       meta={{ provider: runtime.provider, model: runtime.model }}
       approvalRequest={approvalRequest}
       setApprovalRequest={setApprovalRequest}

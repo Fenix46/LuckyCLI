@@ -13,6 +13,7 @@
  */
 
 import { Agent } from "../agent/agent.js";
+import { GraphContextEnricher } from "../graph/enrich.js";
 import { getProvider, resetProvider } from "../providers/registry.js";
 import type {
   ProviderCredentials,
@@ -121,12 +122,17 @@ export async function runSubAgent(
   resetProvider(providerId);
   const provider = getProvider(providerId, credentials);
 
+  // A fresh enricher per run: the sub-agent's task usually names the symbols it
+  // must work on, so the graph cards land exactly where they help most. Its
+  // injected-set dies with the run — no cross-run dedup needed.
+  const enricher = new GraphContextEnricher(req.cwd);
   const agent = new Agent({
     provider,
     model: req.profile.model,
     tools: req.tools ?? subAgentToolRegistry(),
     system: composeSystemPrompt(req.system, req.profile),
     cwd: req.cwd,
+    enrichTurn: (text) => enricher.enrich(text),
     ...(req.onFilesChanged ? { onFilesChanged: req.onFilesChanged } : {}),
   });
 

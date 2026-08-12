@@ -3,6 +3,7 @@ import type {
   Agent,
   ContentPart,
   ContextStatus,
+  GraphContextEnricher,
   SkillActivator,
   TokenUsage,
   ToolResultMetadata,
@@ -42,6 +43,12 @@ interface TurnRunnerDeps {
    * cleared on compaction. Absent = skills feature off.
    */
   skills?: SkillActivator;
+  /**
+   * Graph context enricher shared with the agent. The runner only clears its
+   * injected-set on compaction (the injected cards may have been summarized
+   * away); the agent itself calls it per turn. Absent = enrichment off.
+   */
+  graphEnricher?: GraphContextEnricher;
 }
 
 export interface TurnRunner {
@@ -73,6 +80,7 @@ export function useTurnRunner({
   onUsage,
   persist,
   skills,
+  graphEnricher,
 }: TurnRunnerDeps): TurnRunner {
   const [busy, setBusy] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -166,9 +174,11 @@ export function useTurnRunner({
             },
             onContext: (status) => onContext(status),
             onCompacted: (result) => {
-              // The injected skill blocks may have been summarized away — clear
-              // the active set so they can re-activate when next relevant.
+              // The injected skill blocks and graph cards may have been
+              // summarized away — clear both sets so they can re-activate
+              // when next relevant.
               skills?.onCompacted();
+              graphEnricher?.onCompacted();
               appendItems([
                 {
                   kind: "command",
@@ -209,7 +219,7 @@ export function useTurnRunner({
         persist();
       }
     },
-    [agent, appendItems, patchTool, onContext, onUsage, persist, skills],
+    [agent, appendItems, patchTool, onContext, onUsage, persist, skills, graphEnricher],
   );
 
   return { busy, startedAt, streaming, reasoning, abort, runTurn };

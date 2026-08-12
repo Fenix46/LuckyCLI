@@ -7,6 +7,7 @@ import {
   defaultToolRegistry,
   ensureProjectMemoryFile,
   getProvider,
+  GraphContextEnricher,
   graphFilePath,
   hasInstalledSkills,
   listProfiles,
@@ -101,6 +102,12 @@ export interface BuildAgentOptions {
    * omitted, buildAgent creates one.
    */
   skillActivator?: SkillActivator;
+  /**
+   * Graph context enricher, shared between the agent (which calls it per turn)
+   * and the UI (which clears its injected-set on compaction). When omitted,
+   * buildAgent creates one for the current working directory.
+   */
+  graphEnricher?: GraphContextEnricher;
 }
 
 type RuntimeToolRegistry = ReturnType<typeof defaultToolRegistry>;
@@ -138,6 +145,8 @@ export interface BuiltAgentRuntime {
   agent: Agent;
   /** Session skill activator, shared with the agent (skill_load) and UI turn loop. */
   skillActivator: SkillActivator;
+  /** Graph context enricher, shared with the agent; clear it on compaction. */
+  graphEnricher: GraphContextEnricher;
   mcpManager?: McpManager;
   /**
    * Resolves once the background MCP connection has settled and any tools have
@@ -158,6 +167,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const projectMemory = ensureProjectMemoryFile(cwd);
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
   const skillActivator = opts.skillActivator ?? new SkillActivator();
+  const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
 
   // Optionally recompose the system prompt from this session's context so the
   // conditional sections react to it. A custom LUCKY_SYSTEM always wins, so we
@@ -191,6 +201,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.runSubAgent ? { runSubAgent: opts.runSubAgent } : {}),
     onFilesChanged: createGraphMaintainer(cwd),
     onSkillLoaded: (id) => skillActivator.markActive(id),
+    enrichTurn: (text) => graphEnricher.enrich(text),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
@@ -212,9 +223,10 @@ export async function buildAgentRuntime(
   // when a server is slow (e.g. first-run `npx` downloads) or wedged.
   const registry = createRuntimeToolRegistry(opts.extraTools);
   const skillActivator = opts.skillActivator ?? new SkillActivator();
-  const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator });
+  const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
+  const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator, graphEnricher });
 
-  if (Object.keys(mcp).length === 0) return { agent, skillActivator };
+  if (Object.keys(mcp).length === 0) return { agent, skillActivator, graphEnricher };
 
   const mcpManager = new McpManager({
     cwd,
@@ -236,5 +248,5 @@ export async function buildAgentRuntime(
       // misbehaving server break the session.
     });
 
-  return { agent, skillActivator, mcpManager, mcpReady };
+  return { agent, skillActivator, graphEnricher, mcpManager, mcpReady };
 }
