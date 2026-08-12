@@ -668,6 +668,13 @@ Commit:
 
 ## Milestone 10 — Slash command dell'editor (graph incluso)
 
+**Fatta** (2026-08-12): `ee34e37`. Registry in `packages/cli/src/acp/commands.ts`
+con `/graph`, `/status`, `/context`, `/compact`, `/thinking`; roster mandato
+come `available_commands_update` alla creazione della sessione. Il dispatch
+scatta solo se il PRIMO blocco testo inizia con un `/nome` che abbiamo
+advertised — tutto il resto arriva al modello intatto. Un comando che lancia
+un'eccezione chiude comunque il turno con l'errore come testo.
+
 ### Task 10.1 — Registry comandi ACP e advertise
 
 Scope:
@@ -720,6 +727,23 @@ Commit:
 - `feat(acp): graph build command from the editor`
 
 ## Milestone 11 — Consumi in tempo reale
+
+**Fatta** (2026-08-12): `f05144d`. Chiavi in `packages/cli/src/acp/meta.ts`,
+documentate nel README (sezione "In-editor features" / "`_meta` extensions").
+
+Correzione importante rispetto allo scope originale: **il motore emette
+l'evento `context` immediatamente prima di `turn_end`**, non a metà turno —
+anche nel ramo tool-calls (agent.ts:430 è l'unico punto che lo emette). Quindi
+in pratica è il `_meta` della PromptResponse a portarlo; la pompa sulle
+notifiche resta per le letture che arrivano a metà turno (compaction). Il
+tasklist assumeva il contrario.
+
+Altre due note: la shape pubblicata è un sottoinsieme ristretto e documentato
+di `ContextStatus` (non la struct interna, così il bookkeeping può cambiare
+senza rompere i client custom), e le letture che non dicono nulla sul consumo
+vengono registrate ma non pubblicate. Corretto anche `/context` che stampava
+l'header senza numeri quando il provider riporta i token usati ma non la
+finestra.
 
 ### Task 11.1 — Pompa degli eventi context + `/context`
 
