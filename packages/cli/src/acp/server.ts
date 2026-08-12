@@ -36,7 +36,16 @@ import {
   type PromptResponse,
   type Stream,
 } from "@zed-industries/agent-client-protocol";
-import { createSessionId, type ResolvedConfig, type TokenUsage } from "@luckycli/core";
+import {
+  createSessionId,
+  listTasks,
+  onTasksUpdated,
+  setActiveTaskListId,
+  type PlanDecision,
+  type PlanProposal,
+  type ResolvedConfig,
+  type TokenUsage,
+} from "@luckycli/core";
 import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
 import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope } from "../approval.js";
@@ -49,6 +58,7 @@ import {
   type AcpSession,
   type AcpSessionMode,
 } from "./sessions.js";
+import { planBodyUpdate, planUpdateFromProposal, planUpdateFromTasks } from "./plan.js";
 import { toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
 
 /** Guidance surfaced whenever the stored config can't drive a session. */
@@ -143,6 +153,7 @@ export class LuckyAcpAgent implements Agent {
       composeSystemFromContext: true,
       permissions: config.permissions,
       approveTool: (name, input) => this.requestToolPermission(sessionId, session, name, input),
+      presentPlan: (plan) => this.presentPlan(sessionId, plan),
       cwd: params.cwd,
       // Editor-supplied servers extend the user's own MCP config; the local
       // config wins on a name conflict (the user's auth/pins are explicit).
@@ -184,6 +195,33 @@ export class LuckyAcpAgent implements Agent {
     if (mode.id === "default" && session.mode !== "default") session.approved.clear();
     session.mode = mode.id as AcpSessionMode;
     return {};
+  }
+
+  /**
+   * The plan bridge: show the proposal (entries + readable body), then ask
+   * for the decision through the same permission surface editors already
+   * render. ACP has no free-text channel mid-turn, so there is no "modify"
+   * option — the user rejects and sends their feedback as the next prompt.
+   */
+  protected async presentPlan(sessionId: string, plan: PlanProposal): Promise<PlanDecision> {
+    await this.conn.sessionUpdate(planUpdateFromProposal(sessionId, plan));
+    await this.conn.sessionUpdate(planBodyUpdate(sessionId, plan));
+    const response = await this.conn.requestPermission({
+      sessionId,
+      toolCall: {
+        toolCallId: `plan:${sessionId}`,
+        title: `Plan: ${plan.title}`,
+        kind: "think",
+        status: "pending",
+      },
+      options: [
+        { optionId: "accept", kind: "allow_once", name: "Accept and run" },
+        { optionId: "reject", kind: "reject_once", name: "Reject (reply with feedback)" },
+      ],
+    });
+    const accepted =
+      response.outcome.outcome === "selected" && response.outcome.optionId === "accept";
+    return { action: accepted ? "accept" : "reject" };
   }
 
   /**
@@ -248,6 +286,18 @@ export class LuckyAcpAgent implements Agent {
 
     const abort = new AbortController();
     session.abort = abort;
+    // The task tools write to the process-wide active list; point it at this
+    // session for the duration of the turn and mirror every change to the
+    // editor as a plan update — the ACP counterpart of the TUI's TaskPanel.
+    setActiveTaskListId(params.sessionId);
+    const unsubscribeTasks = onTasksUpdated((listId) => {
+      if (listId !== params.sessionId) return;
+      void this.conn
+        .sessionUpdate(planUpdateFromTasks(params.sessionId, listTasks(listId)))
+        .catch(() => {
+          /* a dropped notification must never break the turn */
+        });
+    });
     let stopReason: PromptResponse["stopReason"] = "end_turn";
     let usage: TokenUsage | undefined;
     try {
@@ -290,6 +340,7 @@ export class LuckyAcpAgent implements Agent {
       }
     } finally {
       session.abort = null;
+      unsubscribeTasks();
     }
     return {
       stopReason,

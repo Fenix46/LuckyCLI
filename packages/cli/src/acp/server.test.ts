@@ -647,6 +647,38 @@ describe("acp server permissions and modes", () => {
     ).rejects.toMatchObject({ code: -32602 });
   });
 
+  it("presents a plan as plan+body updates and maps the decision", async () => {
+    const outcomes: Array<{ outcome: "selected"; optionId: string } | { outcome: "cancelled" }> = [
+      { outcome: "selected", optionId: "accept" },
+      { outcome: "selected", optionId: "reject" },
+      { outcome: "cancelled" },
+    ];
+    let presentPlan: ((plan: unknown) => Promise<unknown>) | undefined;
+    const { editor, updates } = connect(
+      {
+        config: fakeConfig(),
+        buildRuntime: (async (opts: Parameters<RuntimeBuilder>[0]) => {
+          presentPlan = opts.presentPlan as typeof presentPlan;
+          return fakeRuntime();
+        }) as RuntimeBuilder,
+      },
+      async () => ({ outcome: outcomes.shift()! }),
+    );
+    await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    const plan = {
+      title: "Refactor",
+      markdown: "1. a\n2. b",
+      tasks: [{ subject: "Do a", description: "" }],
+    };
+    expect(await presentPlan!(plan)).toEqual({ action: "accept" });
+    expect(await presentPlan!(plan)).toEqual({ action: "reject" });
+    expect(await presentPlan!(plan)).toEqual({ action: "reject" }); // cancelled
+
+    const kinds = updates.map((u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate);
+    expect(kinds.slice(0, 2)).toEqual(["plan", "agent_message_chunk"]);
+  });
+
   it("advertises the mode roster on session/new", async () => {
     const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
     const { editor } = connect({
