@@ -122,17 +122,21 @@ async function runGraphCommand(args: string[]): Promise<void> {
 }
 
 function main(): void {
+  const rawArgs = process.argv.slice(2);
+  // In ACP mode stdout is a JSON-RPC channel: anything human-facing must go
+  // to stderr or the editor's client chokes on the very first bytes.
+  const humanOut = rawArgs[0] === "acp" ? process.stderr : process.stdout;
+
   // Finish any update staged on a previous run before doing anything else, so a
   // cold start always lands on the newest binary. Best-effort: never blocks startup.
   const staged = applyStagedUpdateIfAny();
   if (staged.swapped) {
     // The on-disk binary is new, but THIS process was spawned from the old
     // image — the next launch runs the update. Say so honestly.
-    process.stdout.write(`Update ${staged.version} installed — active from the next launch.\n`);
+    humanOut.write(`Update ${staged.version} installed — active from the next launch.\n`);
   }
 
   // Subcommands are handled before the TUI path (they print and exit).
-  const rawArgs = process.argv.slice(2);
   if (rawArgs[0] === "graph") {
     runGraphCommand(rawArgs.slice(1)).catch((err) => {
       process.stderr.write(`graph command failed: ${err instanceof Error ? err.message : err}\n`);
