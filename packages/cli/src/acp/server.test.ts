@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -22,6 +25,21 @@ import {
   type LuckyAcpAgentOptions,
   type RuntimeBuilder,
 } from "./server.js";
+
+// The server persists sessions to LuckyCLI's store (~/.luckycli/sessions) on
+// every turn; point HOME at a throwaway dir for the whole suite so tests never
+// touch the user's real store.
+let suiteHome: string;
+let realHome: string | undefined;
+beforeAll(() => {
+  realHome = process.env.HOME;
+  suiteHome = mkdtempSync(join(tmpdir(), "lucky-acp-suite-home-"));
+  process.env.HOME = suiteHome;
+});
+afterAll(() => {
+  process.env.HOME = realHome;
+  rmSync(suiteHome, { recursive: true, force: true });
+});
 
 /** Two cross-wired in-memory ACP streams: [agentSide, clientSide]. */
 function connectedStreams(): [Stream, Stream] {
@@ -213,7 +231,7 @@ describe("acp server initialize", () => {
 
     expect(response.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(response.authMethods).toEqual([]);
-    expect(response.agentCapabilities?.loadSession).toBe(false);
+    expect(response.agentCapabilities?.loadSession).toBe(true);
     expect(response.agentCapabilities?.promptCapabilities).toEqual({
       image: true,
       audio: false,
@@ -727,6 +745,72 @@ describe("acp server permissions and modes", () => {
         { id: "bypass-permissions" },
       ],
     });
+  });
+});
+
+describe("acp server session load and persistence", () => {
+  it("persists a session after a turn and reloads it with a text replay", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const fakeHome = await mkdtemp(join(tmpdir(), "lucky-acp-home-"));
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    try {
+      // Turn 1: run a prompt so the server persists the session to the store.
+      const agent = engineAgent([[{ textDelta: "the answer" }, { finishReason: "stop" }]]);
+      const { editor, sessionId } = await editorWithSession(agent);
+      await editor.prompt({ sessionId, prompt: [{ type: "text", text: "the question" }] });
+
+      // A fresh connection (new process, conceptually) loads it back.
+      const resumed = engineAgent([[{ textDelta: "again" }, { finishReason: "stop" }]]);
+      const { editor: editor2, updates } = connect({
+        config: fakeConfig(),
+        buildRuntime: (async (opts: Parameters<RuntimeBuilder>[0]) => {
+          expect(opts.messages).toHaveLength(2); // user + assistant restored
+          return fakeRuntime(resumed);
+        }) as RuntimeBuilder,
+      });
+      const response = await editor2.loadSession({
+        sessionId,
+        cwd: "/repo",
+        mcpServers: [],
+      });
+      expect(response.modes).toMatchObject({ currentModeId: "default" });
+      expect(updates).toEqual([
+        {
+          sessionId,
+          update: {
+            sessionUpdate: "user_message_chunk",
+            content: { type: "text", text: "the question" },
+          },
+        },
+        {
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "the answer" },
+          },
+        },
+      ]);
+
+      // The loaded session accepts new prompts under the same id.
+      const next = await editor2.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "more" }],
+      });
+      expect(next.stopReason).toBe("end_turn");
+    } finally {
+      process.env.HOME = previousHome;
+      await rm(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects loading an unknown session id", async () => {
+    const { editor } = connect({ config: fakeConfig() });
+    await expect(
+      editor.loadSession({ sessionId: "ses_missing_x", cwd: "/repo", mcpServers: [] }),
+    ).rejects.toMatchObject({ code: -32602 });
   });
 });
 

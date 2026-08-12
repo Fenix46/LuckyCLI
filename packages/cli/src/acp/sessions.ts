@@ -18,6 +18,10 @@ export const ACP_SESSION_MODES: { id: AcpSessionMode; name: string; description:
 
 /** One live editor conversation: the engine agent plus its turn state. */
 export interface AcpSession {
+  /** Session id — also the id in LuckyCLI's persistent session store. */
+  id: string;
+  /** First-created timestamp, preserved across load/save cycles. */
+  createdAt: number;
   agent: Agent;
   /** Working directory the editor anchored this session to. */
   cwd: string;

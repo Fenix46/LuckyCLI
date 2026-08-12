@@ -38,9 +38,13 @@ import {
 } from "@zed-industries/agent-client-protocol";
 import {
   createSessionId,
+  deriveTitle,
   listTasks,
+  loadSession as loadStoredSession,
   onTasksUpdated,
+  saveSession,
   setActiveTaskListId,
+  type Message,
   type PlanDecision,
   type PlanProposal,
   type ResolvedConfig,
@@ -112,8 +116,9 @@ export class LuckyAcpAgent implements Agent {
     return {
       protocolVersion,
       agentCapabilities: {
-        // Flips to true when session/load lands (task 5.3).
-        loadSession: false,
+        // Sessions persist to LuckyCLI's own store, so a conversation started
+        // in the TUI can continue in the editor and vice versa.
+        loadSession: true,
         promptCapabilities: {
           // The engine already speaks multimodal turns (ContentPart images).
           image: true,
@@ -139,17 +144,70 @@ export class LuckyAcpAgent implements Agent {
   }
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+    const session = await this.createSession(createSessionId(), params.cwd, params.mcpServers);
+    return {
+      sessionId: session.id,
+      modes: sessionModeState(session),
+    };
+  }
+
+  async loadSession(params: {
+    sessionId: string;
+    cwd: string;
+    mcpServers: NewSessionRequest["mcpServers"];
+  }): Promise<{ modes?: ReturnType<typeof sessionModeState> }> {
+    const stored = loadStoredSession(params.sessionId);
+    if (!stored) {
+      throw RequestError.invalidParams({
+        details: `No saved session "${params.sessionId}".`,
+      });
+    }
+    const session = await this.createSession(
+      params.sessionId,
+      params.cwd,
+      params.mcpServers,
+      stored.messages,
+      stored.createdAt,
+    );
+    // Per spec the whole history streams back as notifications before the
+    // response. Text only: tool traffic is transient UI state, and replaying
+    // it without live rows confuses editors more than it helps.
+    for (const message of stored.messages) {
+      for (const part of message.content) {
+        if (part.type !== "text" || !part.text.trim()) continue;
+        await this.conn.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate:
+              message.role === "user" ? "user_message_chunk" : "agent_message_chunk",
+            content: { type: "text", text: part.text },
+          },
+        });
+      }
+    }
+    return { modes: sessionModeState(session) };
+  }
+
+  /** Build the engine runtime for a session and register its record. */
+  protected async createSession(
+    sessionId: string,
+    cwd: string,
+    mcpServers: NewSessionRequest["mcpServers"],
+    messages?: Message[],
+    createdAt?: number,
+  ): Promise<AcpSession> {
     const config = this.requireConfig();
     // The session record exists before the runtime so the approval bridge
     // (captured at build time) can close over its live state.
-    const sessionId = createSessionId();
     const session: AcpSession = {
+      id: sessionId,
       agent: undefined as unknown as AcpSession["agent"],
-      cwd: params.cwd,
+      cwd,
       abort: null,
       approved: new Set(),
       mode: "default",
       lastToolCallId: null,
+      createdAt: createdAt ?? Date.now(),
     };
     const built = await this.buildRuntime({
       provider: config.provider!,
@@ -163,10 +221,11 @@ export class LuckyAcpAgent implements Agent {
       approveTool: (name, input) => this.requestToolPermission(sessionId, session, name, input),
       askUser: (request) => this.askUser(sessionId, request),
       presentPlan: (plan) => this.presentPlan(sessionId, plan),
-      cwd: params.cwd,
+      cwd,
       // Editor-supplied servers extend the user's own MCP config; the local
       // config wins on a name conflict (the user's auth/pins are explicit).
-      mcp: mergeMcpServers(mapAcpMcpServers(params.mcpServers), config.mcp),
+      mcp: mergeMcpServers(mapAcpMcpServers(mcpServers), config.mcp),
+      ...(messages?.length ? { messages } : {}),
       ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
       ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
       ...(config.reasoningEffort ? { reasoningEffort: config.reasoningEffort } : {}),
@@ -177,17 +236,7 @@ export class LuckyAcpAgent implements Agent {
 
     session.agent = built.agent;
     this.sessions.set(sessionId, session);
-    return {
-      sessionId,
-      modes: {
-        currentModeId: session.mode,
-        availableModes: ACP_SESSION_MODES.map(({ id, name, description }) => ({
-          id,
-          name,
-          description,
-        })),
-      },
-    };
+    return session;
   }
 
   async setSessionMode(params: {
@@ -382,6 +431,9 @@ export class LuckyAcpAgent implements Agent {
     } finally {
       session.abort = null;
       unsubscribeTasks();
+      // Persist after every turn (like the TUI) so the conversation can be
+      // resumed from either surface — including after an error or a cancel.
+      this.persistSession(session);
     }
     return {
       stopReason,
@@ -397,6 +449,28 @@ export class LuckyAcpAgent implements Agent {
     this.sessions.get(params.sessionId)?.abort?.abort();
   }
 
+  /** Best-effort save into LuckyCLI's session store (shared with the TUI). */
+  protected persistSession(session: AcpSession): void {
+    const config = this.config;
+    if (!config?.provider || !config.model) return;
+    try {
+      const messages = [...session.agent.messages];
+      if (messages.length === 0) return;
+      const title = deriveTitle(messages);
+      saveSession({
+        id: session.id,
+        ...(title ? { title } : {}),
+        provider: config.provider,
+        model: config.model,
+        createdAt: session.createdAt,
+        updatedAt: Date.now(),
+        messages,
+      });
+    } catch {
+      // Persistence must never break a turn (stub agents in tests, full disk…).
+    }
+  }
+
   /** Abort every in-flight prompt; called when the editor drops the pipe. */
   abortAll(): void {
     for (const session of this.sessions.values()) session.abort?.abort();
@@ -410,6 +484,21 @@ export class LuckyAcpAgent implements Agent {
     }
     return session;
   }
+}
+
+/** The mode roster + current mode, as session/new and session/load report it. */
+function sessionModeState(session: AcpSession): {
+  currentModeId: string;
+  availableModes: { id: string; name: string; description: string }[];
+} {
+  return {
+    currentModeId: session.mode,
+    availableModes: ACP_SESSION_MODES.map(({ id, name, description }) => ({
+      id,
+      name,
+      description,
+    })),
+  };
 }
 
 /**
