@@ -515,6 +515,16 @@ superfici.
 
 ## Milestone 8 — Diff in tempo reale prima dell'approvazione
 
+**Fatta** (2026-08-12): task 8.1 in `d242265`, task 8.2 in `4cf3610`.
+Suite a 1065 test verdi. Due note rispetto allo scope originale:
+
+- l'helper (`packages/cli/src/approval-preview.ts`) non lancia mai: un
+  preview impossibile (patch malformata, file illeggibile, snippet che non
+  matcha più) dà zero diff, e l'approvazione parte comunque senza diff;
+- la TUI calcola il diff in un effect (`usePreviewDiffs`) leggendo da disco,
+  quindi ora anche `edit_file` mostra numeri di riga reali e contesto, e
+  `apply_patch` ha un diff strutturato che prima non aveva.
+
 ### Task 8.1 — Helper condiviso di preview dei write-tool
 
 Scope:
