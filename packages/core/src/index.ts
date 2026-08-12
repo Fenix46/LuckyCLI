@@ -61,6 +61,8 @@ export {
   skillSearchTool,
   skillLoadTool,
   askUserTool,
+  previewPatch,
+  replaceSnippet,
 } from "./tools/builtin/index.js";
 export type { PlanProposal, PlanDecision, PlanTask } from "./agent/plan.js";
 

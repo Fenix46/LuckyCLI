@@ -49,6 +49,8 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(askUserTool);
 }
 
+export { previewPatch } from "./apply-patch.js";
+export { replace as replaceSnippet } from "./edit-replace.js";
 export {
   execTool,
   powerShellTool,

@@ -76,6 +76,40 @@ interface FilePatch {
   hunks: Hunk[];
 }
 
+/**
+ * Dry-run of {@link applyPatchTool}: the same parse + apply pipeline, but the
+ * result is only diffed, never written. Used to show a real diff *before* the
+ * user approves the call — the file contents come from `readFile`, so a host
+ * with unsaved editor buffers previews what the tool would actually see.
+ *
+ * `readFile` resolves undefined for a file that doesn't exist. Errors (bad
+ * patch, unreadable file, failed context match) propagate: a caller that only
+ * wants a best-effort preview catches them and shows none.
+ */
+export async function previewPatch(
+  patch: string,
+  readFile: (path: string) => Promise<string | undefined>,
+): Promise<FileDiff[]> {
+  const files = parseUnifiedDiff(patch);
+  if (files.length === 0) throw new Error("No file patches found.");
+
+  const diffs: FileDiff[] = [];
+  for (const file of files) {
+    if (file.operation === "add") {
+      diffs.push(fileDiff(file.path, "", applyFilePatch("", file), { created: true }));
+      continue;
+    }
+    const original = await readFile(file.path);
+    if (original === undefined) throw new Error(`File not found: ${file.path}`);
+    if (file.operation === "delete") {
+      diffs.push(fileDiff(file.path, original, ""));
+    } else {
+      diffs.push(fileDiff(file.path, original, applyFilePatch(original, file)));
+    }
+  }
+  return diffs;
+}
+
 interface Hunk {
   // `oldStart < 0` means the position is unknown (Codex `*** Begin Patch`
   // hunks carry no @@ line numbers); applyFilePatch locates it by context.

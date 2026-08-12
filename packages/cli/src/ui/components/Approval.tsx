@@ -1,9 +1,12 @@
 import { Box, Text } from "../../vendor/ink-compat.js";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import React from "react";
-import { fileDiff, type FileDiff } from "@luckycli/core";
+import type { FileDiff } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import type { ApprovalRequest } from "../lib/requests.js";
 import { inputString, truncateSingleLine, wrapText } from "../lib/format.js";
+import { previewToolDiffs, PREVIEWABLE_TOOLS } from "../../approval-preview.js";
 import { DiffView } from "./DiffView.js";
 
 export function ApprovalRequestView({
@@ -20,6 +23,7 @@ export function ApprovalRequestView({
   width: number;
 }): React.JSX.Element {
   const detail = approvalDisplay(request, width);
+  const diff = usePreviewDiffs(request);
   const panelWidth = Math.max(48, Math.min(width, 104));
   return (
     <Box
@@ -49,9 +53,9 @@ export function ApprovalRequestView({
         </Box>
       ) : null}
 
-      {detail.diff ? (
+      {diff && diff.length > 0 ? (
         <Box marginTop={1}>
-          <DiffView diffs={detail.diff} theme={theme} width={Math.max(32, panelWidth - 6)} />
+          <DiffView diffs={diff} theme={theme} width={Math.max(32, panelWidth - 6)} />
         </Box>
       ) : detail.preview.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
@@ -117,8 +121,38 @@ interface ApprovalDisplay {
   question: string;
   target?: string;
   preview: { text: string; color?: "added" | "removed" | "muted" }[];
-  /** Structured diff rendered with DiffView; takes precedence over preview. */
-  diff?: FileDiff[];
+}
+
+/**
+ * The diff of the change awaiting approval, rendered with DiffView in place of
+ * the textual preview. Computed off the shared helper against the file on disk,
+ * so line numbers and context match the file the tool is about to modify. It
+ * resolves a frame or two after the prompt appears; until then (and for tools
+ * with nothing to diff) the textual preview stands in.
+ */
+function usePreviewDiffs(request: ApprovalRequest): FileDiff[] | undefined {
+  const [diffs, setDiffs] = React.useState<FileDiff[] | undefined>(undefined);
+  React.useEffect(() => {
+    if (!PREVIEWABLE_TOOLS.has(request.name)) {
+      setDiffs(undefined);
+      return;
+    }
+    let cancelled = false;
+    setDiffs(undefined);
+    void previewToolDiffs(request.name, request.input, async (path) => {
+      try {
+        return await readFile(resolve(process.cwd(), path), "utf8");
+      } catch {
+        return undefined;
+      }
+    }).then((result) => {
+      if (!cancelled && result.length > 0) setDiffs(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [request]);
+  return diffs;
 }
 
 function approvalDisplay(request: ApprovalRequest, width: number): ApprovalDisplay {
@@ -131,18 +165,16 @@ function approvalDisplay(request: ApprovalRequest, width: number): ApprovalDispl
     };
   }
 
+  // The write tools get their structured diff from usePreviewDiffs; what these
+  // branches carry is the wording, the target, and the textual stand-in shown
+  // in the frames before that diff resolves (or if it can't be computed).
   if (request.name === "edit_file") {
-    // A real line diff of the requested replacement. Line numbers refer to the
-    // snippet, not the file (the file hasn't been read at approval time), but
-    // changed lines and their context read exactly like the post-edit diff.
     const path = inputString(request.input, "path");
-    const oldString = inputString(request.input, "oldString") ?? "";
     const newString = inputString(request.input, "newString") ?? "";
     return {
       question: "Apply this edit?",
       ...(path ? { target: path } : {}),
-      preview: [],
-      diff: [fileDiff(path ?? "(unknown file)", oldString, newString)],
+      preview: newString ? codePreview(newString, previewWidth, 8, "  ", "added") : [],
     };
   }
 
@@ -152,8 +184,7 @@ function approvalDisplay(request: ApprovalRequest, width: number): ApprovalDispl
     return {
       question: "Write this file?",
       ...(path ? { target: path } : {}),
-      preview: [],
-      diff: [fileDiff(path ?? "(unknown file)", "", content, { created: true })],
+      preview: content ? codePreview(content, previewWidth, 8, "  ", "added") : [],
     };
   }
 
