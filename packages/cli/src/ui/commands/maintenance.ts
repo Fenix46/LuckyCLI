@@ -119,6 +119,7 @@ export function maintenanceCommands(deps: MaintenanceCommandDeps = defaultDeps):
           // compactNow already measured the post-compaction context; reuse it
           // instead of asking again (a billed round-trip on Claude OAuth).
           const { status, ...result } = await ctx.agent.compactNow();
+          ctx.ui.contextCompacted();
           ctx.ui.setContextStatus(status);
           ctx.ui.persistSession();
           ctx.emit({

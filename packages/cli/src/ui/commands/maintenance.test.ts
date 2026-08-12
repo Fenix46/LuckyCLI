@@ -20,6 +20,7 @@ function harness(overrides: {
     setCompacting: vi.fn(),
     setContextStatus: vi.fn(),
     persistSession: vi.fn(),
+    contextCompacted: vi.fn(),
   };
   const deps: MaintenanceCommandDeps = {
     checkForUpdate: vi.fn(async () => ({ updateAvailable: false })),
@@ -140,6 +141,9 @@ describe("/compact", () => {
     expect(h.ui.setCompacting.mock.calls).toEqual([[true], [false]]);
     expect(h.ui.setContextStatus).toHaveBeenCalledWith(contextStatus);
     expect(contextStatusSpy).not.toHaveBeenCalled();
+    // Session injectors (skills, graph enricher) must be told the transcript
+    // was rewritten, mirroring the auto-compaction path.
+    expect(h.ui.contextCompacted).toHaveBeenCalledOnce();
     expect(h.ui.persistSession).toHaveBeenCalledOnce();
     const item = h.emitted[0]!;
     if (item.kind !== "command") throw new Error("expected command item");
