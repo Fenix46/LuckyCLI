@@ -59,6 +59,19 @@ export interface ToolContext {
    * automatic matcher won't re-inject it. Fire-and-forget; never throws.
    */
   onSkillLoaded?: (id: string) => void;
+  /**
+   * Optional host-backed read for the file tools (e.g. an ACP editor's
+   * unsaved buffers). Receives an absolute path that already passed the cwd
+   * sandbox. Resolve null when the host has no view of the file — the tool
+   * falls back to disk. See tools/file-access.ts.
+   */
+  readTextFile?: (absPath: string) => Promise<string | null>;
+  /**
+   * Optional host-backed write for the file tools; edits land in the host
+   * (editor buffer) instead of directly on disk. Same sandbox contract as
+   * {@link readTextFile}. A throwing host falls back to disk.
+   */
+  writeTextFile?: (absPath: string, content: string) => Promise<void>;
 }
 
 /**

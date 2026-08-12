@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { resolveExistingInsideCwd } from "../path.js";
-import { defineTool } from "../types.js";
+import { defineTool, type ToolContext } from "../types.js";
 
 const MAX_BYTES = 256 * 1024;
 const MAX_RANGE_LINES = 2_000;
@@ -40,9 +40,7 @@ export const readFileTool = defineTool({
   }),
   async execute({ path, offset, limit }, ctx) {
     const abs = await resolveExistingInsideCwd(ctx.cwd, path);
-    const buf = await readFile(abs);
-    const truncated = buf.byteLength > MAX_BYTES;
-    const text = buf.subarray(0, MAX_BYTES).toString("utf8");
+    const { text, truncated } = await readCapped(ctx, abs);
 
     if (offset !== undefined || limit !== undefined) {
       return {
@@ -63,6 +61,32 @@ export const readFileTool = defineTool({
     return { content: [text, ...notes].join("\n\n") };
   },
 });
+
+/**
+ * Read the file capped at MAX_BYTES, preferring the host's view (an editor's
+ * unsaved buffer) when the context provides one. The host path caps on UTF-16
+ * length as a close-enough proxy; the disk path caps on true bytes.
+ */
+async function readCapped(
+  ctx: ToolContext,
+  abs: string,
+): Promise<{ text: string; truncated: boolean }> {
+  if (ctx.readTextFile) {
+    try {
+      const hosted = await ctx.readTextFile(abs);
+      if (hosted !== null) {
+        return { text: hosted.slice(0, MAX_BYTES), truncated: hosted.length > MAX_BYTES };
+      }
+    } catch {
+      // Host failure → disk fallback below.
+    }
+  }
+  const buf = await readFile(abs);
+  return {
+    text: buf.subarray(0, MAX_BYTES).toString("utf8"),
+    truncated: buf.byteLength > MAX_BYTES,
+  };
+}
 
 /** Line count of already-decoded text (one more than the newline count). */
 function countLines(text: string): number {

@@ -1,7 +1,8 @@
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { fileDiff, type FileDiff } from "../../diff.js";
+import { readTextViaContext, writeTextViaContext } from "../file-access.js";
 import {
   assertParentPathInsideCwd,
   resolveExistingInsideCwd,
@@ -35,22 +36,23 @@ export const applyPatchTool = defineTool({
           await mkdir(dirname(target), { recursive: true });
           const abs = await resolveWritableInsideCwd(ctx.cwd, file.path);
           const updated = applyFilePatch("", file);
-          await writeFile(abs, updated, "utf8");
+          await writeTextViaContext(ctx, abs, updated);
           diffs.push(fileDiff(file.path, "", updated, { created: true }));
         } else if (file.operation === "delete") {
           const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
-          const original = await readFile(abs, "utf8");
+          const original = await readTextViaContext(ctx, abs);
           const updated = applyFilePatch(original, file);
           if (updated.length > 0) {
             throw new Error(`Delete patch for ${file.path} did not remove all content.`);
           }
+          // Deletion has no host channel; it lands on disk either way.
           await unlink(abs);
           diffs.push(fileDiff(file.path, original, ""));
         } else {
           const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
-          const original = await readFile(abs, "utf8");
+          const original = await readTextViaContext(ctx, abs);
           const updated = applyFilePatch(original, file);
-          await writeFile(abs, updated, "utf8");
+          await writeTextViaContext(ctx, abs, updated);
           diffs.push(fileDiff(file.path, original, updated));
         }
         changed.push(file.path);

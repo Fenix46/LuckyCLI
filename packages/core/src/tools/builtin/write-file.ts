@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { fileDiff } from "../../diff.js";
+import { tryReadTextViaContext, writeTextViaContext } from "../file-access.js";
 import { assertParentPathInsideCwd, resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 
@@ -24,27 +25,34 @@ export const writeFileTool = defineTool({
     await mkdir(dirname(target), { recursive: true });
     const abs = await resolveWritableInsideCwd(ctx.cwd, path);
     // Capture the previous contents (if any) so the UI can show a real diff
-    // for overwrites and a pure-addition diff for creations.
-    let original: string | undefined;
-    try {
-      original = await readFile(abs, "utf8");
-    } catch {
-      original = undefined;
+    // for overwrites and a pure-addition diff for creations. Read through the
+    // context so an editor's unsaved buffer counts as the current contents.
+    const original = await tryReadTextViaContext(ctx, abs);
+    if (overwrite === false && original !== undefined) {
+      return {
+        content: `Refusing to overwrite existing file: ${path}. Retry with overwrite=true if intended.`,
+        isError: true,
+      };
     }
-    try {
-      await writeFile(abs, content, {
-        encoding: "utf8",
-        flag: overwrite === false ? "wx" : "w",
-      });
-    } catch (err) {
-      const error = err as { code?: unknown };
-      if (error.code === "EEXIST") {
-        return {
-          content: `Refusing to overwrite existing file: ${path}. Retry with overwrite=true if intended.`,
-          isError: true,
-        };
+    if (ctx.writeTextFile) {
+      await writeTextViaContext(ctx, abs, content);
+    } else {
+      // Direct disk path keeps the atomic wx guard against a create race.
+      try {
+        await writeFile(abs, content, {
+          encoding: "utf8",
+          flag: overwrite === false ? "wx" : "w",
+        });
+      } catch (err) {
+        const error = err as { code?: unknown };
+        if (error.code === "EEXIST") {
+          return {
+            content: `Refusing to overwrite existing file: ${path}. Retry with overwrite=true if intended.`,
+            isError: true,
+          };
+        }
+        throw err;
       }
-      throw err;
     }
     ctx.onFilesChanged?.([path]);
     const diff = fileDiff(path, original ?? "", content, { created: original === undefined });

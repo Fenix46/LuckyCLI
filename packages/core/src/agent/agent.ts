@@ -75,6 +75,13 @@ export interface AgentConfig {
   /** Optional hook fired when the model loads a skill via skill_load. */
   onSkillLoaded?: (id: string) => void;
   /**
+   * Optional host-backed file access forwarded to the file tools: lets a host
+   * (e.g. an ACP editor) serve reads from unsaved buffers and receive writes.
+   * See ToolContext.readTextFile / writeTextFile.
+   */
+  readTextFile?: (absPath: string) => Promise<string | null>;
+  writeTextFile?: (absPath: string, content: string) => Promise<void>;
+  /**
    * Optional per-turn context enrichment (e.g. the graph enricher): receives
    * the user turn's text and may return an extra block appended to that turn
    * as an additional text part. Best-effort — a thrown error or null leaves
@@ -125,6 +132,8 @@ export class Agent {
   private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
+  private readonly readTextFile: ((absPath: string) => Promise<string | null>) | undefined;
+  private readonly writeTextFile: ((absPath: string, content: string) => Promise<void>) | undefined;
   private readonly enrichTurn: ((userText: string) => Promise<string | null> | string | null) | undefined;
   private lastUsage: TokenUsage | undefined;
   /** Memoized provider token count, keyed by a fingerprint of the transcript. */
@@ -161,6 +170,8 @@ export class Agent {
     this.runSubAgent = cfg.runSubAgent;
     this.onFilesChanged = cfg.onFilesChanged;
     this.onSkillLoaded = cfg.onSkillLoaded;
+    this.readTextFile = cfg.readTextFile;
+    this.writeTextFile = cfg.writeTextFile;
     this.enrichTurn = cfg.enrichTurn;
     if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
@@ -472,6 +483,8 @@ export class Agent {
             ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
             ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
             ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
+            ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
+            ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
           });
         }
 

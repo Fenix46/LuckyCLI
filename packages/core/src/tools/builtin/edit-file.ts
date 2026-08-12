@@ -1,6 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { fileDiff } from "../../diff.js";
+import { readTextViaContext, writeTextViaContext } from "../file-access.js";
 import { resolveExistingInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
 import { replace } from "./edit-replace.js";
@@ -28,9 +28,11 @@ export const editFileTool = defineTool({
   async execute({ path, oldString, newString, replaceAll }, ctx) {
     try {
       const abs = await resolveExistingInsideCwd(ctx.cwd, path);
-      const original = await readFile(abs, "utf8");
+      // Through the context, so an editor's unsaved buffer is what gets
+      // matched and edited (falls back to disk when the host has no view).
+      const original = await readTextViaContext(ctx, abs);
       const updated = replace(original, oldString, newString, replaceAll ?? false);
-      await writeFile(abs, updated, "utf8");
+      await writeTextViaContext(ctx, abs, updated);
       ctx.onFilesChanged?.([path]);
       const diff = fileDiff(path, original, updated);
       return {

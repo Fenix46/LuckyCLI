@@ -87,6 +87,9 @@ export interface BuildAgentOptions {
     signal?: AbortSignal,
   ) => Promise<SpawnAgentResult>;
   extraTools?: Tool[];
+  /** Host-backed file access for the file tools (see AgentConfig). */
+  readTextFile?: (absPath: string) => Promise<string | null>;
+  writeTextFile?: (absPath: string, content: string) => Promise<void>;
   /**
    * When true, recompose the system prompt from the live session context
    * (enabled tools, whether a graph exists, whether sub-agents are configured)
@@ -209,6 +212,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     onFilesChanged: createGraphMaintainer(cwd),
     onSkillLoaded: (id) => skillActivator.markActive(id),
     enrichTurn: (text) => graphEnricher.enrich(text),
+    ...(opts.readTextFile ? { readTextFile: opts.readTextFile } : {}),
+    ...(opts.writeTextFile ? { writeTextFile: opts.writeTextFile } : {}),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
