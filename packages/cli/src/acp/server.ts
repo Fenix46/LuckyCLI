@@ -36,6 +36,7 @@ import {
   type NewSessionResponse,
   type PromptRequest,
   type PromptResponse,
+  type SessionModelState,
   type Stream,
   type ToolCallContent,
 } from "@zed-industries/agent-client-protocol";
@@ -44,13 +45,18 @@ import {
   deriveTitle,
   listTasks,
   loadSession as loadStoredSession,
+  loadStoredConfig,
   onTasksUpdated,
+  resolveCredentials,
   saveSession,
+  saveStoredConfig,
   setActiveTaskListId,
   type Message,
   type PlanDecision,
   type PlanProposal,
+  type ProviderId,
   type ResolvedConfig,
+  type StoredConfig,
   type TokenUsage,
 } from "@luckycli/core";
 import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
@@ -67,6 +73,7 @@ import {
   type AcpSession,
   type AcpSessionMode,
 } from "./sessions.js";
+import { isSelectableModel, modelRoster, parseModelId } from "./models.js";
 import { planBodyUpdate, planUpdateFromProposal, planUpdateFromTasks } from "./plan.js";
 import { diffContents, toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
 
@@ -91,6 +98,15 @@ export interface LuckyAcpAgentOptions {
   config?: ResolvedConfig;
   /** Runtime factory, defaulting to the real one. */
   buildRuntime?: RuntimeBuilder;
+  /**
+   * Access to LuckyCLI's persistent config, used by the model roster and by
+   * `session/set_model`. Injectable so tests never read or write the user's
+   * real ~/.luckycli/config.json.
+   */
+  store?: {
+    load: () => StoredConfig;
+    save: (config: StoredConfig) => void;
+  };
 }
 
 /**
@@ -103,6 +119,7 @@ export class LuckyAcpAgent implements Agent {
   protected readonly conn: AgentSideConnection;
   protected readonly config: ResolvedConfig | undefined;
   protected readonly buildRuntime: RuntimeBuilder;
+  protected readonly store: NonNullable<LuckyAcpAgentOptions["store"]>;
   protected readonly sessions = new Map<string, AcpSession>();
   /** Client fs capabilities captured at initialize; absent until then. */
   protected clientFs: { readTextFile?: boolean; writeTextFile?: boolean } = {};
@@ -111,6 +128,7 @@ export class LuckyAcpAgent implements Agent {
     this.conn = conn;
     this.config = options.config;
     this.buildRuntime = options.buildRuntime ?? buildAgentRuntime;
+    this.store = options.store ?? { load: loadStoredConfig, save: saveStoredConfig };
   }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
@@ -158,6 +176,7 @@ export class LuckyAcpAgent implements Agent {
     return {
       sessionId: session.id,
       modes: sessionModeState(session),
+      models: this.sessionModelState(session),
     };
   }
 
@@ -165,7 +184,10 @@ export class LuckyAcpAgent implements Agent {
     sessionId: string;
     cwd: string;
     mcpServers: NewSessionRequest["mcpServers"];
-  }): Promise<{ modes?: ReturnType<typeof sessionModeState> }> {
+  }): Promise<{
+    modes?: ReturnType<typeof sessionModeState>;
+    models?: SessionModelState;
+  }> {
     const stored = loadStoredSession(params.sessionId);
     if (!stored) {
       throw RequestError.invalidParams({
@@ -178,6 +200,10 @@ export class LuckyAcpAgent implements Agent {
       params.mcpServers,
       stored.messages,
       stored.createdAt,
+      // Resume on the provider/model the conversation was actually running,
+      // as the TUI's session picker does — a session started on one model
+      // must not silently continue on whatever the config now says.
+      { provider: stored.provider, model: stored.model },
     );
     // Per spec the whole history streams back as notifications before the
     // response. Text only: tool traffic is transient UI state, and replaying
@@ -195,7 +221,7 @@ export class LuckyAcpAgent implements Agent {
         });
       }
     }
-    return { modes: sessionModeState(session) };
+    return { modes: sessionModeState(session), models: this.sessionModelState(session) };
   }
 
   /** Build the engine runtime for a session and register its record. */
@@ -205,14 +231,27 @@ export class LuckyAcpAgent implements Agent {
     mcpServers: NewSessionRequest["mcpServers"],
     messages?: Message[],
     createdAt?: number,
+    resume?: { provider: ProviderId; model: string },
   ): Promise<AcpSession> {
     const config = this.requireConfig();
+    // A resumed session keeps its own provider/model when we can still reach
+    // that provider's credentials; otherwise it falls back to the configured
+    // one rather than refusing to open at all.
+    const resumeCredentials = resume ? resolveCredentials(resume.provider, this.store.load()) : undefined;
+    const active =
+      resume && resumeCredentials
+        ? { provider: resume.provider, model: resume.model, credentials: resumeCredentials }
+        : { provider: config.provider!, model: config.model!, credentials: config.credentials! };
     // The session record exists before the runtime so the approval bridge
     // (captured at build time) can close over its live state.
     const session: AcpSession = {
       id: sessionId,
       agent: undefined as unknown as AcpSession["agent"],
+      provider: active.provider,
+      model: active.model,
+      credentials: active.credentials,
       cwd,
+      mcpServers,
       abort: null,
       approved: new Set(),
       mode: "default",
@@ -231,10 +270,29 @@ export class LuckyAcpAgent implements Agent {
           }
         : {}),
     };
-    const built = await this.buildRuntime({
-      provider: config.provider!,
-      model: config.model!,
-      credentials: config.credentials!,
+    session.agent = (await this.buildSessionRuntime(session, messages)).agent;
+    this.sessions.set(sessionId, session);
+    return session;
+  }
+
+  /**
+   * Build (or rebuild) the engine runtime for a session from its current
+   * provider/model/credentials. Split out of createSession so switching model
+   * mid-session goes through exactly the same wiring — bridges, fs overrides,
+   * MCP merge and prompt composition included.
+   */
+  protected async buildSessionRuntime(
+    session: AcpSession,
+    messages?: Message[],
+  ): Promise<BuiltAgentRuntime> {
+    const mcpServers = session.mcpServers;
+    const config = this.requireConfig();
+    const sessionId = session.id;
+    const cwd = session.cwd;
+    return await this.buildRuntime({
+      provider: session.provider,
+      model: session.model,
+      credentials: session.credentials,
       system: config.system,
       // Recompose the system prompt from this session's context (graph
       // presence, tools, cwd), exactly as the TUI does per activation.
@@ -262,15 +320,90 @@ export class LuckyAcpAgent implements Agent {
       ...(messages?.length ? { messages } : {}),
       ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
       ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
-      ...(config.reasoningEffort ? { reasoningEffort: config.reasoningEffort } : {}),
-      ...(config.thinkingEnabled !== undefined
+      // Reasoning effort and the thinking toggle are provider-specific knobs
+      // resolved for the *configured* provider; they only apply while the
+      // session is still running that provider.
+      ...(config.reasoningEffort && session.provider === config.provider
+        ? { reasoningEffort: config.reasoningEffort }
+        : {}),
+      ...(config.thinkingEnabled !== undefined && session.provider === config.provider
         ? { thinkingEnabled: config.thinkingEnabled }
         : {}),
     });
+  }
 
-    session.agent = built.agent;
-    this.sessions.set(sessionId, session);
-    return session;
+  /** The roster + current selection, as session/new and session/load report it. */
+  protected sessionModelState(session: AcpSession): SessionModelState | undefined {
+    const roster = modelRoster(this.store.load(), {
+      provider: session.provider,
+      model: session.model,
+    });
+    if (!roster.currentModelId) return undefined;
+    return {
+      availableModels: roster.availableModels,
+      currentModelId: roster.currentModelId,
+    };
+  }
+
+  /**
+   * Switch the session's provider/model. ACP exposes a single flat selector,
+   * so the id carries both halves (see models.ts). The runtime is rebuilt
+   * carrying the conversation, exactly as the TUI's model picker does, so the
+   * next prompt continues the same thread on the new model.
+   */
+  async setSessionModel(params: {
+    sessionId: string;
+    modelId: string;
+  }): Promise<Record<string, never>> {
+    const session = this.requireSession(params.sessionId);
+    // Rebuilding the runtime under a running turn would swap the agent out
+    // from under the in-flight stream; refuse rather than corrupt the turn.
+    if (session.abort) {
+      throw RequestError.invalidRequest({
+        details: "Cannot change model while a prompt is running.",
+      });
+    }
+    const parsed = parseModelId(params.modelId);
+    const stored = this.store.load();
+    if (!parsed || !isSelectableModel(parsed, stored)) {
+      throw RequestError.invalidParams({
+        details: `Unknown or unusable model "${params.modelId}".`,
+      });
+    }
+    const credentials = resolveCredentials(parsed.provider, stored);
+    if (!credentials) {
+      throw RequestError.invalidParams({
+        details: `No credentials for provider "${parsed.provider}". ${AUTH_GUIDANCE}`,
+      });
+    }
+
+    // Carry the conversation across the rebuild so context survives the switch.
+    const carried = [...session.agent.messages];
+    const previous = { provider: session.provider, model: session.model, credentials: session.credentials };
+    session.provider = parsed.provider;
+    session.model = parsed.model;
+    session.credentials = credentials;
+    try {
+      session.agent = (
+        await this.buildSessionRuntime(session, carried.length ? carried : undefined)
+      ).agent;
+    } catch (err) {
+      // A provider that fails to build leaves the session on its old runtime
+      // rather than in a half-switched state the next prompt would crash on.
+      Object.assign(session, previous);
+      throw RequestError.internalError({
+        details: `Could not switch to "${params.modelId}": ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+
+    // Mirror the TUI: the choice persists, so the next `lucky` run and the
+    // next editor session agree on what the user picked.
+    try {
+      this.store.save({ ...stored, provider: parsed.provider, model: parsed.model });
+    } catch {
+      // A read-only config must not fail an otherwise successful switch.
+    }
+    return {};
   }
 
   async setSessionMode(params: {
@@ -545,8 +678,6 @@ export class LuckyAcpAgent implements Agent {
 
   /** Best-effort save into LuckyCLI's session store (shared with the TUI). */
   protected persistSession(session: AcpSession): void {
-    const config = this.config;
-    if (!config?.provider || !config.model) return;
     try {
       const messages = [...session.agent.messages];
       if (messages.length === 0) return;
@@ -554,8 +685,10 @@ export class LuckyAcpAgent implements Agent {
       saveSession({
         id: session.id,
         ...(title ? { title } : {}),
-        provider: config.provider,
-        model: config.model,
+        // The session's own provider/model, which set_model may have changed
+        // away from the stored config's.
+        provider: session.provider,
+        model: session.model,
         createdAt: session.createdAt,
         updatedAt: Date.now(),
         messages,

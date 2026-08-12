@@ -756,6 +756,260 @@ describe("acp server permissions and modes", () => {
   });
 });
 
+describe("acp server model selection", () => {
+  /**
+   * An in-memory stand-in for ~/.luckycli/config.json, injected into the agent
+   * so these tests never read or write the user's real config — its path is
+   * resolved from the OS home at import time and cannot be redirected with
+   * $HOME.
+   */
+  function memoryStore(initial: Record<string, unknown>): NonNullable<
+    LuckyAcpAgentOptions["store"]
+  > & { current: () => Record<string, unknown> } {
+    let config = initial;
+    return {
+      load: () => config as never,
+      save: (next) => {
+        config = next as Record<string, unknown>;
+      },
+      current: () => config,
+    };
+  }
+
+  /**
+   * Invoke `session/set_model` on the agent.
+   *
+   * Not routed through `editor.setSessionModel`: in SDK 0.4.5 that client
+   * helper sends the `session/set_mode` method name (acp.js:434) while the
+   * agent side correctly dispatches on `session/set_model` (acp.js:65), so the
+   * SDK cannot call its own agent method. Real editors implement their own
+   * client, so the agent handler is the surface worth testing; calling it
+   * directly keeps these tests honest about what we actually ship.
+   */
+  function setModel(
+    agent: LuckyAcpAgent,
+    params: { sessionId: string; modelId: string },
+  ): Promise<unknown> {
+    return (agent as unknown as {
+      setSessionModel: (p: { sessionId: string; modelId: string }) => Promise<unknown>;
+    }).setSessionModel(params);
+  }
+
+  /** Two providers with credentials; gemini and the rest have none. */
+  const twoProviders = () => ({
+    provider: "claude",
+    model: "claude-sonnet-5",
+    credentials: {
+      claude: { kind: "api-key", apiKey: "sk-a" },
+      openai: { kind: "api-key", apiKey: "sk-b" },
+    },
+  });
+
+  it("advertises the unified roster on session/new, active provider first", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor, serverAgent } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+      store: memoryStore(twoProviders()),
+    });
+    const response = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    // fakeConfig runs a model the static catalog doesn't list; it is still the
+    // current selection, and leads its provider's entries.
+    expect(response.models?.currentModelId).toBe("claude/claude-sonnet-4-6");
+    const ids = response.models!.availableModels.map((m) => m.modelId);
+    expect(ids[0]).toBe("claude/claude-sonnet-4-6");
+    // Both catalogs are present, and every id is provider-qualified.
+    expect(ids).toContain("claude/claude-sonnet-5");
+    expect(ids).toContain("openai/gpt-4.1");
+    // A provider with no credentials is not offered.
+    expect(ids.some((id) => id.startsWith("gemini/"))).toBe(false);
+    // Every openai entry follows every claude one (active provider first).
+    const providers = ids.map((id) => id.split("/")[0]);
+    expect(providers.indexOf("openai")).toBeGreaterThan(providers.lastIndexOf("claude"));
+  });
+
+  it("names roster entries so a flat picker still reads as provider + model", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor, serverAgent } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+      store: memoryStore(twoProviders()),
+    });
+    const response = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    const openai = response.models!.availableModels.find((m) => m.modelId === "openai/gpt-4.1");
+    expect(openai?.name).toBe("OpenAI · gpt-4.1");
+  });
+
+  it("switches provider mid-session, carrying the conversation", async () => {
+    const built: Parameters<RuntimeBuilder>[0][] = [];
+    const agent = engineAgent([
+      [{ textDelta: "first" }, { finishReason: "stop" }],
+      [{ textDelta: "second" }, { finishReason: "stop" }],
+    ]);
+    const { editor, serverAgent } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async (o: Parameters<RuntimeBuilder>[0]) => {
+        built.push(o);
+        return fakeRuntime(agent);
+      }) as RuntimeBuilder,
+      store: memoryStore(twoProviders()),
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "hello" }] });
+
+    await setModel(serverAgent(), { sessionId, modelId: "openai/gpt-4.1" });
+
+    // The rebuild used the new provider with its own credentials, and carried
+    // the turn that already happened.
+    expect(built).toHaveLength(2);
+    expect(built[0]).toMatchObject({ provider: "claude", model: "claude-sonnet-4-6" });
+    expect(built[1]).toMatchObject({ provider: "openai", model: "gpt-4.1" });
+    expect(built[1]!.credentials).toMatchObject({ apiKey: "sk-b" });
+    expect(built[1]!.messages).toHaveLength(2); // user + assistant
+    // The session keeps its cwd and its bridges across the switch.
+    expect(built[1]!.cwd).toBe("/repo");
+    expect(built[1]!.approveTool).toBeTypeOf("function");
+  });
+
+  it("drops provider-specific knobs when switching away from their provider", async () => {
+    const built: Parameters<RuntimeBuilder>[0][] = [];
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor, serverAgent } = connect({
+      // Reasoning effort resolved for claude must not follow the session to
+      // openai, which knows nothing about it.
+      config: fakeConfig({ reasoningEffort: "high" }),
+      buildRuntime: (async (o: Parameters<RuntimeBuilder>[0]) => {
+        built.push(o);
+        return fakeRuntime(agent);
+      }) as RuntimeBuilder,
+      store: memoryStore(twoProviders()),
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    await setModel(serverAgent(), { sessionId, modelId: "openai/gpt-4.1" });
+
+    expect(built[0]!.reasoningEffort).toBe("high");
+    expect(built[1]!.reasoningEffort).toBeUndefined();
+  });
+
+  it("persists the switch so the TUI and the editor agree", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const store = memoryStore(twoProviders());
+    const { editor, serverAgent } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+      store,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    await setModel(serverAgent(), { sessionId, modelId: "openai/gpt-4.1" });
+
+    expect(store.current()).toMatchObject({ provider: "openai", model: "gpt-4.1" });
+    // The credentials block survives the rewrite — this is the user's whole
+    // config file, not just the two keys we changed.
+    expect(store.current().credentials).toMatchObject({ claude: { apiKey: "sk-a" } });
+  });
+
+  it("reports the switched pair as the session's current model", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const store = memoryStore(twoProviders());
+    const { editor, serverAgent } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+      store,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    await setModel(serverAgent(), { sessionId, modelId: "openai/gpt-4.1" });
+
+    // A session/load of the same conversation reports the new selection.
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+    const reloaded = await serverAgent().loadSession({
+      sessionId,
+      cwd: "/repo",
+      mcpServers: [],
+    });
+    expect(reloaded.models?.currentModelId).toBe("openai/gpt-4.1");
+  });
+
+  it("rejects an unknown or unusable model id", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor, serverAgent } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+      store: memoryStore(twoProviders()),
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    // Not provider-qualified at all.
+    await expect(
+      setModel(serverAgent(), { sessionId, modelId: "gpt-4.1" }),
+    ).rejects.toMatchObject({ code: -32602 });
+    // A model the provider's catalog doesn't have.
+    await expect(
+      setModel(serverAgent(), { sessionId, modelId: "claude/not-a-model" }),
+    ).rejects.toMatchObject({ code: -32602 });
+    // A provider with no credentials configured.
+    await expect(
+      setModel(serverAgent(), { sessionId, modelId: "gemini/gemini-2.5-pro" }),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it("refuses to switch while a prompt is in flight", async () => {
+    const agent = engineAgent([[{ textDelta: "streaming" }]], { hang: true });
+    const { editor, serverAgent } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+      store: memoryStore(twoProviders()),
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    const running = editor.prompt({ sessionId, prompt: [{ type: "text", text: "go" }] });
+    await new Promise((r) => setTimeout(r, 20));
+
+    await expect(
+      setModel(serverAgent(), { sessionId, modelId: "openai/gpt-4.1" }),
+    ).rejects.toMatchObject({ code: -32600 });
+
+    await editor.cancel({ sessionId });
+    await running;
+  });
+
+  it("rejects set_model for an unknown session", async () => {
+    const { serverAgent } = connect({ config: fakeConfig() });
+    await expect(
+      setModel(serverAgent(), { sessionId: "nope", modelId: "claude/claude-sonnet-5" }),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it("keeps the old runtime when the new provider fails to build", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const store = memoryStore(twoProviders());
+    let calls = 0;
+    const { editor, serverAgent } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => {
+        calls += 1;
+        if (calls > 1) throw new Error("provider exploded");
+        return fakeRuntime(agent);
+      }) as RuntimeBuilder,
+      store,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    await expect(
+      setModel(serverAgent(), { sessionId, modelId: "openai/gpt-4.1" }),
+    ).rejects.toMatchObject({ code: -32603 });
+
+    // The session is still usable on its original runtime, and the failed
+    // switch was not persisted.
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "still there?" }],
+    });
+    expect(response.stopReason).toBe("end_turn");
+    expect(store.current()).toMatchObject({ provider: "claude", model: "claude-sonnet-5" });
+  });
+});
+
+
 describe("acp server pre-approval diffs", () => {
   /**
    * A session anchored to a real temp dir running the real file tools, so the

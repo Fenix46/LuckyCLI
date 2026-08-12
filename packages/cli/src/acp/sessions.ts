@@ -3,7 +3,13 @@
  * handler keeps between calls, and the mapping from ACP-supplied MCP servers
  * to LuckyCLI's own config shape.
  */
-import type { Agent, ContentPart, McpServerConfig } from "@luckycli/core";
+import type {
+  Agent,
+  ContentPart,
+  McpServerConfig,
+  ProviderCredentials,
+  ProviderId,
+} from "@luckycli/core";
 import { RequestError, type ContentBlock, type McpServer } from "@zed-industries/agent-client-protocol";
 
 /** Permission modes a session can operate in, advertised in session/new. */
@@ -23,8 +29,22 @@ export interface AcpSession {
   /** First-created timestamp, preserved across load/save cycles. */
   createdAt: number;
   agent: Agent;
+  /**
+   * Provider/model this session is currently running, and the credentials it
+   * was built with. Per-session rather than global: `session/set_model` can
+   * point one editor conversation at a different provider than the stored
+   * config's, and persistence must record what actually produced the turns.
+   */
+  provider: ProviderId;
+  model: string;
+  credentials: ProviderCredentials;
   /** Working directory the editor anchored this session to. */
   cwd: string;
+  /**
+   * MCP servers the editor supplied at session/new, kept so a runtime rebuild
+   * (a mid-session model switch) reconnects the same set.
+   */
+  mcpServers: McpServer[];
   /** Abort controller of the in-flight prompt, if one is running. */
   abort: AbortController | null;
   /** Approval scopes remembered after an "allow always" (see approval.ts). */
