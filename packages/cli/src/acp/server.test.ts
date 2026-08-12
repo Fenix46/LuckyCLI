@@ -33,11 +33,15 @@ function connectedStreams(): [Stream, Stream] {
   ];
 }
 
-/** Minimal editor stub: records session updates, never grants permissions. */
-function stubClient(updates: unknown[] = []): Client {
+type PermissionHandler = Client["requestPermission"];
+
+/** Minimal editor stub: records session updates, never grants permissions
+ * unless a handler is supplied. */
+function stubClient(updates: unknown[] = [], onPermission?: PermissionHandler): Client {
   return {
-    async requestPermission() {
-      throw new Error("unexpected permission request in this test");
+    async requestPermission(params) {
+      if (!onPermission) throw new Error("unexpected permission request in this test");
+      return onPermission(params);
     },
     async sessionUpdate(params) {
       updates.push(params);
@@ -46,7 +50,10 @@ function stubClient(updates: unknown[] = []): Client {
 }
 
 /** A connected [server, editor] pair over in-memory streams. */
-function connect(options: LuckyAcpAgentOptions = {}): {
+function connect(
+  options: LuckyAcpAgentOptions = {},
+  onPermission?: PermissionHandler,
+): {
   editor: ClientSideConnection;
   updates: unknown[];
   serverAgent: () => LuckyAcpAgent;
@@ -58,7 +65,7 @@ function connect(options: LuckyAcpAgentOptions = {}): {
     return serverAgent;
   });
   const updates: unknown[] = [];
-  const editor = new ClientSideConnection(() => stubClient(updates), clientStream);
+  const editor = new ClientSideConnection(() => stubClient(updates, onPermission), clientStream);
   return { editor, updates, serverAgent: () => serverAgent! };
 }
 
@@ -165,6 +172,35 @@ async function editorWithSession(agent: EngineAgent): Promise<{
   });
   const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
   return { editor, updates, sessionId, serverAgent };
+}
+
+/**
+ * Like editorWithSession, but the engine agent is built inside the runtime
+ * builder so the ACP approval bridge (opts.approveTool) reaches it — the
+ * honest wiring for permission tests.
+ */
+async function editorWithApprovalSession(
+  script: Chunk[][],
+  tools: ToolRegistry,
+  onPermission: PermissionHandler,
+): Promise<{ editor: ClientSideConnection; updates: unknown[]; sessionId: string }> {
+  const { editor, updates } = connect(
+    {
+      config: fakeConfig(),
+      buildRuntime: (async (opts: Parameters<RuntimeBuilder>[0]) =>
+        fakeRuntime(
+          new EngineAgent({
+            provider: scriptedProvider(script),
+            model: "mock",
+            tools,
+            approveTool: opts.approveTool,
+          }),
+        )) as RuntimeBuilder,
+    },
+    onPermission,
+  );
+  const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+  return { editor, updates, sessionId };
 }
 
 describe("acp server initialize", () => {
@@ -274,15 +310,6 @@ describe("acp server sessions", () => {
     });
   });
 
-  it("denies ask-level tools through the milestone-4 approval stub", async () => {
-    const buildRuntime = vi.fn(async () => fakeRuntime()) as unknown as RuntimeBuilder & {
-      mock: { calls: [Parameters<RuntimeBuilder>[0]][] };
-    };
-    const { editor } = connect({ config: fakeConfig(), buildRuntime });
-    await editor.newSession({ cwd: "/repo", mcpServers: [] });
-    const opts = buildRuntime.mock.calls[0]![0];
-    expect(await opts.approveTool?.("write_file", {})).toBe("deny");
-  });
 });
 
 describe("acp server prompt streaming", () => {
@@ -503,6 +530,138 @@ describe("acp server prompt streaming", () => {
     await new Promise((r) => setTimeout(r, 20));
     serverAgent().abortAll();
     await expect(inFlight).resolves.toMatchObject({ stopReason: "cancelled" });
+  });
+});
+
+describe("acp server permissions and modes", () => {
+  /** A non-readonly tool (permission "ask") plus a two-turn script around it. */
+  async function askToolSetup() {
+    const { defineTool } = await import("@luckycli/core");
+    const { z } = await import("zod");
+    const tools = new ToolRegistry();
+    tools.register(
+      defineTool({
+        name: "write_file",
+        description: "fake write",
+        schema: z.object({ path: z.string() }),
+        readonly: false,
+        execute: async () => ({ content: "written" }),
+      }),
+    );
+    const turn = (id: string): Chunk[] => [
+      {
+        toolCall: { type: "tool_call", id, name: "write_file", arguments: { path: "a.ts" } },
+        finishReason: "tool_calls",
+      },
+    ];
+    const done: Chunk[] = [{ textDelta: "ok" }, { finishReason: "stop" }];
+    return { tools, turn, done };
+  }
+
+  it("asks the editor and honors allow_once (asking again next time)", async () => {
+    const { tools, turn, done } = await askToolSetup();
+    const permissions: unknown[] = [];
+    const { editor, updates, sessionId } = await editorWithApprovalSession(
+      [turn("c1"), turn("c2"), done],
+      tools,
+      async (params) => {
+        permissions.push(params);
+        return { outcome: { outcome: "selected", optionId: "allow_once" } };
+      },
+    );
+
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "write twice" }] });
+    expect(permissions).toHaveLength(2);
+    expect(permissions[0]).toMatchObject({
+      sessionId,
+      toolCall: { toolCallId: "c1", title: "write_file a.ts", kind: "edit" },
+      options: [
+        { optionId: "allow_once", kind: "allow_once", name: "Allow once" },
+        { optionId: "allow_always", kind: "allow_always", name: "Allow always" },
+        { optionId: "reject_once", kind: "reject_once", name: "Reject" },
+      ],
+    });
+    const ends = updates.filter(
+      (u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate === "tool_call_update",
+    );
+    expect(ends).toHaveLength(2);
+    expect(ends.every((u) => (u as { update: { status: string } }).update.status === "completed")).toBe(true);
+  });
+
+  it("remembers allow_always and stops asking", async () => {
+    const { tools, turn, done } = await askToolSetup();
+    let asked = 0;
+    const { editor, sessionId } = await editorWithApprovalSession(
+      [turn("c1"), turn("c2"), done],
+      tools,
+      async () => {
+        asked += 1;
+        return { outcome: { outcome: "selected", optionId: "allow_always" } };
+      },
+    );
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "write twice" }] });
+    expect(asked).toBe(1);
+  });
+
+  it("treats reject and cancelled outcomes as denials", async () => {
+    const { tools, turn, done } = await askToolSetup();
+    const outcomes: Array<{ outcome: "selected"; optionId: string } | { outcome: "cancelled" }> = [
+      { outcome: "selected", optionId: "reject_once" },
+      { outcome: "cancelled" },
+    ];
+    const { editor, updates, sessionId } = await editorWithApprovalSession(
+      [turn("c1"), turn("c2"), done],
+      tools,
+      async () => ({ outcome: outcomes.shift()! }),
+    );
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "write twice" }] });
+    const ends = updates.filter(
+      (u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate === "tool_call_update",
+    );
+    expect(ends).toHaveLength(2);
+    expect(ends.every((u) => (u as { update: { status: string } }).update.status === "failed")).toBe(true);
+  });
+
+  it("accept-edits mode auto-approves edit tools without a round trip", async () => {
+    const { tools, turn, done } = await askToolSetup();
+    const { editor, updates, sessionId } = await editorWithApprovalSession(
+      [turn("c1"), done],
+      tools,
+      async () => {
+        throw new Error("must not ask in accept-edits mode");
+      },
+    );
+    await editor.setSessionMode({ sessionId, modeId: "accept-edits" });
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "write" }] });
+    const end = updates.find(
+      (u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate === "tool_call_update",
+    );
+    expect((end as { update: { status: string } }).update.status).toBe("completed");
+  });
+
+  it("rejects an unknown session mode", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor, sessionId } = await editorWithSession(agent);
+    await expect(
+      editor.setSessionMode({ sessionId, modeId: "yolo" }),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it("advertises the mode roster on session/new", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const response = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    expect(response.modes).toMatchObject({
+      currentModeId: "default",
+      availableModes: [
+        { id: "default" },
+        { id: "accept-edits" },
+        { id: "bypass-permissions" },
+      ],
+    });
   });
 });
 

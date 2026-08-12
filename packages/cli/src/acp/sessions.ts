@@ -6,6 +6,16 @@
 import type { Agent, ContentPart, McpServerConfig } from "@luckycli/core";
 import { RequestError, type ContentBlock, type McpServer } from "@zed-industries/agent-client-protocol";
 
+/** Permission modes a session can operate in, advertised in session/new. */
+export type AcpSessionMode = "default" | "accept-edits" | "bypass-permissions";
+
+/** The mode roster shown by editors (Zed's mode picker, etc.). */
+export const ACP_SESSION_MODES: { id: AcpSessionMode; name: string; description: string }[] = [
+  { id: "default", name: "Ask before acting", description: "Side-effecting tools ask for approval." },
+  { id: "accept-edits", name: "Accept edits", description: "File edits run without asking; shell commands still ask." },
+  { id: "bypass-permissions", name: "Bypass permissions", description: "Every tool runs without asking." },
+];
+
 /** One live editor conversation: the engine agent plus its turn state. */
 export interface AcpSession {
   agent: Agent;
@@ -13,6 +23,17 @@ export interface AcpSession {
   cwd: string;
   /** Abort controller of the in-flight prompt, if one is running. */
   abort: AbortController | null;
+  /** Approval scopes remembered after an "allow always" (see approval.ts). */
+  approved: Set<string>;
+  /** Current permission mode; starts at "default". */
+  mode: AcpSessionMode;
+  /**
+   * Id of the most recently announced tool_call. Tool calls execute strictly
+   * sequentially in the engine loop, so when the approval bridge fires it
+   * always refers to this call — letting the permission request reference the
+   * row the editor is already rendering.
+   */
+  lastToolCallId: string | null;
 }
 
 /**

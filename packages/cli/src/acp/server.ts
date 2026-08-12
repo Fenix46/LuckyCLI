@@ -39,14 +39,17 @@ import {
 import { createSessionId, type ResolvedConfig, type TokenUsage } from "@luckycli/core";
 import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
+import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope } from "../approval.js";
 import { HIDDEN_TOOLS } from "../hidden-tools.js";
 import {
+  ACP_SESSION_MODES,
   mapAcpMcpServers,
   mergeMcpServers,
   toContentParts,
   type AcpSession,
+  type AcpSessionMode,
 } from "./sessions.js";
-import { toolCallEnd, toolCallStart } from "./tool-calls.js";
+import { toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
 
 /** Guidance surfaced whenever the stored config can't drive a session. */
 export const AUTH_GUIDANCE =
@@ -119,6 +122,17 @@ export class LuckyAcpAgent implements Agent {
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     const config = this.requireConfig();
+    // The session record exists before the runtime so the approval bridge
+    // (captured at build time) can close over its live state.
+    const sessionId = createSessionId();
+    const session: AcpSession = {
+      agent: undefined as unknown as AcpSession["agent"],
+      cwd: params.cwd,
+      abort: null,
+      approved: new Set(),
+      mode: "default",
+      lastToolCallId: null,
+    };
     const built = await this.buildRuntime({
       provider: config.provider!,
       model: config.model!,
@@ -128,9 +142,7 @@ export class LuckyAcpAgent implements Agent {
       // presence, tools, cwd), exactly as the TUI does per activation.
       composeSystemFromContext: true,
       permissions: config.permissions,
-      // Milestone-4 stub: until session/request_permission is wired, every
-      // ask-level tool is denied rather than silently allowed.
-      approveTool: () => "deny" as const,
+      approveTool: (name, input) => this.requestToolPermission(sessionId, session, name, input),
       cwd: params.cwd,
       // Editor-supplied servers extend the user's own MCP config; the local
       // config wins on a name conflict (the user's auth/pins are explicit).
@@ -143,9 +155,78 @@ export class LuckyAcpAgent implements Agent {
         : {}),
     });
 
-    const sessionId = createSessionId();
-    this.sessions.set(sessionId, { agent: built.agent, cwd: params.cwd, abort: null });
-    return { sessionId };
+    session.agent = built.agent;
+    this.sessions.set(sessionId, session);
+    return {
+      sessionId,
+      modes: {
+        currentModeId: session.mode,
+        availableModes: ACP_SESSION_MODES.map(({ id, name, description }) => ({
+          id,
+          name,
+          description,
+        })),
+      },
+    };
+  }
+
+  async setSessionMode(params: {
+    sessionId: string;
+    modeId: string;
+  }): Promise<Record<string, never>> {
+    const session = this.requireSession(params.sessionId);
+    const mode = ACP_SESSION_MODES.find((m) => m.id === params.modeId);
+    if (!mode) {
+      throw RequestError.invalidParams({ details: `Unknown mode "${params.modeId}".` });
+    }
+    // Mirroring the TUI: returning to the ask-first mode also forgets the
+    // session's "always" approvals, so the user starts from a clean slate.
+    if (mode.id === "default" && session.mode !== "default") session.approved.clear();
+    session.mode = mode.id as AcpSessionMode;
+    return {};
+  }
+
+  /**
+   * The approval bridge: resolve a tool permission through the editor.
+   * Remembered "always" scopes and the session mode short-circuit the round
+   * trip; otherwise the editor shows the request against the tool_call row it
+   * is already rendering (tool calls execute sequentially, so the last
+   * announced call is the one being approved).
+   */
+  protected async requestToolPermission(
+    sessionId: string,
+    session: AcpSession,
+    name: string,
+    input: unknown,
+  ): Promise<"allow" | "deny"> {
+    const scope = approvalScope(name, input);
+    if (session.approved.has(scope)) return "allow";
+    if (session.mode === "bypass-permissions") return "allow";
+    if (session.mode === "accept-edits" && AUTO_ACCEPT_EDIT_TOOLS.has(name)) return "allow";
+
+    const response = await this.conn.requestPermission({
+      sessionId,
+      toolCall: {
+        toolCallId: session.lastToolCallId ?? name,
+        title: toolCallTitle(name, input),
+        kind: toolKind(name),
+        status: "pending",
+      },
+      options: [
+        { optionId: "allow_once", kind: "allow_once", name: "Allow once" },
+        { optionId: "allow_always", kind: "allow_always", name: "Allow always" },
+        { optionId: "reject_once", kind: "reject_once", name: "Reject" },
+      ],
+    });
+
+    // A cancelled outcome (the user hit Esc / cancelled the turn) is a denial;
+    // the engine records the denied call and the turn winds down cleanly.
+    if (response.outcome.outcome !== "selected") return "deny";
+    if (response.outcome.optionId === "allow_always") {
+      session.approved.add(scope);
+      return "allow";
+    }
+    return response.outcome.optionId === "allow_once" ? "allow" : "deny";
   }
 
   /** The stored config, or the ACP auth-required error with the real fix. */
@@ -182,6 +263,7 @@ export class LuckyAcpAgent implements Agent {
             });
             break;
           case "tool_start":
+            session.lastToolCallId = event.id;
             if (!HIDDEN_TOOLS.has(event.name)) {
               await this.conn.sessionUpdate(toolCallStart(params.sessionId, event, session.cwd));
             }
