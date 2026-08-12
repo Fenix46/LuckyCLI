@@ -250,7 +250,13 @@ describe("acp end-to-end editor session", () => {
     await editor2.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} });
     await editor2.loadSession({ sessionId, cwd: workdir, mcpServers: [] });
     const replayed = replay.map((u) => u.update.sessionUpdate);
-    expect(replayed[0]).toBe("user_message_chunk");
+    // The session announces its slash-command roster, then replays history.
+    expect(replayed[0]).toBe("available_commands_update");
+    expect(
+      (replay[0]!.update as unknown as { availableCommands: { name: string }[] })
+        .availableCommands.map((c) => c.name),
+    ).toContain("graph");
+    expect(replayed[1]).toBe("user_message_chunk");
     expect(replayed).toContain("agent_message_chunk");
   });
 });

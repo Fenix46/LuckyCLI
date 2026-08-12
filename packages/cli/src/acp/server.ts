@@ -41,12 +41,14 @@ import {
   type ToolCallContent,
 } from "@zed-industries/agent-client-protocol";
 import {
+  buildAndSaveGraph,
   createSessionId,
   deriveTitle,
   listTasks,
   loadSession as loadStoredSession,
   loadStoredConfig,
   onTasksUpdated,
+  recordGraphBuilt,
   resolveCredentials,
   saveSession,
   saveStoredConfig,
@@ -73,6 +75,12 @@ import {
   type AcpSession,
   type AcpSessionMode,
 } from "./sessions.js";
+import {
+  availableCommands,
+  parseCommand,
+  unknownCommandHelp,
+  type ParsedCommand,
+} from "./commands.js";
 import { isSelectableModel, modelRoster, parseModelId } from "./models.js";
 import { planBodyUpdate, planUpdateFromProposal, planUpdateFromTasks } from "./plan.js";
 import { diffContents, toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
@@ -107,6 +115,9 @@ export interface LuckyAcpAgentOptions {
     load: () => StoredConfig;
     save: (config: StoredConfig) => void;
   };
+  /** Graph build used by the `/graph` command; injectable so tests stay offline. */
+  buildGraph?: typeof buildAndSaveGraph;
+  recordGraphBuilt?: typeof recordGraphBuilt;
 }
 
 /**
@@ -120,6 +131,8 @@ export class LuckyAcpAgent implements Agent {
   protected readonly config: ResolvedConfig | undefined;
   protected readonly buildRuntime: RuntimeBuilder;
   protected readonly store: NonNullable<LuckyAcpAgentOptions["store"]>;
+  protected readonly buildGraph: typeof buildAndSaveGraph;
+  protected readonly recordGraphBuilt: typeof recordGraphBuilt;
   protected readonly sessions = new Map<string, AcpSession>();
   /** Client fs capabilities captured at initialize; absent until then. */
   protected clientFs: { readTextFile?: boolean; writeTextFile?: boolean } = {};
@@ -129,6 +142,8 @@ export class LuckyAcpAgent implements Agent {
     this.config = options.config;
     this.buildRuntime = options.buildRuntime ?? buildAgentRuntime;
     this.store = options.store ?? { load: loadStoredConfig, save: saveStoredConfig };
+    this.buildGraph = options.buildGraph ?? buildAndSaveGraph;
+    this.recordGraphBuilt = options.recordGraphBuilt ?? recordGraphBuilt;
   }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
@@ -272,6 +287,20 @@ export class LuckyAcpAgent implements Agent {
     };
     session.agent = (await this.buildSessionRuntime(session, messages)).agent;
     this.sessions.set(sessionId, session);
+    // Tell the editor which slash commands its command menu can offer. A
+    // client that ignores the notification simply shows no menu; the commands
+    // still work when typed, so this must never fail session creation.
+    await this.conn
+      .sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: availableCommands(),
+        },
+      })
+      .catch(() => {
+        /* a dropped roster must not break the session */
+      });
     return session;
   }
 
@@ -584,6 +613,62 @@ export class LuckyAcpAgent implements Agent {
     };
   }
 
+  /**
+   * Run an editor slash command inside the turn: its output streams back as
+   * agent message chunks and the turn ends normally, so the editor renders it
+   * in the transcript like any other reply and cancellation still works.
+   *
+   * Commands never reach the model, and a command that throws still ends the
+   * turn — a broken command must not wedge the session.
+   */
+  protected async runCommand(
+    session: AcpSession,
+    parsed: ParsedCommand,
+  ): Promise<PromptResponse> {
+    const abort = new AbortController();
+    session.abort = abort;
+    try {
+      let text: string;
+      if (!parsed.command) {
+        text = unknownCommandHelp(parsed.name);
+      } else {
+        try {
+          text = await parsed.command.run(parsed.args, {
+            agent: session.agent,
+            cwd: session.cwd,
+            provider: session.provider,
+            model: session.model,
+            buildGraph: this.buildGraph,
+            recordGraphBuilt: this.recordGraphBuilt,
+            store: this.store,
+            rebuild: async () => {
+              session.agent = (
+                await this.buildSessionRuntime(session, [...session.agent.messages])
+              ).agent;
+            },
+          });
+        } catch (err) {
+          text = `Command \`/${parsed.name}\` failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`;
+        }
+      }
+      await this.conn.sessionUpdate({
+        sessionId: session.id,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text },
+        },
+      });
+      return { stopReason: abort.signal.aborted ? "cancelled" : "end_turn" };
+    } finally {
+      session.abort = null;
+      // A command can change the conversation (/compact) or the runtime
+      // (/thinking); persist so both surfaces see the same session.
+      this.persistSession(session);
+    }
+  }
+
   /** The stored config, or the ACP auth-required error with the real fix. */
   protected requireConfig(): ResolvedConfig {
     if (!this.config || this.config.needsSetup) {
@@ -600,6 +685,12 @@ export class LuckyAcpAgent implements Agent {
       });
     }
     const content = toContentParts(params.prompt);
+
+    // A prompt whose first text block starts with `/name` is a command from
+    // the editor's command menu, not something to send to the model.
+    const first = content.find((part) => part.type === "text");
+    const parsed = first?.type === "text" ? parseCommand(first.text) : undefined;
+    if (parsed) return await this.runCommand(session, parsed);
 
     const abort = new AbortController();
     session.abort = abort;

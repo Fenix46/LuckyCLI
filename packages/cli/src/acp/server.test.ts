@@ -67,13 +67,21 @@ function stubClient(updates: unknown[] = [], onPermission?: PermissionHandler): 
   };
 }
 
-/** A connected [server, editor] pair over in-memory streams. */
+/**
+ * A connected [server, editor] pair over in-memory streams.
+ *
+ * `updates` omits `available_commands_update`: every session emits the command
+ * roster on creation, and it is session setup rather than turn traffic, so
+ * assertions about what a prompt produced would otherwise all have to skip it.
+ * Tests that care about the roster read `allUpdates`.
+ */
 function connect(
   options: LuckyAcpAgentOptions = {},
   onPermission?: PermissionHandler,
 ): {
   editor: ClientSideConnection;
   updates: unknown[];
+  allUpdates: unknown[];
   serverAgent: () => LuckyAcpAgent;
 } {
   const [agentStream, clientStream] = connectedStreams();
@@ -82,9 +90,37 @@ function connect(
     serverAgent = new LuckyAcpAgent(conn, options);
     return serverAgent;
   });
-  const updates: unknown[] = [];
-  const editor = new ClientSideConnection(() => stubClient(updates, onPermission), clientStream);
-  return { editor, updates, serverAgent: () => serverAgent! };
+  const allUpdates: unknown[] = [];
+  const updates = turnUpdates(allUpdates);
+  const editor = new ClientSideConnection(
+    () => stubClient(allUpdates, onPermission),
+    clientStream,
+  );
+  return { editor, updates, allUpdates, serverAgent: () => serverAgent! };
+}
+
+/**
+ * A live view of `source` with the command roster filtered out. Backed by a
+ * Proxy so it stays in sync as updates arrive after the array is handed out.
+ */
+function turnUpdates(source: unknown[]): unknown[] {
+  const visible = (): unknown[] =>
+    source.filter(
+      (u) =>
+        (u as { update?: { sessionUpdate?: string } }).update?.sessionUpdate !==
+        "available_commands_update",
+    );
+  return new Proxy([] as unknown[], {
+    get(_target, prop, receiver) {
+      const current = visible();
+      const value = Reflect.get(current, prop, receiver);
+      return typeof value === "function" ? value.bind(current) : value;
+    },
+    has: (_target, prop) => Reflect.has(visible(), prop),
+    ownKeys: () => Reflect.ownKeys(visible()),
+    getOwnPropertyDescriptor: (_target, prop) =>
+      Reflect.getOwnPropertyDescriptor(visible(), prop),
+  });
 }
 
 /** Chunks shaped like the engine's StreamChunk (not exported from core). */
@@ -1010,6 +1046,195 @@ describe("acp server model selection", () => {
 });
 
 
+describe("acp server slash commands", () => {
+  /** The text of every agent_message_chunk the editor received. */
+  function replies(updates: unknown[]): string[] {
+    return updates
+      .filter(
+        (u) =>
+          (u as { update: { sessionUpdate: string } }).update.sessionUpdate ===
+          "agent_message_chunk",
+      )
+      .map((u) => (u as { update: { content: { text: string } } }).update.content.text);
+  }
+
+  it("advertises the command roster when a session is created", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor, allUpdates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    const roster = allUpdates.find(
+      (u) =>
+        (u as { update: { sessionUpdate: string } }).update.sessionUpdate ===
+        "available_commands_update",
+    ) as { update: { availableCommands: { name: string; input?: { hint: string } }[] } };
+    expect(roster).toBeDefined();
+    const names = roster.update.availableCommands.map((c) => c.name);
+    expect(names).toContain("graph");
+    expect(names).toContain("status");
+    expect(names).toContain("compact");
+    expect(names).toContain("thinking");
+    // Commands taking arguments advertise a hint for the editor's input.
+    expect(roster.update.availableCommands.find((c) => c.name === "graph")?.input).toEqual({
+      hint: "build|rebuild",
+    });
+  });
+
+  it("runs a command inside the turn without consulting the model", async () => {
+    let generated = 0;
+    const agent = new EngineAgent({
+      provider: {
+        ...scriptedProvider([[{ textDelta: "model spoke" }, { finishReason: "stop" }]]),
+        async *generateStream() {
+          generated += 1;
+          yield { finishReason: "stop" as const };
+        },
+      } as unknown as IProvider,
+      model: "mock",
+      tools: new ToolRegistry(),
+    });
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "/status" }],
+    });
+
+    expect(response.stopReason).toBe("end_turn");
+    expect(generated).toBe(0); // the model was never called
+    expect(replies(updates).join("")).toContain("claude-sonnet-4-6");
+  });
+
+  it("builds the graph in the session cwd on /graph", async () => {
+    const buildGraph = vi.fn(async () => ({
+      fileCount: 7,
+      nodeCount: 40,
+      edgeCount: 55,
+      droppedEdges: 0,
+      path: "/repo/.luckycli/graph.json",
+    }));
+    const recordGraphBuilt = vi.fn();
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+      buildGraph: buildGraph as unknown as LuckyAcpAgentOptions["buildGraph"],
+      recordGraphBuilt,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/workspace", mcpServers: [] });
+
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "/graph" }],
+    });
+
+    expect(response.stopReason).toBe("end_turn");
+    expect(buildGraph).toHaveBeenCalledWith("/workspace");
+    expect(recordGraphBuilt).toHaveBeenCalledWith("/workspace");
+    expect(replies(updates).join("")).toContain("files: 7");
+  });
+
+  it("answers an unknown command with the roster instead of prompting the model", async () => {
+    const agent = engineAgent([[{ textDelta: "model spoke" }, { finishReason: "stop" }]]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "/nonsense" }],
+    });
+
+    expect(response.stopReason).toBe("end_turn");
+    const text = replies(updates).join("");
+    expect(text).toContain("/nonsense");
+    expect(text).toContain("/graph");
+    expect(text).not.toContain("model spoke");
+  });
+
+  it("leaves an ordinary prompt alone", async () => {
+    const agent = engineAgent([[{ textDelta: "model spoke" }, { finishReason: "stop" }]]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    await editor.prompt({
+      sessionId,
+      // Mentions a slash, but not as the leading token.
+      prompt: [{ type: "text", text: "fix src/a.ts please" }],
+    });
+
+    expect(replies(updates).join("")).toBe("model spoke");
+  });
+
+  it("keeps the session usable for a normal prompt after a command", async () => {
+    const agent = engineAgent([[{ textDelta: "after" }, { finishReason: "stop" }]]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "/status" }] });
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "now do the work" }],
+    });
+
+    expect(response.stopReason).toBe("end_turn");
+    expect(replies(updates).join("")).toContain("after");
+  });
+
+  it("rejects a command while a prompt is already running", async () => {
+    const agent = engineAgent([[{ textDelta: "streaming" }]], { hang: true });
+    const { editor } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    const running = editor.prompt({ sessionId, prompt: [{ type: "text", text: "go" }] });
+    await new Promise((r) => setTimeout(r, 20));
+
+    await expect(
+      editor.prompt({ sessionId, prompt: [{ type: "text", text: "/status" }] }),
+    ).rejects.toMatchObject({ code: -32600 });
+
+    await editor.cancel({ sessionId });
+    await running;
+  });
+
+  it("ends the turn cleanly when a command throws", async () => {
+    const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+      buildGraph: (async () => {
+        throw new Error("disk on fire");
+      }) as unknown as LuckyAcpAgentOptions["buildGraph"],
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "/graph" }],
+    });
+
+    expect(response.stopReason).toBe("end_turn");
+    expect(replies(updates).join("")).toContain("disk on fire");
+  });
+});
+
 describe("acp server pre-approval diffs", () => {
   /**
    * A session anchored to a real temp dir running the real file tools, so the
@@ -1052,7 +1277,8 @@ describe("acp server pre-approval diffs", () => {
     ];
 
     const permissions: unknown[] = [];
-    const updates: unknown[] = [];
+    const allUpdates: unknown[] = [];
+    const updates = turnUpdates(allUpdates);
     const [agentStream, clientStream] = connectedStreams();
     serveAcp(agentStream, (conn) =>
       new LuckyAcpAgent(conn, {
@@ -1077,7 +1303,7 @@ describe("acp server pre-approval diffs", () => {
           return { outcome: { outcome: "selected" as const, optionId: "reject_once" } };
         },
         async sessionUpdate(params) {
-          updates.push(params);
+          allUpdates.push(params);
         },
         async readTextFile({ path }) {
           const buffered = opts.bufferFor?.(root)[path];
