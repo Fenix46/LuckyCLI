@@ -20,6 +20,7 @@ import {
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Root } from "./ui/Root.js";
+import { runAcpCommand } from "./acp/acp-cli.js";
 import { runMcpCommand } from "./mcp-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
 import { applyStagedUpdateIfAny } from "@luckycli/core";
@@ -41,6 +42,7 @@ Options:
   -h, --help      show this help
 
 Commands:
+  acp                   serve the Agent Client Protocol on stdio (for ACP editors)
   graph build [path]    build the project knowledge graph into .lucky/graph
   graph rebuild [path]  rebuild it from scratch
   graph view [path]     render the graph as interactive HTML to explore
@@ -136,6 +138,18 @@ function main(): void {
       process.stderr.write(`graph command failed: ${err instanceof Error ? err.message : err}\n`);
       process.exit(1);
     });
+    return;
+  }
+
+  if (rawArgs[0] === "acp") {
+    runAcpCommand(rawArgs.slice(1))
+      .then((code) => {
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        process.stderr.write(`acp server failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
     return;
   }
 
