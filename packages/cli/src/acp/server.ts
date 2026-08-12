@@ -39,12 +39,14 @@ import {
 import { createSessionId, type ResolvedConfig, type TokenUsage } from "@luckycli/core";
 import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
+import { HIDDEN_TOOLS } from "../hidden-tools.js";
 import {
   mapAcpMcpServers,
   mergeMcpServers,
   toContentParts,
   type AcpSession,
 } from "./sessions.js";
+import { toolCallEnd, toolCallStart } from "./tool-calls.js";
 
 /** Guidance surfaced whenever the stored config can't drive a session. */
 export const AUTH_GUIDANCE =
@@ -179,6 +181,16 @@ export class LuckyAcpAgent implements Agent {
               },
             });
             break;
+          case "tool_start":
+            if (!HIDDEN_TOOLS.has(event.name)) {
+              await this.conn.sessionUpdate(toolCallStart(params.sessionId, event, session.cwd));
+            }
+            break;
+          case "tool_end":
+            if (!HIDDEN_TOOLS.has(event.name)) {
+              await this.conn.sessionUpdate(toolCallEnd(params.sessionId, event, session.cwd));
+            }
+            break;
           case "aborted":
             stopReason = "cancelled";
             break;
@@ -190,8 +202,7 @@ export class LuckyAcpAgent implements Agent {
             // editor gets a JSON-RPC error, and the session stays usable.
             throw RequestError.internalError({ details: event.message });
           default:
-            // reasoning (no text payload), context, compaction, tool events —
-            // tool reporting lands in milestone 3, the rest has no ACP shape.
+            // reasoning (no text payload), context, compaction — no ACP shape.
             break;
         }
       }

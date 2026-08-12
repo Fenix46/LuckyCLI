@@ -18,14 +18,8 @@ import { handleEvent } from "../lib/turn-events.js";
 // avoids a stream of duplicated "Created task …"/"Updated task …" lines.
 // ask_user is likewise hidden: the interactive question box is its full surface,
 // and the user's answer lands as their next message — a transcript row would just
-// duplicate the box.
-const HIDDEN_TOOLS = new Set([
-  "task_create",
-  "task_update",
-  "task_list",
-  "task_get",
-  "ask_user",
-]);
+// duplicate the box. The set is shared with the ACP server.
+import { HIDDEN_TOOLS } from "../../hidden-tools.js";
 
 interface TurnRunnerDeps {
   agent: Agent;

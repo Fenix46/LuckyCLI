@@ -65,6 +65,7 @@ function connect(options: LuckyAcpAgentOptions = {}): {
 /** Chunks shaped like the engine's StreamChunk (not exported from core). */
 type Chunk = {
   textDelta?: string;
+  toolCall?: { type: "tool_call"; id: string; name: string; arguments: Record<string, unknown> };
   finishReason?: "stop" | "tool_calls";
   usage?: { inputTokens: number; outputTokens: number };
 };
@@ -118,11 +119,14 @@ function abortError(): Error {
 }
 
 /** A real engine agent driven by a scripted provider — no network, no disk. */
-function engineAgent(script: Chunk[][], opts: { hang?: boolean } = {}): EngineAgent {
+function engineAgent(
+  script: Chunk[][],
+  opts: { hang?: boolean; tools?: ToolRegistry } = {},
+): EngineAgent {
   return new EngineAgent({
     provider: scriptedProvider(script, opts),
     model: "mock",
-    tools: new ToolRegistry(),
+    tools: opts.tools ?? new ToolRegistry(),
   });
 }
 
@@ -382,6 +386,113 @@ describe("acp server prompt streaming", () => {
     // Only the first batch (no finish reason) stalls; the second completes.
     const next = await editor.prompt({ sessionId, prompt: [{ type: "text", text: "on" }] });
     expect(next.stopReason).toBe("end_turn");
+  });
+
+  it("reports tool calls as tool_call / tool_call_update pairs with diffs", async () => {
+    const { defineTool } = await import("@luckycli/core");
+    const { z } = await import("zod");
+    const tools = new ToolRegistry();
+    tools.register(
+      defineTool({
+        name: "fake_edit",
+        description: "pretend edit",
+        schema: z.object({ path: z.string() }),
+        readonly: true,
+        execute: async () => ({
+          content: "edited",
+          metadata: {
+            diff: [
+              {
+                path: "src/a.ts",
+                additions: 1,
+                deletions: 0,
+                hunks: [
+                  {
+                    oldStart: 1,
+                    oldLines: 0,
+                    newStart: 1,
+                    newLines: 1,
+                    lines: [{ type: "add" as const, text: "hi", newLine: 1 }],
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    const agent = engineAgent(
+      [
+        [
+          {
+            toolCall: {
+              type: "tool_call",
+              id: "call-1",
+              name: "fake_edit",
+              arguments: { path: "src/a.ts" },
+            },
+            finishReason: "tool_calls",
+          },
+        ],
+        [{ textDelta: "done" }, { finishReason: "stop" }],
+      ],
+      { tools },
+    );
+    const { editor, updates, sessionId } = await editorWithSession(agent);
+
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "edit it" }],
+    });
+    expect(response.stopReason).toBe("end_turn");
+
+    const kinds = updates.map((u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate);
+    expect(kinds).toEqual(["tool_call", "tool_call_update", "agent_message_chunk"]);
+    const start = (updates[0] as { update: Record<string, unknown> }).update;
+    expect(start).toMatchObject({
+      toolCallId: "call-1",
+      title: "fake_edit src/a.ts",
+      status: "in_progress",
+      locations: [{ path: "/repo/src/a.ts" }],
+    });
+    const end = (updates[1] as { update: Record<string, unknown> }).update;
+    expect(end).toMatchObject({ toolCallId: "call-1", status: "completed" });
+    expect((end.content as unknown[])[1]).toMatchObject({
+      type: "diff",
+      path: "/repo/src/a.ts",
+      newText: "hi",
+    });
+  });
+
+  it("hides task_* and ask_user tool calls from the editor", async () => {
+    const { defineTool } = await import("@luckycli/core");
+    const { z } = await import("zod");
+    const tools = new ToolRegistry();
+    tools.register(
+      defineTool({
+        name: "task_create",
+        description: "hidden",
+        schema: z.object({}),
+        readonly: true,
+        execute: async () => ({ content: "ok" }),
+      }),
+    );
+    const agent = engineAgent(
+      [
+        [
+          {
+            toolCall: { type: "tool_call", id: "c1", name: "task_create", arguments: {} },
+            finishReason: "tool_calls",
+          },
+        ],
+        [{ textDelta: "done" }, { finishReason: "stop" }],
+      ],
+      { tools },
+    );
+    const { editor, updates, sessionId } = await editorWithSession(agent);
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "go" }] });
+    const kinds = updates.map((u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate);
+    expect(kinds).toEqual(["agent_message_chunk"]);
   });
 
   it("aborts every in-flight prompt on abortAll (editor disconnected)", async () => {
