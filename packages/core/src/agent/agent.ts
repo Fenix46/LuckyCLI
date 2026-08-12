@@ -74,6 +74,14 @@ export interface AgentConfig {
   onFilesChanged?: (paths: string[]) => void;
   /** Optional hook fired when the model loads a skill via skill_load. */
   onSkillLoaded?: (id: string) => void;
+  /**
+   * Optional per-turn context enrichment (e.g. the graph enricher): receives
+   * the user turn's text and may return an extra block appended to that turn
+   * as an additional text part. Best-effort — a thrown error or null leaves
+   * the turn untouched. Appending to the user turn (never the system prompt)
+   * keeps the prompt-cache prefix stable.
+   */
+  enrichTurn?: (userText: string) => Promise<string | null> | string | null;
   /** Prior conversation to resume from. Copied into the history on construction. */
   messages?: Message[];
 }
@@ -117,6 +125,7 @@ export class Agent {
   private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
+  private readonly enrichTurn: ((userText: string) => Promise<string | null> | string | null) | undefined;
   private lastUsage: TokenUsage | undefined;
   /** Memoized provider token count, keyed by a fingerprint of the transcript. */
   private countCache: { fingerprint: string; usage: TokenUsage } | undefined;
@@ -152,6 +161,7 @@ export class Agent {
     this.runSubAgent = cfg.runSubAgent;
     this.onFilesChanged = cfg.onFilesChanged;
     this.onSkillLoaded = cfg.onSkillLoaded;
+    this.enrichTurn = cfg.enrichTurn;
     if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
 
@@ -223,8 +233,23 @@ export class Agent {
   ): AsyncIterable<AgentEvent> {
     // A plain string is the common case (text turn); an explicit ContentPart[]
     // lets callers mix text with images and other parts for multimodal turns.
+    // Copied so enrichment below never mutates a caller-owned array.
     const content: ContentPart[] =
-      typeof userInput === "string" ? [{ type: "text", text: userInput }] : userInput;
+      typeof userInput === "string" ? [{ type: "text", text: userInput }] : [...userInput];
+    if (this.enrichTurn) {
+      const userText = content
+        .filter((part): part is TextPart => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      if (userText.trim()) {
+        try {
+          const extra = await this.enrichTurn(userText);
+          if (extra) content.push({ type: "text", text: extra });
+        } catch {
+          // Enrichment is best-effort; a broken graph must never break a turn.
+        }
+      }
+    }
     this.history.push({ role: "user", content });
     // Failure tracking is per turn: a new user message resets the counters so
     // a tool that legitimately recovered isn't throttled by an old failure.

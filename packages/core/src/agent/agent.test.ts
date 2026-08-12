@@ -1149,3 +1149,64 @@ describe("Agent loop", () => {
     expect(seen.every((s) => s === undefined)).toBe(true);
   });
 });
+
+describe("turn enrichment", () => {
+  it("appends the enrichment block as an extra text part on the user turn", async () => {
+    const provider = new ScriptedProvider([[{ textDelta: "ok" }, { finishReason: "stop" }]]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry(),
+      enrichTurn: (text) => (text.includes("compactHistory") ? "<graph-context>hint</graph-context>" : null),
+    });
+
+    await collect(agent.send("fix `compactHistory`"));
+
+    const user = agent.messages[0]!;
+    expect(user.role).toBe("user");
+    expect(user.content).toEqual([
+      { type: "text", text: "fix `compactHistory`" },
+      { type: "text", text: "<graph-context>hint</graph-context>" },
+    ]);
+  });
+
+  it("leaves the turn untouched when enrichment returns null or throws", async () => {
+    const provider = new ScriptedProvider([
+      [{ textDelta: "a" }, { finishReason: "stop" }],
+      [{ textDelta: "b" }, { finishReason: "stop" }],
+    ]);
+    let calls = 0;
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry(),
+      enrichTurn: () => {
+        calls += 1;
+        if (calls === 1) return null;
+        throw new Error("graph unavailable");
+      },
+    });
+
+    await collect(agent.send("first"));
+    await collect(agent.send("second"));
+
+    expect(agent.messages[0]!.content).toEqual([{ type: "text", text: "first" }]);
+    expect(agent.messages[2]!.content).toEqual([{ type: "text", text: "second" }]);
+  });
+
+  it("does not mutate a caller-provided parts array", async () => {
+    const provider = new ScriptedProvider([[{ textDelta: "ok" }, { finishReason: "stop" }]]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry(),
+      enrichTurn: () => "extra",
+    });
+
+    const parts = [{ type: "text", text: "hello world" } as const];
+    await collect(agent.send(parts));
+    const stored = agent.messages[0]!.content;
+    expect(stored).toHaveLength(2);
+    expect(parts).toHaveLength(1);
+  });
+});
