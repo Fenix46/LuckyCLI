@@ -748,6 +748,69 @@ describe("acp server permissions and modes", () => {
   });
 });
 
+describe("acp server editor filesystem", () => {
+  it("wires editor-backed file access only when the client advertises fs capabilities", async () => {
+    const buffers = new Map<string, string>([["/repo/dirty.ts", "buffer text"]]);
+    let opts: Parameters<RuntimeBuilder>[0] | undefined;
+    const [agentStream, clientStream] = connectedStreams();
+    serveAcp(agentStream, (conn) =>
+      new LuckyAcpAgent(conn, {
+        config: fakeConfig(),
+        buildRuntime: (async (o: Parameters<RuntimeBuilder>[0]) => {
+          opts = o;
+          return fakeRuntime();
+        }) as RuntimeBuilder,
+      }),
+    );
+    const client: Client = {
+      async requestPermission() {
+        throw new Error("unexpected");
+      },
+      async sessionUpdate() {},
+      async readTextFile(params) {
+        const content = buffers.get(params.path);
+        if (content === undefined) throw new Error("not open");
+        return { content };
+      },
+      async writeTextFile(params) {
+        buffers.set(params.path, params.content);
+        return {};
+      },
+    };
+    const editor = new ClientSideConnection(() => client, clientStream);
+    await editor.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+
+    // The overrides exist and round-trip through the connection.
+    expect(opts?.readTextFile).toBeDefined();
+    expect(opts?.writeTextFile).toBeDefined();
+    await expect(opts!.readTextFile!("/repo/dirty.ts")).resolves.toBe("buffer text");
+    // A file the editor has no view of resolves null → disk fallback in core.
+    await expect(opts!.readTextFile!("/repo/unknown.ts")).resolves.toBeNull();
+    await opts!.writeTextFile!("/repo/new.ts", "written");
+    expect(buffers.get("/repo/new.ts")).toBe("written");
+    expect(sessionId).toBeTruthy();
+  });
+
+  it("omits the overrides when the client has no fs capabilities", async () => {
+    let opts: Parameters<RuntimeBuilder>[0] | undefined;
+    const { editor } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async (o: Parameters<RuntimeBuilder>[0]) => {
+        opts = o;
+        return fakeRuntime();
+      }) as RuntimeBuilder,
+    });
+    await editor.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} });
+    await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    expect(opts?.readTextFile).toBeUndefined();
+    expect(opts?.writeTextFile).toBeUndefined();
+  });
+});
+
 describe("acp server session load and persistence", () => {
   it("persists a session after a turn and reloads it with a text replay", async () => {
     const { mkdtemp, rm } = await import("node:fs/promises");

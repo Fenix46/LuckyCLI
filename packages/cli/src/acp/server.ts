@@ -100,6 +100,8 @@ export class LuckyAcpAgent implements Agent {
   protected readonly config: ResolvedConfig | undefined;
   protected readonly buildRuntime: RuntimeBuilder;
   protected readonly sessions = new Map<string, AcpSession>();
+  /** Client fs capabilities captured at initialize; absent until then. */
+  protected clientFs: { readTextFile?: boolean; writeTextFile?: boolean } = {};
 
   constructor(conn: AgentSideConnection, options: LuckyAcpAgentOptions = {}) {
     this.conn = conn;
@@ -113,6 +115,10 @@ export class LuckyAcpAgent implements Agent {
     // let the client decide whether to disconnect.
     const protocolVersion =
       params.protocolVersion === PROTOCOL_VERSION ? params.protocolVersion : PROTOCOL_VERSION;
+    this.clientFs = {
+      ...(params.clientCapabilities?.fs?.readTextFile ? { readTextFile: true } : {}),
+      ...(params.clientCapabilities?.fs?.writeTextFile ? { writeTextFile: true } : {}),
+    };
     return {
       protocolVersion,
       agentCapabilities: {
@@ -222,6 +228,29 @@ export class LuckyAcpAgent implements Agent {
       askUser: (request) => this.askUser(sessionId, request),
       presentPlan: (plan) => this.presentPlan(sessionId, plan),
       cwd,
+      // When the editor advertises fs capabilities, the file tools read
+      // through it (unsaved buffers included) and write into it. A null read
+      // or a thrown write falls back to disk inside the tools (core
+      // file-access), so an editor with no view of a file never blocks work.
+      ...(this.clientFs.readTextFile
+        ? {
+            readTextFile: async (absPath: string): Promise<string | null> => {
+              try {
+                const response = await this.conn.readTextFile({ sessionId, path: absPath });
+                return response.content;
+              } catch {
+                return null;
+              }
+            },
+          }
+        : {}),
+      ...(this.clientFs.writeTextFile
+        ? {
+            writeTextFile: async (absPath: string, content: string): Promise<void> => {
+              await this.conn.writeTextFile({ sessionId, path: absPath, content });
+            },
+          }
+        : {}),
       // Editor-supplied servers extend the user's own MCP config; the local
       // config wins on a name conflict (the user's auth/pins are explicit).
       mcp: mergeMcpServers(mapAcpMcpServers(mcpServers), config.mcp),
