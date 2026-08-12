@@ -479,6 +479,240 @@ Commit:
 
 - `docs: editor integration guide for lucky acp`
 
+---
+
+# Fase 2 — parità con la TUI dentro l'editor
+
+Studio 2026-08-12 (SDK installato: `@zed-industries/agent-client-protocol`
+0.4.4). Decisioni prese con l'utente:
+
+- **Diff pre-approvazione**: la richiesta di permesso deve mostrare il diff
+  della modifica (o del file nuovo) PRIMA che il tool esegua, e deve farlo
+  "in grande" nell'editor. ACP lo copre già: `session/request_permission`
+  accetta un `ToolCallUpdate` completo, incluso `content` con blocchi `diff`;
+  il rendering in grande (multibuffer di Zed, diff editor delle estensioni
+  VS Code) è responsabilità del client — noi dobbiamo solo mandare diff e
+  `locations` al momento giusto. Ordine degli eventi già favorevole: il core
+  emette `tool_start` (agent.ts:439) prima di chiamare `approveTool`
+  (agent.ts:459), quindi `session.lastToolCallId` identifica la riga che
+  l'editor sta già mostrando.
+- **Picker unificato provider+modello**: ACP ha un solo selettore
+  (`SessionModelState` + `session/set_model`, UNSTABLE ma implementato da
+  Zed). Un'unica lista con id `provider/model`, limitata ai provider con
+  credenziali risolvibili (`stored.credentials[provider]` o env). Niente
+  OAuth in editor (decisione v1 confermata). Un eventuale picker provider
+  separato si valuta più avanti.
+- **Graph dall'editor**: esporre il sistema grafo di Lucky come slash command
+  ACP (`available_commands_update`); l'utente lancia `/graph` dal menu
+  comandi dell'editor e il grafo si costruisce nel cwd della sessione.
+- **Consumi**: ACP non ha una shape standard per l'usage. Due binari: `_meta`
+  (`dev.luckycli/context`) sulle notifiche per i client che lo capiscono, e
+  `/status` testuale che funziona ovunque.
+
+Prerequisito: la verifica manuale Zed della v1 (punto "Test" della task 7.2)
+va fatta prima di costruirci sopra — le milestone qui sotto toccano le stesse
+superfici.
+
+## Milestone 8 — Diff in tempo reale prima dell'approvazione
+
+### Task 8.1 — Helper condiviso di preview dei write-tool
+
+Scope:
+
+- estrarre da `Approval.tsx` (`approvalDisplay`) la costruzione del diff
+  pre-esecuzione in un modulo condiviso (es.
+  `packages/cli/src/approval-preview.ts`): input del tool → `FileDiff[]`
+- migliorare rispetto alla TUI: la preview accetta un lettore file async
+  (l'override `readTextFile` di core file-access, fallback disco) così
+  `edit_file` produce un diff sul contenuto reale — buffer sporchi
+  dell'editor inclusi; `write_file` su file esistente mostra
+  sovrascrittura reale, su file nuovo `created` (solo newText)
+- `apply_patch`: esporre dal motore patch di core un dry-run che produca
+  `FileDiff[]` senza scrivere (la logica di parsing/applicazione esiste già,
+  oggi produce i metadata solo dopo l'esecuzione)
+- la TUI passa a consumare lo stesso helper (niente logica duplicata);
+  comportamento TUI invariato quando il lettore file non è fornito
+
+Done when:
+
+- edit/write/patch producono `FileDiff[]` corretti da solo input + lettore
+  file finto; la TUI rende gli stessi diff di prima
+
+Test:
+
+- unit dell'helper (file esistente/mancante/buffer che differisce dal disco);
+  snapshot TUI invariati
+
+Commit:
+
+- `refactor(cli): shared pre-execution diff preview for write tools`
+
+### Task 8.2 — Diff e locations nella richiesta di permesso
+
+Scope:
+
+- nel bridge `requestToolPermission`: per i write-tool, calcolare la preview
+  (task 8.1, lettore = override fs della sessione) e
+  1. inviare un `tool_call_update` su `session.lastToolCallId` con
+     `status: pending`, `content` = blocchi diff (riusare `diffContents`) e
+     `locations`, così l'editor apre il file e mostra il diff in grande;
+  2. includere lo stesso `content`+`locations` nel `toolCall` della
+     `request_permission`
+- tool non-write: comportamento attuale invariato (title/kind/status)
+- errore nella preview (patch malformata, file illeggibile) → richiesta di
+  permesso senza diff, mai un turno rotto
+
+Done when:
+
+- un `edit_file` scriptato in modalità `default` produce, nell'ordine:
+  tool_call (in_progress) → tool_call_update pending con diff →
+  request_permission con lo stesso diff → esecuzione solo dopo l'allow
+
+Test:
+
+- golden della sequenza per edit/write/patch; caso reject (nessuna
+  esecuzione); caso preview fallita (permesso senza diff)
+
+Commit:
+
+- `feat(acp): pre-approval diffs in permission requests`
+
+## Milestone 9 — Picker unificato provider/modello
+
+### Task 9.1 — Catalogo e advertise dello stato modelli
+
+Scope:
+
+- helper che enumera le coppie `provider/model` utilizzabili: provider con
+  credenziali risolvibili (stored/env, riusare la risoluzione di
+  `config.ts`), modelli da `getAvailableModels`/`PROVIDER_CATALOG` (spostare
+  l'accesso al catalogo dove serve, senza dipendere dalla UI)
+- `session/new` e `session/load` rispondono con
+  `models: { availableModels, currentModelId }`; `ModelInfo.modelId` =
+  `provider/model`, `name` leggibile (display name provider + modello),
+  provider attivo per primo
+
+Done when:
+
+- con due provider configurati la risposta elenca entrambi i cataloghi e
+  `currentModelId` riflette la config
+
+Test:
+
+- config finta multi-provider (uno senza credenziali: escluso); golden dello
+  stato modelli
+
+Commit:
+
+- `feat(acp): advertise unified provider/model roster`
+
+### Task 9.2 — `session/set_model` con rebuild del runtime
+
+Scope:
+
+- implementare `setSessionModel`: parse di `provider/model`, rifiuto pulito
+  se un prompt è in volo (`session.abort` attivo) o se l'id non è nel roster
+- rebuild del runtime della sessione portando la history (stesso pattern di
+  `onChangeModel` in Root.tsx: carry di `agent.messages`, credenziali del
+  provider scelto); mode e approvazioni di sessione conservati
+- persistere la scelta nella config salvata (come fa la TUI), così TUI ed
+  editor restano coerenti
+
+Done when:
+
+- switch a metà sessione: il prompt successivo usa il nuovo provider/modello
+  con il transcript intatto
+
+Test:
+
+- switch stesso provider e cross-provider con runtime finti; rifiuto con
+  prompt in volo; id sconosciuto
+
+Commit:
+
+- `feat(acp): session model switching across providers`
+
+## Milestone 10 — Slash command dell'editor (graph incluso)
+
+### Task 10.1 — Registry comandi ACP e advertise
+
+Scope:
+
+- dopo `session/new`/`load`, notifica `available_commands_update` con i
+  comandi supportati: `graph` (input hint `build|rebuild`), `status`,
+  `compact`, `thinking` (`on|off`)
+- intercettazione in `prompt()`: primo blocco testo che inizia con `/nome`
+  riconosciuto → dispatch del comando, MAI inoltro al modello; comando
+  sconosciuto → messaggio d'aiuto come `agent_message_chunk` + `end_turn`
+- il comando gira DENTRO il turno (streaming dell'esito via
+  `agent_message_chunk`, poi `end_turn`) così resta cancellabile e non
+  servono notifiche fuori-turno
+
+Done when:
+
+- l'editor riceve il roster; `/status` risponde con provider/modello/contesto
+  senza toccare il modello
+
+Test:
+
+- golden del roster; dispatch di `/status` e di un comando sconosciuto
+
+Commit:
+
+- `feat(acp): editor slash commands`
+
+### Task 10.2 — `/graph` dall'editor
+
+Scope:
+
+- `/graph` (e `/graph rebuild`) → build del grafo sul `cwd` della sessione
+  riusando `buildGraph`/`recordGraphBuilt` del comando TUI
+  (maintenance.ts:148), con esito (files/nodes/edges/path) streamato nel
+  turno; errori come testo, mai crash
+- a build completata l'enricher della sessione vede il grafo nuovo (stessa
+  semantica della TUI)
+
+Done when:
+
+- `/graph` da un client finto costruisce il grafo di un progetto fixture e
+  riporta il riepilogo nel turno
+
+Test:
+
+- build su fixture piccola (offline); errore di build riportato come testo
+
+Commit:
+
+- `feat(acp): graph build command from the editor`
+
+## Milestone 11 — Consumi in tempo reale
+
+### Task 11.1 — Pompa degli eventi context + `/context`
+
+Scope:
+
+- gli eventi `context` del motore (ContextStatus: token usati/usabili,
+  percentuali, cache) non vengono più scartati: allegati come
+  `_meta["dev.luckycli/context"]` alla notifica di update successiva (o a
+  una notifica dedicata leggera se il batching lo richiede); l'usage di
+  `turn_end` resta in `_meta` della PromptResponse (già fatto)
+- comando `/context` nel registry ACP (task 10.1) che stampa gli stessi dati
+  in chiaro — il binario che funziona su qualsiasi editor
+- documentare le chiavi `_meta` in docs/ (contratto per client custom)
+
+Done when:
+
+- un turno scriptato con usage produce `_meta` di contesto leggibile da un
+  client finto; `/context` risponde con le stesse cifre
+
+Test:
+
+- golden delle notifiche con `_meta`; `/context` su sessione con usage noto
+
+Commit:
+
+- `feat(acp): live context usage over _meta and /context command`
+
 ## Fuori scope v1 (annotare, non fare)
 
 - metodi `terminal/*` ACP (l'exec resta interno con output testuale)
