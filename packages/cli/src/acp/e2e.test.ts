@@ -200,15 +200,22 @@ describe("acp end-to-end editor session", () => {
     expect(await readFile(join(workdir, "hello.txt"), "utf8")).toBe("ciao editor\n");
 
     const byKind = (kind: string) => updates.filter((u) => u.update.sessionUpdate === kind);
-    const writeEnd = byKind("tool_call_update").find(
+    const writeUpdates = byKind("tool_call_update").filter(
       (u) => (u.update as { toolCallId?: string }).toolCallId === "w1",
     );
-    expect(writeEnd?.update).toMatchObject({ status: "completed" });
-    expect(
-      (writeEnd?.update as { content?: { type: string }[] }).content?.some(
-        (c) => c.type === "diff",
-      ),
-    ).toBe(true);
+    // The write is reported twice: the pre-approval diff (pending, sent while
+    // the permission request is open) and the result once it has run.
+    expect(writeUpdates.map((u) => (u.update as { status: string }).status)).toEqual([
+      "pending",
+      "completed",
+    ]);
+    for (const update of writeUpdates) {
+      expect(
+        (update.update as { content?: { type: string }[] }).content?.some(
+          (c) => c.type === "diff",
+        ),
+      ).toBe(true);
+    }
     const boomEnd = byKind("tool_call_update").find(
       (u) => (u.update as { toolCallId?: string }).toolCallId === "b1",
     );

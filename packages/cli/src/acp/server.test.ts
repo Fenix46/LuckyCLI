@@ -221,6 +221,18 @@ async function editorWithApprovalSession(
   return { editor, updates, sessionId };
 }
 
+/**
+ * The tool_call_updates that close a call. Write tools also emit a `pending`
+ * update carrying the pre-approval diff, which is not what these assertions
+ * are about.
+ */
+function terminalToolUpdates(updates: unknown[]): unknown[] {
+  return updates.filter((u) => {
+    const update = (u as { update: { sessionUpdate: string; status?: string } }).update;
+    return update.sessionUpdate === "tool_call_update" && update.status !== "pending";
+  });
+}
+
 describe("acp server initialize", () => {
   it("negotiates protocol v1 with LuckyCLI's capabilities and no auth methods", async () => {
     const { editor } = connect();
@@ -599,9 +611,7 @@ describe("acp server permissions and modes", () => {
         { optionId: "reject_once", kind: "reject_once", name: "Reject" },
       ],
     });
-    const ends = updates.filter(
-      (u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate === "tool_call_update",
-    );
+    const ends = terminalToolUpdates(updates);
     expect(ends).toHaveLength(2);
     expect(ends.every((u) => (u as { update: { status: string } }).update.status === "completed")).toBe(true);
   });
@@ -633,9 +643,7 @@ describe("acp server permissions and modes", () => {
       async () => ({ outcome: outcomes.shift()! }),
     );
     await editor.prompt({ sessionId, prompt: [{ type: "text", text: "write twice" }] });
-    const ends = updates.filter(
-      (u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate === "tool_call_update",
-    );
+    const ends = terminalToolUpdates(updates);
     expect(ends).toHaveLength(2);
     expect(ends.every((u) => (u as { update: { status: string } }).update.status === "failed")).toBe(true);
   });
@@ -745,6 +753,275 @@ describe("acp server permissions and modes", () => {
         { id: "bypass-permissions" },
       ],
     });
+  });
+});
+
+describe("acp server pre-approval diffs", () => {
+  /**
+   * A session anchored to a real temp dir running the real file tools, so the
+   * preview reads and diffs actual files. Returns everything a test needs to
+   * assert on the ordered traffic the editor saw.
+   */
+  async function diffSession(
+    files: Record<string, string>,
+    call: { name: string; arguments: Record<string, unknown> },
+    opts: {
+      fsCapable?: boolean;
+      /** Unsaved editor buffers, keyed by absolute path under this run's root. */
+      bufferFor?: (root: string) => Record<string, string>;
+      extraTools?: Parameters<ToolRegistry["register"]>[0][];
+    } = {},
+  ): Promise<{
+    root: string;
+    updates: unknown[];
+    permissions: unknown[];
+    cleanup: () => Promise<void>;
+  }> {
+    const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { applyPatchTool, editFileTool, writeFileTool } = await import("@luckycli/core");
+
+    const root = await mkdtemp(join(tmpdir(), "lucky-acp-diff-"));
+    for (const [name, content] of Object.entries(files)) {
+      await writeFile(join(root, name), content, "utf8");
+    }
+
+    const tools = new ToolRegistry()
+      .register(editFileTool)
+      .register(writeFileTool)
+      .register(applyPatchTool);
+    for (const tool of opts.extraTools ?? []) tools.register(tool);
+    const script: Chunk[][] = [
+      [{ toolCall: { type: "tool_call", id: "c1", ...call }, finishReason: "tool_calls" }],
+      [{ textDelta: "done" }, { finishReason: "stop" }],
+    ];
+
+    const permissions: unknown[] = [];
+    const updates: unknown[] = [];
+    const [agentStream, clientStream] = connectedStreams();
+    serveAcp(agentStream, (conn) =>
+      new LuckyAcpAgent(conn, {
+        config: fakeConfig(),
+        buildRuntime: (async (o: Parameters<RuntimeBuilder>[0]) =>
+          fakeRuntime(
+            new EngineAgent({
+              provider: scriptedProvider(script),
+              model: "mock",
+              tools,
+              approveTool: o.approveTool,
+              cwd: o.cwd,
+              ...(o.readTextFile ? { readTextFile: o.readTextFile } : {}),
+            } as ConstructorParameters<typeof EngineAgent>[0]),
+          )) as RuntimeBuilder,
+      }),
+    );
+    const editor = new ClientSideConnection(
+      () => ({
+        async requestPermission(params) {
+          permissions.push(params);
+          return { outcome: { outcome: "selected" as const, optionId: "reject_once" } };
+        },
+        async sessionUpdate(params) {
+          updates.push(params);
+        },
+        async readTextFile({ path }) {
+          const buffered = opts.bufferFor?.(root)[path];
+          // No buffer for this file: the editor genuinely cannot serve it, and
+          // the server must fall back to disk rather than give up.
+          if (buffered === undefined) throw new Error(`no buffer for ${path}`);
+          return { content: buffered };
+        },
+      }) as Client,
+      clientStream,
+    );
+
+    await editor.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: opts.fsCapable ? { fs: { readTextFile: true } } : {},
+    });
+    const { sessionId } = await editor.newSession({ cwd: root, mcpServers: [] });
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "go" }] });
+
+    return {
+      root,
+      updates,
+      permissions,
+      cleanup: () => rm(root, { recursive: true, force: true }),
+    };
+  }
+
+  /** The sessionUpdate kinds the editor saw, in order. */
+  function kinds(updates: unknown[]): string[] {
+    return updates.map((u) => (u as { update: { sessionUpdate: string } }).update.sessionUpdate);
+  }
+
+  function updateAt(updates: unknown[], index: number): Record<string, unknown> {
+    return (updates[index] as { update: Record<string, unknown> }).update;
+  }
+
+  it("sends a pending diff update, then the same diff in the permission request", async () => {
+    const { root, updates, permissions, cleanup } = await diffSession(
+      { "a.txt": "one\ntwo\nthree\n" },
+      { name: "edit_file", arguments: { path: "a.txt", oldString: "two", newString: "TWO" } },
+    );
+    const { join } = await import("node:path");
+    try {
+      // tool_call (in_progress) → tool_call_update (pending, with the diff) →
+      // request_permission → tool_call_update (the rejection).
+      expect(kinds(updates).slice(0, 2)).toEqual(["tool_call", "tool_call_update"]);
+      expect(updateAt(updates, 0)).toMatchObject({ status: "in_progress" });
+
+      const expectedDiff = {
+        type: "diff",
+        path: join(root, "a.txt"),
+        oldText: "one\ntwo\nthree",
+        newText: "one\nTWO\nthree",
+      };
+      expect(updateAt(updates, 1)).toMatchObject({
+        toolCallId: "c1",
+        status: "pending",
+        content: [expectedDiff],
+        locations: [{ path: join(root, "a.txt") }],
+      });
+      // The permission request carries the same diff, for clients that render
+      // only the request rather than the row.
+      expect(permissions[0]).toMatchObject({
+        toolCall: { toolCallId: "c1", content: [expectedDiff] },
+      });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("shows the diff before the tool runs, and a rejection leaves the file untouched", async () => {
+    const { root, updates, cleanup } = await diffSession(
+      { "a.txt": "one\ntwo\nthree\n" },
+      { name: "edit_file", arguments: { path: "a.txt", oldString: "two", newString: "TWO" } },
+    );
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    try {
+      expect(await readFile(join(root, "a.txt"), "utf8")).toBe("one\ntwo\nthree\n");
+      // The pending diff arrived before the call's terminal update.
+      expect(updateAt(updates, 1).status).toBe("pending");
+      const ends = terminalToolUpdates(updates);
+      expect(ends).toHaveLength(1);
+      expect((ends[0] as { update: { status: string } }).update.status).toBe("failed");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("previews a write_file creation as a new file", async () => {
+    const { root, updates, cleanup } = await diffSession(
+      {},
+      { name: "write_file", arguments: { path: "new.txt", content: "hello\n" } },
+    );
+    const { join } = await import("node:path");
+    try {
+      expect(updateAt(updates, 1)).toMatchObject({
+        status: "pending",
+        // A creation carries no oldText at all.
+        content: [{ type: "diff", path: join(root, "new.txt"), newText: "hello" }],
+      });
+      expect(
+        (updateAt(updates, 1).content as { oldText?: string }[])[0]!.oldText,
+      ).toBeUndefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("previews an apply_patch without applying it", async () => {
+    const patch = [
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1,3 +1,3 @@",
+      " one",
+      "-two",
+      "+TWO",
+      " three",
+    ].join("\n");
+    const { root, updates, cleanup } = await diffSession(
+      { "a.txt": "one\ntwo\nthree\n" },
+      { name: "apply_patch", arguments: { patch } },
+    );
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    try {
+      expect(updateAt(updates, 1)).toMatchObject({
+        status: "pending",
+        content: [{ type: "diff", oldText: "one\ntwo\nthree", newText: "one\nTWO\nthree" }],
+      });
+      expect(await readFile(join(root, "a.txt"), "utf8")).toBe("one\ntwo\nthree\n");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("previews the editor's unsaved buffer rather than the file on disk", async () => {
+    const call = {
+      name: "edit_file",
+      arguments: { path: "a.txt", oldString: "two", newString: "TWO" },
+    };
+    // The editor holds a modified buffer for a.txt; the disk copy lacks the
+    // extra first line. `bufferFor` keys it by this run's own temp path.
+    const withBuffer = await diffSession({ "a.txt": "one\ntwo\nthree\n" }, call, {
+      fsCapable: true,
+      bufferFor: (root) => ({ [`${root}/a.txt`]: "unsaved\none\ntwo\nthree\n" }),
+    });
+    // Same session shape, but the editor knows nothing about the file.
+    const withoutBuffer = await diffSession({ "a.txt": "one\ntwo\nthree\n" }, call, {
+      fsCapable: true,
+    });
+    try {
+      const buffered = updateAt(withBuffer.updates, 1).content as { oldText: string }[];
+      expect(buffered[0]!.oldText).toBe("unsaved\none\ntwo\nthree");
+      // With no buffer to serve, the preview falls back to the disk contents.
+      const fromDisk = updateAt(withoutBuffer.updates, 1).content as { oldText: string }[];
+      expect(fromDisk[0]!.oldText).toBe("one\ntwo\nthree");
+    } finally {
+      await withBuffer.cleanup();
+      await withoutBuffer.cleanup();
+    }
+  });
+
+  it("asks without a diff when the preview cannot be computed", async () => {
+    const { updates, permissions, cleanup } = await diffSession(
+      { "a.txt": "one\ntwo\n" },
+      {
+        name: "apply_patch",
+        arguments: { patch: "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-absent\n+x\n" },
+      },
+    );
+    try {
+      // No pending update at all, and the request goes out diff-free.
+      expect(kinds(updates).filter((k) => k === "tool_call_update")).toHaveLength(1);
+      expect(updateAt(updates, 1).status).toBe("failed");
+      expect((permissions[0] as { toolCall: { content?: unknown } }).toolCall.content).toBeUndefined();
+      expect(permissions).toHaveLength(1);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("does not preview non-write tools", async () => {
+    const { updates, permissions, cleanup } = await diffSession(
+      {},
+      { name: "exec", arguments: { command: "echo hi" } },
+      { extraTools: [(await import("@luckycli/core")).execTool] },
+    );
+    try {
+      // exec still asks for permission — it just carries no diff, and no
+      // pending preview update precedes it.
+      expect(permissions).toHaveLength(1);
+      expect((permissions[0] as { toolCall: { content?: unknown } }).toolCall.content).toBeUndefined();
+      expect(kinds(updates).filter((k) => k === "tool_call_update")).toHaveLength(1);
+      expect(updateAt(updates, 1).status).toBe("failed");
+    } finally {
+      await cleanup();
+    }
   });
 });
 

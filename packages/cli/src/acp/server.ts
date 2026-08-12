@@ -18,6 +18,8 @@
  * authenticate, with the session methods rejecting cleanly until their
  * milestone lands.
  */
+import { readFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import {
   AgentSideConnection,
@@ -35,6 +37,7 @@ import {
   type PromptRequest,
   type PromptResponse,
   type Stream,
+  type ToolCallContent,
 } from "@zed-industries/agent-client-protocol";
 import {
   createSessionId,
@@ -54,6 +57,7 @@ import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
 import type { AskUserRequest } from "@luckycli/core";
 import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope } from "../approval.js";
+import { PREVIEWABLE_TOOLS, previewToolDiffs } from "../approval-preview.js";
 import { HIDDEN_TOOLS } from "../hidden-tools.js";
 import {
   ACP_SESSION_MODES,
@@ -64,7 +68,7 @@ import {
   type AcpSessionMode,
 } from "./sessions.js";
 import { planBodyUpdate, planUpdateFromProposal, planUpdateFromTasks } from "./plan.js";
-import { toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
+import { diffContents, toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
 
 /** Guidance surfaced whenever the stored config can't drive a session. */
 export const AUTH_GUIDANCE =
@@ -214,6 +218,18 @@ export class LuckyAcpAgent implements Agent {
       mode: "default",
       lastToolCallId: null,
       createdAt: createdAt ?? Date.now(),
+      ...(this.clientFs.readTextFile
+        ? {
+            readTextFile: async (absPath: string): Promise<string | null> => {
+              try {
+                const response = await this.conn.readTextFile({ sessionId, path: absPath });
+                return response.content;
+              } catch {
+                return null;
+              }
+            },
+          }
+        : {}),
     };
     const built = await this.buildRuntime({
       provider: config.provider!,
@@ -232,18 +248,7 @@ export class LuckyAcpAgent implements Agent {
       // through it (unsaved buffers included) and write into it. A null read
       // or a thrown write falls back to disk inside the tools (core
       // file-access), so an editor with no view of a file never blocks work.
-      ...(this.clientFs.readTextFile
-        ? {
-            readTextFile: async (absPath: string): Promise<string | null> => {
-              try {
-                const response = await this.conn.readTextFile({ sessionId, path: absPath });
-                return response.content;
-              } catch {
-                return null;
-              }
-            },
-          }
-        : {}),
+      ...(session.readTextFile ? { readTextFile: session.readTextFile } : {}),
       ...(this.clientFs.writeTextFile
         ? {
             writeTextFile: async (absPath: string, content: string): Promise<void> => {
@@ -361,6 +366,32 @@ export class LuckyAcpAgent implements Agent {
     if (session.mode === "bypass-permissions") return "allow";
     if (session.mode === "accept-edits" && AUTO_ACCEPT_EDIT_TOOLS.has(name)) return "allow";
 
+    // For the write tools, show what the call would change before it runs.
+    // The diff goes out twice: once as an update on the row the editor is
+    // already rendering — which is what makes editors open the file and show
+    // the change full-size — and once inside the permission request itself,
+    // for clients that render only the request. An unprovable preview (bad
+    // patch, unreadable file) simply yields no diff.
+    const preview = PREVIEWABLE_TOOLS.has(name)
+      ? await this.previewDiff(session, name, input)
+      : undefined;
+    if (preview && session.lastToolCallId) {
+      await this.conn
+        .sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: session.lastToolCallId,
+            status: "pending",
+            content: preview.content,
+            locations: preview.locations,
+          },
+        })
+        .catch(() => {
+          /* a dropped preview must never block the approval */
+        });
+    }
+
     const response = await this.conn.requestPermission({
       sessionId,
       toolCall: {
@@ -368,6 +399,7 @@ export class LuckyAcpAgent implements Agent {
         title: toolCallTitle(name, input),
         kind: toolKind(name),
         status: "pending",
+        ...(preview ? { content: preview.content, locations: preview.locations } : {}),
       },
       options: [
         { optionId: "allow_once", kind: "allow_once", name: "Allow once" },
@@ -384,6 +416,39 @@ export class LuckyAcpAgent implements Agent {
       return "allow";
     }
     return response.outcome.optionId === "allow_once" ? "allow" : "deny";
+  }
+
+  /**
+   * The diff a pending write tool would produce, as ACP content + locations,
+   * or undefined when there is nothing to show. Files are read through the
+   * editor when it advertised fs access (so unsaved buffers are what gets
+   * previewed) and from disk otherwise; either way a failure is swallowed —
+   * the approval must still be askable.
+   */
+  protected async previewDiff(
+    session: AcpSession,
+    name: string,
+    input: unknown,
+  ): Promise<{ content: ToolCallContent[]; locations: { path: string }[] } | undefined> {
+    const diffs = await previewToolDiffs(name, input, async (path) => {
+      const abs = isAbsolute(path) ? path : join(session.cwd, path);
+      if (session.readTextFile) {
+        const hosted = await session.readTextFile(abs);
+        if (hosted !== null) return hosted;
+      }
+      try {
+        return await readFile(abs, "utf8");
+      } catch {
+        return undefined;
+      }
+    });
+    if (diffs.length === 0) return undefined;
+    return {
+      content: diffContents(diffs, session.cwd),
+      locations: diffs.map((diff) => ({
+        path: isAbsolute(diff.path) ? diff.path : join(session.cwd, diff.path),
+      })),
+    };
   }
 
   /** The stored config, or the ACP auth-required error with the real fix. */

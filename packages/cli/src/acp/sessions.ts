@@ -38,6 +38,13 @@ export interface AcpSession {
    * row the editor is already rendering.
    */
   lastToolCallId: string | null;
+  /**
+   * The editor-backed file reader handed to the engine's file tools, kept here
+   * so the pre-approval diff preview reads exactly what the tool will read —
+   * unsaved buffers included. Absent when the client advertised no fs read
+   * capability, in which case previews fall back to disk.
+   */
+  readTextFile?: (absPath: string) => Promise<string | null>;
 }
 
 /**
