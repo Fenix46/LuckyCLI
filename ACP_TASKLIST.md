@@ -589,6 +589,30 @@ Commit:
 
 ## Milestone 9 — Picker unificato provider/modello
 
+**Fatta** (2026-08-12): task 9.1 + 9.2 in `41d0034`. Suite a 1094 test verdi.
+Scoperte rispetto allo studio iniziale:
+
+- **SDK 0.4.4 non instrada `session/set_model` affatto**: le costanti e i tipi
+  c'erano, ma il dispatcher di `AgentSideConnection` non aveva il case, quindi
+  la richiesta cadeva su `methodNotFound`. Aggiornato a **0.4.5** (diff solo
+  additivo: `setSessionModel` sull'interfaccia Agent + il case nel dispatcher).
+- **Bug upstream ancora presente in 0.4.5**: `ClientSideConnection.setSessionModel`
+  manda il metodo `session/set_mode` (`acp.js:434`) mentre il lato agent
+  smista su `session/set_model` (`acp.js:65`) — l'SDK non riesce a chiamare il
+  proprio handler. Il nostro lato agent è corretto (gli editor veri hanno un
+  client proprio); i test invocano l'handler direttamente.
+- **I provider base-URL** (ollama, llamacpp, vllm, openai-compatible) risolvono
+  SEMPRE le credenziali con un URL localhost di default: vengono offerti solo
+  se configurati esplicitamente (credenziali salvate o env), altrimenti il
+  picker si riempirebbe di daemon che non girano.
+- **Due fix collaterali**: una sessione ripresa riapre sul provider/modello con
+  cui girava davvero (non su quello in config), e i knob provider-specifici
+  (reasoning effort, thinking) non seguono la sessione su un provider che non
+  li conosce.
+- **Accesso alla config dietro un seam iniettabile** (`options.store`): il path
+  di `config.json` è risolto dalla home del SO all'import, quindi `$HOME` non
+  lo redirige e i test avrebbero scritto sulla config reale dell'utente.
+
 ### Task 9.1 — Catalogo e advertise dello stato modelli
 
 Scope:
