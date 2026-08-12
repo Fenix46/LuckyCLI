@@ -6,6 +6,7 @@
 import type {
   Agent,
   ContentPart,
+  ContextStatus,
   McpServerConfig,
   ProviderCredentials,
   ProviderId,
@@ -58,6 +59,12 @@ export interface AcpSession {
    * row the editor is already rendering.
    */
   lastToolCallId: string | null;
+  /**
+   * Latest context-window reading from the engine, published to the editor as
+   * `_meta` and reported by `/context`. Absent until the first turn produces
+   * one (a provider that cannot count tokens never does).
+   */
+  context?: ContextStatus;
   /**
    * The editor-backed file reader handed to the engine's file tools, kept here
    * so the pre-approval diff preview reads exactly what the tool will read —

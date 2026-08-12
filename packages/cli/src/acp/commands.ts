@@ -30,6 +30,12 @@ import type { AvailableCommand } from "@zed-industries/agent-client-protocol";
 /** What a command handler is given to do its work. */
 export interface CommandContext {
   agent: EngineAgent;
+  /**
+   * The last context reading the turn loop saw, if any. Preferred over asking
+   * the agent again: on some providers `contextStatus()` is a billed
+   * round-trip, and this is the same number the editor already got as `_meta`.
+   */
+  context?: ContextStatus;
   cwd: string;
   provider: ProviderId;
   model: string;
@@ -43,6 +49,8 @@ export interface CommandContext {
    * is called (e.g. /thinking), mirroring the TUI's changeModel.
    */
   rebuild: () => Promise<void>;
+  /** Records a fresh context reading (a compaction changes it immediately). */
+  setContext?: (status: ContextStatus) => void;
 }
 
 export interface AcpCommand {
@@ -92,7 +100,7 @@ export const ACP_COMMANDS: AcpCommand[] = [
         `- model: ${ctx.model}`,
         `- cwd: ${ctx.cwd}`,
       ];
-      const status = await safeContextStatus(ctx.agent);
+      const status = ctx.context ?? (await safeContextStatus(ctx.agent));
       if (status) lines.push(...contextLines(status));
       return lines.join("\n");
     },
@@ -101,7 +109,7 @@ export const ACP_COMMANDS: AcpCommand[] = [
     name: "context",
     description: "Show context window usage for this session",
     async run(_args, ctx) {
-      const status = await safeContextStatus(ctx.agent);
+      const status = ctx.context ?? (await safeContextStatus(ctx.agent));
       if (!status) return "Context usage is not available for this session.";
       return ["**Context**", ...contextLines(status)].join("\n");
     },
@@ -112,7 +120,11 @@ export const ACP_COMMANDS: AcpCommand[] = [
     async run(args, ctx) {
       if (args) return "Usage: /compact";
       try {
-        const result = await ctx.agent.compactNow();
+        // compactNow already measured the post-compaction context; record it
+        // so /context and the next _meta report the freed-up window rather
+        // than the stale pre-compaction figure.
+        const { status, ...result } = await ctx.agent.compactNow();
+        ctx.setContext?.(status);
         const lines = [
           "**Compacted**",
           `- removed: ${result.removedMessages} messages`,
@@ -207,10 +219,14 @@ async function safeContextStatus(agent: EngineAgent): Promise<ContextStatus | un
 /** The human-readable context lines shared by /status and /context. */
 function contextLines(status: ContextStatus): string[] {
   const lines: string[] = [];
-  if (status.usedTokens !== undefined && status.usableTokens !== undefined) {
+  if (status.usedTokens !== undefined) {
+    // A provider that reports usage but no window (or one we haven't learned
+    // yet) still gets its used-token count reported — the denominator is the
+    // optional half.
+    const total = status.usableTokens !== undefined ? ` / ${status.usableTokens}` : "";
     const percent =
       status.usedPercentage !== undefined ? ` (${Math.round(status.usedPercentage)}%)` : "";
-    lines.push(`- context: ${status.usedTokens} / ${status.usableTokens} tokens${percent}`);
+    lines.push(`- context: ${status.usedTokens}${total} tokens${percent}`);
   } else if (status.contextWindow !== undefined) {
     lines.push(`- context window: ${status.contextWindow} tokens`);
   }

@@ -395,8 +395,10 @@ describe("acp server prompt streaming", () => {
     });
 
     expect(response.stopReason).toBe("end_turn");
-    expect(response._meta).toEqual({
+    expect(response._meta).toMatchObject({
       "dev.luckycli/usage": { inputTokens: 5, outputTokens: 2 },
+      // The turn also reports where the context window stands.
+      "dev.luckycli/context": { model: "mock", usedTokens: 5, tokenCounter: "provider" },
     });
     expect(updates).toEqual([
       {
@@ -1232,6 +1234,112 @@ describe("acp server slash commands", () => {
 
     expect(response.stopReason).toBe("end_turn");
     expect(replies(updates).join("")).toContain("disk on fire");
+  });
+});
+
+describe("acp server context usage", () => {
+  /** The _meta of every update that carried one, in order. */
+  function metas(updates: unknown[]): Record<string, unknown>[] {
+    return updates
+      .map((u) => (u as { update: { _meta?: Record<string, unknown> } }).update._meta)
+      .filter((meta): meta is Record<string, unknown> => meta !== undefined);
+  }
+
+  it("publishes only the fields it committed to, never raw ContextStatus", async () => {
+    const agent = engineAgent([
+      [{ textDelta: "hi" }, { finishReason: "stop", usage: { inputTokens: 5, outputTokens: 2 } }],
+    ]);
+    const { editor } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+    });
+
+    const context = (response._meta as Record<string, Record<string, unknown>>)[
+      "dev.luckycli/context"
+    ]!;
+    expect(context.model).toBe("mock");
+    expect(context.tokenCounter).toBeDefined();
+    // Internal bookkeeping fields stay internal — the published shape is a
+    // contract for custom clients, not a dump of the engine's state.
+    expect(context).not.toHaveProperty("ratio");
+    expect(context).not.toHaveProperty("source");
+    expect(context).not.toHaveProperty("maxInputTokens");
+  });
+
+  it("reports the turn's reading on the response, which is where it lands", async () => {
+    const agent = engineAgent([
+      [{ textDelta: "hi" }, { finishReason: "stop", usage: { inputTokens: 5, outputTokens: 2 } }],
+    ]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+    });
+
+    // The engine emits its context reading immediately before turn_end, so no
+    // notification is left to carry it…
+    expect(metas(updates)).toEqual([]);
+    // …and the response is where the editor finds it.
+    expect(
+      (response._meta as Record<string, { usedTokens: number }>)["dev.luckycli/context"],
+    ).toMatchObject({ model: "mock", usedTokens: 5 });
+  });
+
+  it("does not attach _meta to updates when there is no reading to report", async () => {
+    // No usage in the script → the engine reports no context event.
+    const agent = engineAgent([[{ textDelta: "plain" }, { finishReason: "stop" }]]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+    });
+
+    expect(metas(updates)).toEqual([]);
+    expect(response._meta).toBeUndefined();
+  });
+
+  it("reports the same figures through /context as through _meta", async () => {
+    const agent = engineAgent([
+      [{ textDelta: "hi" }, { finishReason: "stop", usage: { inputTokens: 12, outputTokens: 3 } }],
+    ]);
+    const { editor, updates } = connect({
+      config: fakeConfig(),
+      buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
+    });
+    const { sessionId } = await editor.newSession({ cwd: "/repo", mcpServers: [] });
+    const response = await editor.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+    });
+    const fromMeta = (response._meta as Record<string, { usedTokens: number }>)[
+      "dev.luckycli/context"
+    ]!;
+
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "/context" }] });
+    const text = updates
+      .filter(
+        (u) =>
+          (u as { update: { sessionUpdate: string } }).update.sessionUpdate ===
+          "agent_message_chunk",
+      )
+      .map((u) => (u as { update: { content: { text: string } } }).update.content.text)
+      .join("");
+
+    // The command is the portable path to the numbers _meta carries.
+    expect(text).toContain(String(fromMeta.usedTokens));
   });
 });
 

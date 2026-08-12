@@ -37,6 +37,7 @@ import {
   type PromptRequest,
   type PromptResponse,
   type SessionModelState,
+  type SessionNotification,
   type Stream,
   type ToolCallContent,
 } from "@zed-industries/agent-client-protocol";
@@ -53,6 +54,7 @@ import {
   saveSession,
   saveStoredConfig,
   setActiveTaskListId,
+  type ContextStatus,
   type Message,
   type PlanDecision,
   type PlanProposal,
@@ -81,6 +83,7 @@ import {
   unknownCommandHelp,
   type ParsedCommand,
 } from "./commands.js";
+import { CONTEXT_META_KEY, USAGE_META_KEY, contextMeta, hasTokenCounts } from "./meta.js";
 import { isSelectableModel, modelRoster, parseModelId } from "./models.js";
 import { planBodyUpdate, planUpdateFromProposal, planUpdateFromTasks } from "./plan.js";
 import { diffContents, toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
@@ -635,12 +638,16 @@ export class LuckyAcpAgent implements Agent {
         try {
           text = await parsed.command.run(parsed.args, {
             agent: session.agent,
+            ...(session.context ? { context: session.context } : {}),
             cwd: session.cwd,
             provider: session.provider,
             model: session.model,
             buildGraph: this.buildGraph,
             recordGraphBuilt: this.recordGraphBuilt,
             store: this.store,
+            setContext: (status) => {
+              session.context = status;
+            },
             rebuild: async () => {
               session.agent = (
                 await this.buildSessionRuntime(session, [...session.agent.messages])
@@ -708,28 +715,54 @@ export class LuckyAcpAgent implements Agent {
     });
     let stopReason: PromptResponse["stopReason"] = "end_turn";
     let usage: TokenUsage | undefined;
+    // ACP has no standard shape for context usage, so it rides along as _meta
+    // on the next update we were going to send anyway (editors ignore unknown
+    // _meta by contract) rather than as a stream of notifications the editor
+    // cannot render. In practice the engine emits its reading immediately
+    // before turn_end, so the PromptResponse below is usually what carries it;
+    // this pump exists for the readings that land mid-turn (compaction).
+    let pendingContext: ContextStatus | undefined;
+    const withContextMeta = <T extends SessionNotification>(notification: T): T => {
+      if (!pendingContext) return notification;
+      const meta = { [CONTEXT_META_KEY]: contextMeta(pendingContext) };
+      pendingContext = undefined;
+      return { ...notification, update: { ...notification.update, _meta: meta } };
+    };
     try {
       for await (const event of session.agent.send(content, abort.signal)) {
         switch (event.type) {
           case "text":
-            await this.conn.sessionUpdate({
-              sessionId: params.sessionId,
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: event.delta },
-              },
-            });
+            await this.conn.sessionUpdate(
+              withContextMeta({
+                sessionId: params.sessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { type: "text", text: event.delta },
+                },
+              }),
+            );
             break;
           case "tool_start":
             session.lastToolCallId = event.id;
             if (!HIDDEN_TOOLS.has(event.name)) {
-              await this.conn.sessionUpdate(toolCallStart(params.sessionId, event, session.cwd));
+              await this.conn.sessionUpdate(
+                withContextMeta(toolCallStart(params.sessionId, event, session.cwd)),
+              );
             }
             break;
           case "tool_end":
             if (!HIDDEN_TOOLS.has(event.name)) {
-              await this.conn.sessionUpdate(toolCallEnd(params.sessionId, event, session.cwd));
+              await this.conn.sessionUpdate(
+                withContextMeta(toolCallEnd(params.sessionId, event, session.cwd)),
+              );
             }
+            break;
+          case "context":
+            // Held for the next update; the freshest reading wins. A reading
+            // with no token counts at all carries nothing an editor could
+            // render, so it is recorded but never published.
+            session.context = event.status;
+            if (hasTokenCounts(event.status)) pendingContext = event.status;
             break;
           case "aborted":
             stopReason = "cancelled";
@@ -742,7 +775,7 @@ export class LuckyAcpAgent implements Agent {
             // editor gets a JSON-RPC error, and the session stays usable.
             throw RequestError.internalError({ details: event.message });
           default:
-            // reasoning (no text payload), context, compaction — no ACP shape.
+            // reasoning (no text payload), compaction — no ACP shape.
             break;
         }
       }
@@ -753,11 +786,18 @@ export class LuckyAcpAgent implements Agent {
       // resumed from either surface — including after an error or a cancel.
       this.persistSession(session);
     }
+    // Non-standard but honest: surface what the turn cost and where the
+    // context window stands. Editors ignore unknown _meta by contract, and
+    // `/context` reports the same figures for those that do.
+    const meta = {
+      ...(usage ? { [USAGE_META_KEY]: usage } : {}),
+      ...(session.context && hasTokenCounts(session.context)
+        ? { [CONTEXT_META_KEY]: contextMeta(session.context) }
+        : {}),
+    };
     return {
       stopReason,
-      // Non-standard but honest: surface what the turn cost. Editors ignore
-      // unknown _meta by contract.
-      ...(usage ? { _meta: { "dev.luckycli/usage": usage } } : {}),
+      ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
     };
   }
 

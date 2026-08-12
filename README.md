@@ -399,6 +399,44 @@ Flags: `lucky acp -p <provider> -m <model>` overrides the stored default.
 The protocol runs on stdout; logs go to stderr. Sessions persist to
 `~/.luckycli/sessions` like TUI ones.
 
+### In-editor features
+
+**Diffs before you approve.** When the agent wants to edit, write or patch a
+file, the permission request carries the actual diff of the change — computed
+against your unsaved buffer when the editor exposes one — so you approve a
+change you can see, not a file path. Editors that render diffs in a multibuffer
+(Zed) show it full-size.
+
+**Model picker.** The editor's model selector lists every `provider/model` pair
+whose credentials LuckyCLI can resolve, and switching mid-conversation carries
+the history over. Logging in still happens once in the terminal — editors don't
+run the OAuth flows.
+
+**Slash commands**, offered in the editor's command menu:
+
+| Command | What it does |
+| --- | --- |
+| `/graph [build\|rebuild]` | Build the knowledge graph for the session's folder |
+| `/status` | Active provider, model, folder and context usage |
+| `/context` | Context-window usage for this session |
+| `/compact` | Summarize older history to free up context |
+| `/thinking on\|off` | Toggle Claude adaptive thinking |
+
+### `_meta` extensions (for custom clients)
+
+ACP has no standard shape for token usage, so LuckyCLI publishes it under
+namespaced `_meta` keys. Clients that don't know them ignore them, per the
+protocol — the same numbers are available as text via `/status` and `/context`.
+
+- `dev.luckycli/usage` — on the `session/prompt` response: the turn's
+  `inputTokens` / `outputTokens`.
+- `dev.luckycli/context` — on the `session/prompt` response (and on session
+  notifications when a reading lands mid-turn): `model`, `tokenCounter`, and
+  whichever of `contextWindow`, `usedTokens`, `usableTokens`, `usedPercentage`,
+  `cacheReadTokens`, `cacheWriteTokens` the provider reports. `tokenCounter` is
+  `"provider"` when the counts come from the provider, `"usage"` when derived
+  from reported usage, and `"unavailable"` when they are estimates.
+
 ## Knowledge graph
 
 LuckyCLI can build a **knowledge graph** of your project — a precomputed map of
