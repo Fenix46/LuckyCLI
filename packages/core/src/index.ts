@@ -116,6 +116,11 @@ export type {
   RestorePolicy,
   RestoreResult,
 } from "./workflow/restore.js";
+export { resolveVerificationCommands } from "./workflow/verify.js";
+export type {
+  VerificationCommand,
+  VerificationSource,
+} from "./workflow/verify.js";
 
 export {
   attachSessionCheckpoint,
