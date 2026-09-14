@@ -81,6 +81,25 @@ export type { AgentProfile, NewAgentProfile } from "./agents/profiles.js";
 export { runSubAgent } from "./agents/runner.js";
 export type { SubAgentRequest, SubAgentResult } from "./agents/runner.js";
 
+// Agent workflow contracts.
+export {
+  CheckpointFileSchema,
+  CheckpointSchema,
+  VerificationCheckSchema,
+  VerificationResultSchema,
+  WORKFLOW_STATUSES,
+  WorkflowStatusSchema,
+  parseCheckpoint,
+  parseVerificationResult,
+} from "./workflow/types.js";
+export type {
+  Checkpoint,
+  CheckpointFile,
+  VerificationCheck,
+  VerificationResult,
+  WorkflowStatus,
+} from "./workflow/types.js";
+
 export {
   TASK_STATUSES,
   TaskSchema,
