@@ -20,6 +20,7 @@ export const CheckpointFileSchema = z.object({
   existed: z.boolean(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
   size: z.number().int().nonnegative(),
+  contentPath: NonEmptyString.optional(),
 });
 
 export type CheckpointFile = z.infer<typeof CheckpointFileSchema>;

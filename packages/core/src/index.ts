@@ -99,6 +99,13 @@ export type {
   VerificationResult,
   WorkflowStatus,
 } from "./workflow/types.js";
+export {
+  createSnapshot,
+  loadSnapshot,
+  readSnapshotFile,
+  SNAPSHOT_FORMAT_VERSION,
+} from "./workflow/snapshot.js";
+export type { CreateSnapshotOptions } from "./workflow/snapshot.js";
 
 export {
   TASK_STATUSES,
