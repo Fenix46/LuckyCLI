@@ -27,6 +27,7 @@ const MENU_ORDER = [
   "/exit",
   "/checkpoint",
   "/undo",
+  "/verify",
 ];
 
 /**

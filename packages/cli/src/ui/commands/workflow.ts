@@ -7,8 +7,10 @@ import {
   listSessionCheckpoints,
   removeSessionCheckpoint,
   restoreSnapshot,
+  runVerification,
   type Checkpoint,
   type RestoreConflict,
+  type VerificationResult,
 } from "@luckycli/core";
 import { emitError, unknownCommand } from "./helpers.js";
 import type { Command } from "./types.js";
@@ -23,6 +25,7 @@ export interface WorkflowCommandDeps {
   getCheckpoint: typeof getSessionCheckpoint;
   removeCheckpoint: typeof removeSessionCheckpoint;
   restoreSnapshot: typeof restoreSnapshot;
+  runVerification: (cwd: string, files?: string[], options?: { signal?: AbortSignal }) => Promise<VerificationResult>;
 }
 
 const defaultDeps: WorkflowCommandDeps = {
@@ -33,10 +36,55 @@ const defaultDeps: WorkflowCommandDeps = {
   getCheckpoint: getSessionCheckpoint,
   removeCheckpoint: removeSessionCheckpoint,
   restoreSnapshot,
+  runVerification,
 };
 
 export function workflowCommands(deps: WorkflowCommandDeps = defaultDeps): Command[] {
+  let activeVerification: AbortController | undefined;
+  let lastVerification: VerificationResult | undefined;
   return [
+    {
+      name: "/verify",
+      description: "Run the project's configured verification checks",
+      async run(args, ctx) {
+        if (args !== "" && args !== "last" && args !== "cancel") {
+          unknownCommand(ctx, `/verify ${args}`);
+          return;
+        }
+        if (args === "cancel") {
+          if (!activeVerification) {
+            ctx.emit({ kind: "error", text: "no verification run is active" });
+            return;
+          }
+          activeVerification.abort();
+          ctx.emit({ kind: "command", title: "Verification", rows: [{ label: "status", value: "cancelling" }] });
+          return;
+        }
+        if (args === "last") {
+          if (!lastVerification) {
+            ctx.emit({ kind: "error", text: "no verification result is available" });
+            return;
+          }
+          emitVerificationResult(ctx, lastVerification);
+          return;
+        }
+        if (activeVerification) {
+          ctx.emit({ kind: "error", text: "a verification run is already active" });
+          return;
+        }
+        const controller = new AbortController();
+        activeVerification = controller;
+        ctx.emit({ kind: "command", title: "Verification", rows: [{ label: "status", value: "running" }] });
+        try {
+          lastVerification = await deps.runVerification(process.cwd(), [], { signal: controller.signal });
+          emitVerificationResult(ctx, lastVerification);
+        } catch (error) {
+          emitError(ctx, error, "failed to run verification");
+        } finally {
+          activeVerification = undefined;
+        }
+      },
+    },
     {
       name: "/checkpoint",
       description: "Save a restore point for changed files",
@@ -142,6 +190,24 @@ export function workflowCommands(deps: WorkflowCommandDeps = defaultDeps): Comma
       },
     },
   ];
+}
+
+function emitVerificationResult(
+  ctx: Parameters<Command["run"]>[1],
+  result: VerificationResult,
+): void {
+  ctx.emit({
+    kind: "command",
+    title: "Verification",
+    rows: [
+      { label: "status", value: result.status },
+      { label: "checks", value: String(result.checks.length) },
+      ...result.checks.map((check) => ({
+        label: check.id,
+        value: `${check.status}${check.exitCode !== undefined && check.exitCode !== null ? ` · exit ${check.exitCode}` : ""}`,
+      })),
+    ],
+  });
 }
 
 async function restoreCommand(

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Checkpoint } from "@luckycli/core";
+import type { VerificationResult } from "@luckycli/core";
 import { RestoreConflictError } from "@luckycli/core";
 import type { Item } from "../lib/items.js";
 import type { Command, CommandContext } from "./types.js";
@@ -30,6 +31,23 @@ function harness(overrides: Partial<WorkflowCommandDeps> = {}) {
       unchanged: [],
       conflicts: [],
     })),
+    runVerification: vi.fn(async () => ({
+      id: "verification-1",
+      sessionId: "ses_abc_123",
+      cwd: process.cwd(),
+      status: "passed" as const,
+      startedAt: 1,
+      finishedAt: 2,
+      checks: [{
+        id: "test",
+        command: "npm test",
+        cwd: process.cwd(),
+        status: "passed" as const,
+        exitCode: 0,
+        output: "ok",
+      }],
+      files: [],
+    } satisfies VerificationResult)),
     ...overrides,
   };
   const ctx = {
@@ -98,5 +116,48 @@ describe("workflow commands", () => {
     await h.run("/checkpoints");
     expect(h.emitted[0]).toMatchObject({ kind: "command", title: "Checkpoints" });
     expect(JSON.stringify(h.emitted[0])).not.toContain("before");
+  });
+
+  it("runs verification and renders the check summary", async () => {
+    const h = harness();
+    await h.run("/verify");
+    expect(h.deps.runVerification).toHaveBeenCalledWith(process.cwd(), [], { signal: expect.any(AbortSignal) });
+    expect(h.emitted).toEqual([
+      { kind: "command", title: "Verification", rows: [{ label: "status", value: "running" }] },
+      {
+        kind: "command",
+        title: "Verification",
+        rows: [
+          { label: "status", value: "passed" },
+          { label: "checks", value: "1" },
+          { label: "test", value: "passed · exit 0" },
+        ],
+      },
+    ]);
+  });
+
+  it("supports last and rejects last when no result exists", async () => {
+    const empty = harness();
+    await empty.run("/verify", "last");
+    expect(empty.emitted).toEqual([{ kind: "error", text: "no verification result is available" }]);
+
+    const h = harness();
+    await h.run("/verify");
+    h.emitted.length = 0;
+    await h.run("/verify", "last");
+    expect(h.emitted[0]).toMatchObject({ kind: "command", title: "Verification" });
+  });
+
+  it("cancels an active verification run", async () => {
+    let resolveRun: ((result: VerificationResult) => void) | undefined;
+    const h = harness({
+      runVerification: vi.fn(() => new Promise<VerificationResult>((resolve) => { resolveRun = resolve; })),
+    });
+    const running = h.run("/verify");
+    await vi.waitFor(() => expect(h.deps.runVerification).toHaveBeenCalled());
+    await h.run("/verify", "cancel");
+    expect(h.emitted.at(-1)).toEqual({ kind: "command", title: "Verification", rows: [{ label: "status", value: "cancelling" }] });
+    resolveRun?.({ id: "verification-1", sessionId: "ses_abc_123", cwd: process.cwd(), status: "cancelled", startedAt: 1, checks: [], files: [] });
+    await running;
   });
 });
