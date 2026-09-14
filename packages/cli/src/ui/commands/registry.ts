@@ -4,6 +4,7 @@ import { maintenanceCommands } from "./maintenance.js";
 import { mcpCommands } from "./mcp.js";
 import { providerCommands } from "./provider.js";
 import { skillCommands } from "./skill.js";
+import { workflowCommands } from "./workflow.js";
 import type { Command, CommandContext } from "./types.js";
 
 // Presentation order of the visible commands in the slash menu and /help
@@ -24,6 +25,8 @@ const MENU_ORDER = [
   "/graph",
   "/task",
   "/exit",
+  "/checkpoint",
+  "/undo",
 ];
 
 /**
@@ -62,6 +65,7 @@ export function buildCommandRegistry(skillNames: string[] = []): Command[] {
     ...maintenanceCommands(),
     ...mcpCommands(),
     ...skillCommands(),
+    ...workflowCommands(),
   ];
   const reserved = new Set(base.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
   const commands = [...base, ...skillAliasCommands(skillNames, reserved)];
