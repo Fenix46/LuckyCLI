@@ -1,5 +1,7 @@
 import { access, readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { join } from "node:path";
+import type { VerificationCheck } from "./types.js";
 
 export const VERIFICATION_SOURCES = ["script", "convention"] as const;
 export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
@@ -11,6 +13,21 @@ export interface VerificationCommand {
   cwd: string;
   source: VerificationSource;
 }
+
+export interface VerificationRunnerOptions {
+  timeoutMs?: number;
+  maxOutputChars?: number;
+  signal?: AbortSignal;
+  onEvent?: (event: VerificationEvent) => void;
+}
+
+export type VerificationEvent =
+  | { type: "start"; check: Pick<VerificationCheck, "id" | "command" | "cwd"> }
+  | { type: "output"; stream: "stdout" | "stderr"; text: string }
+  | { type: "finish"; check: VerificationCheck };
+
+export const DEFAULT_VERIFICATION_TIMEOUT_MS = 5 * 60 * 1000;
+export const DEFAULT_VERIFICATION_OUTPUT_CHARS = 64 * 1024;
 
 const SCRIPT_ORDER = ["typecheck", "test", "build", "lint"] as const;
 const VALID_SCRIPT_NAME = /^[a-zA-Z0-9:_-]+$/;
@@ -47,6 +64,99 @@ export async function resolveVerificationCommands(cwd: string): Promise<Verifica
     }
   }
   return [];
+}
+
+/** Run one resolved check with bounded output and cancellable process lifetime. */
+export async function runVerificationCommand(
+  command: VerificationCommand,
+  options: VerificationRunnerOptions = {},
+): Promise<VerificationCheck> {
+  const executable = command.argv[0];
+  if (!executable) throw new Error(`Verification command "${command.id}" has no executable.`);
+  const startedAt = Date.now();
+  const checkBase = { id: command.id, command: command.argv.join(" "), cwd: command.cwd };
+  options.onEvent?.({ type: "start", check: checkBase });
+  const maxOutputChars = options.maxOutputChars ?? DEFAULT_VERIFICATION_OUTPUT_CHARS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_VERIFICATION_TIMEOUT_MS;
+  if (options.signal?.aborted) {
+    const check = makeResult(checkBase, "cancelled", "cancelled", null, startedAt, "");
+    options.onEvent?.({ type: "finish", check });
+    return check;
+  }
+
+  const child = spawn(executable, command.argv.slice(1), {
+    cwd: command.cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  let output = "";
+  let cancelled = false;
+  let timedOut = false;
+  const append = (stream: "stdout" | "stderr", chunk: Buffer): void => {
+    const text = chunk.toString("utf8");
+    const remaining = Math.max(0, maxOutputChars - output.length);
+    const visible = text.slice(0, remaining);
+    output += visible;
+    options.onEvent?.({ type: "output", stream, text: visible });
+  };
+  child.stdout.on("data", (chunk: Buffer) => append("stdout", chunk));
+  child.stderr.on("data", (chunk: Buffer) => append("stderr", chunk));
+
+  const result = await new Promise<VerificationCheck>((resolveResult) => {
+    let settled = false;
+    const abort = (): void => {
+      cancelled = true;
+      child.kill();
+      finish("cancelled", "cancelled", null);
+    };
+    const finish = (
+      status: VerificationCheck["status"],
+      termination: VerificationCheck["termination"],
+      exitCode: number | null,
+    ): void => {
+      if (settled) return;
+      settled = true;
+      options.signal?.removeEventListener("abort", abort);
+      clearTimeout(timer);
+      resolveResult(makeResult(checkBase, status, termination, exitCode, startedAt, output, maxOutputChars));
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+      finish("failed", "timeout", null);
+    }, timeoutMs);
+    timer.unref?.();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    child.once("error", () => finish(cancelled ? "cancelled" : "failed", cancelled ? "cancelled" : "error", null));
+    child.once("close", (code) => {
+      if (timedOut) return;
+      finish(cancelled ? "cancelled" : code === 0 ? "passed" : "failed", cancelled ? "cancelled" : "exit", cancelled ? null : code);
+    });
+  });
+  options.onEvent?.({ type: "finish", check: result });
+  return result;
+}
+
+function makeResult(
+  base: Pick<VerificationCheck, "id" | "command" | "cwd">,
+  status: VerificationCheck["status"],
+  termination: VerificationCheck["termination"],
+  exitCode: number | null,
+  startedAt: number,
+  output: string,
+  maxOutputChars = DEFAULT_VERIFICATION_OUTPUT_CHARS,
+): VerificationCheck {
+  return {
+    ...base,
+    status,
+    startedAt,
+    finishedAt: Date.now(),
+    exitCode,
+    ...(termination ? { termination } : {}),
+    output: output.length >= maxOutputChars
+      ? `${output}\n\n[truncated at ${maxOutputChars} characters]`
+      : output,
+  };
 }
 
 function readStringMap(value: unknown): Map<string, string> {

@@ -49,6 +49,7 @@ export const VerificationCheckSchema = z.object({
   startedAt: z.number().int().nonnegative().optional(),
   finishedAt: z.number().int().nonnegative().optional(),
   exitCode: z.number().int().nullable().optional(),
+  termination: z.enum(["exit", "error", "timeout", "cancelled"]).optional(),
   output: z.string(),
 });
 

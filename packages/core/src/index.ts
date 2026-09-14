@@ -116,9 +116,16 @@ export type {
   RestorePolicy,
   RestoreResult,
 } from "./workflow/restore.js";
-export { resolveVerificationCommands } from "./workflow/verify.js";
+export {
+  DEFAULT_VERIFICATION_OUTPUT_CHARS,
+  DEFAULT_VERIFICATION_TIMEOUT_MS,
+  resolveVerificationCommands,
+  runVerificationCommand,
+} from "./workflow/verify.js";
 export type {
   VerificationCommand,
+  VerificationEvent,
+  VerificationRunnerOptions,
   VerificationSource,
 } from "./workflow/verify.js";
 
