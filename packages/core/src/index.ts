@@ -108,6 +108,13 @@ export {
 export type { CreateSnapshotOptions } from "./workflow/snapshot.js";
 
 export {
+  attachSessionCheckpoint,
+  getSessionCheckpoint,
+  listSessionCheckpoints,
+  removeSessionCheckpoint,
+} from "./session/store.js";
+
+export {
   TASK_STATUSES,
   TaskSchema,
   TaskStatusSchema,
