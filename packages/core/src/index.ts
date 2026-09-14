@@ -129,6 +129,17 @@ export type {
   VerificationRunnerOptions,
   VerificationSource,
 } from "./workflow/verify.js";
+export {
+  collectReviewDiff,
+  DEFAULT_REVIEW_MAX_CHARS,
+  DEFAULT_REVIEW_MAX_FILES,
+} from "./workflow/review-diff.js";
+export type {
+  ReviewDiffFile,
+  ReviewDiffOptions,
+  ReviewDiffResult,
+  ReviewDiffSource,
+} from "./workflow/review-diff.js";
 
 export {
   attachSessionCheckpoint,
