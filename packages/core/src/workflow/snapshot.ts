@@ -160,6 +160,7 @@ async function snapshotFile(
     existed: true,
     sha256: createHash("sha256").update(bytes).digest("hex"),
     size: bytes.length,
+    mode: stats.mode & 0o777,
     contentPath,
   };
 }

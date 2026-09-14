@@ -106,6 +106,16 @@ export {
   SNAPSHOT_FORMAT_VERSION,
 } from "./workflow/snapshot.js";
 export type { CreateSnapshotOptions } from "./workflow/snapshot.js";
+export {
+  restoreSnapshot,
+  RestoreConflictError,
+  RESTORE_POLICIES,
+} from "./workflow/restore.js";
+export type {
+  RestoreConflict,
+  RestorePolicy,
+  RestoreResult,
+} from "./workflow/restore.js";
 
 export {
   attachSessionCheckpoint,
