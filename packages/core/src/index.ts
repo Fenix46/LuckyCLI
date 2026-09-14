@@ -140,6 +140,15 @@ export type {
   ReviewDiffResult,
   ReviewDiffSource,
 } from "./workflow/review-diff.js";
+export {
+  buildReviewPrompt,
+  parseReviewResponse,
+  REVIEW_CATEGORIES,
+  REVIEW_SEVERITIES,
+  ReviewFindingSchema,
+  ReviewReportSchema,
+} from "./workflow/review.js";
+export type { ReviewFinding, ReviewReport } from "./workflow/review.js";
 
 export {
   attachSessionCheckpoint,
