@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 import type { IProvider } from "../providers/IProvider.js";
 import type {
@@ -12,6 +15,7 @@ import type {
 import { ToolRegistry } from "../tools/registry.js";
 import { askUserTool } from "../tools/builtin/ask-user.js";
 import { defineTool } from "../tools/types.js";
+import { fileDiff } from "../diff.js";
 import { Agent } from "./agent.js";
 import type { AgentEvent } from "./types.js";
 
@@ -206,6 +210,46 @@ describe("Agent loop", () => {
       toolCallId: "t1",
       name: "echo",
     });
+  });
+
+  it("runs verification after an approved edit that reports a diff", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "lucky-agent-verify-"));
+    try {
+      await writeFile(join(cwd, "package.json"), JSON.stringify({ scripts: { test: "node -p 1" } }));
+      const edit = defineTool({
+        name: "edit_marker",
+        description: "Report an approved edit.",
+        schema: z.object({ path: z.string() }),
+        async execute({ path }) {
+          return {
+            content: `Edited ${path}`,
+            metadata: { diff: [fileDiff(path, "before\n", "after\n")] },
+          };
+        },
+      });
+      const provider = new ScriptedProvider([
+        [
+          { toolCall: { type: "tool_call", id: "edit-1", name: "edit_marker", arguments: { path: "a.txt" } } },
+          { finishReason: "tool_calls" },
+        ],
+        [{ textDelta: "done" }, { finishReason: "stop" }],
+      ]);
+      const agent = new Agent({
+        provider,
+        model: "mock",
+        cwd,
+        tools: new ToolRegistry().register(edit),
+        verificationMode: "after-edit",
+      });
+
+      const events = await collect(agent.send("edit the file"));
+      const toolEnd = events.find((event) => event.type === "tool_end");
+      expect(toolEnd).toMatchObject({ type: "tool_end", isError: false });
+      expect((toolEnd as { content: string }).content).toContain("Automatic verification passed");
+      expect((toolEnd as { content: string }).content).toContain("test: passed");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("closes unexecuted tool calls with error results when the turn ends early", async () => {

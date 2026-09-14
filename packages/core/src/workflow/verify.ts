@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import type { VerificationCheck } from "./types.js";
+import { type VerificationCheck, type VerificationResult } from "./types.js";
 
 export const VERIFICATION_SOURCES = ["script", "convention"] as const;
 export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
@@ -28,6 +28,10 @@ export type VerificationEvent =
 
 export const DEFAULT_VERIFICATION_TIMEOUT_MS = 5 * 60 * 1000;
 export const DEFAULT_VERIFICATION_OUTPUT_CHARS = 64 * 1024;
+
+export interface RunVerificationOptions extends VerificationRunnerOptions {
+  sessionId?: string;
+}
 
 const SCRIPT_ORDER = ["typecheck", "test", "build", "lint"] as const;
 const VALID_SCRIPT_NAME = /^[a-zA-Z0-9:_-]+$/;
@@ -135,6 +139,38 @@ export async function runVerificationCommand(
   });
   options.onEvent?.({ type: "finish", check: result });
   return result;
+}
+
+/** Resolve and run every trusted project check in declaration order. */
+export async function runVerification(
+  cwd: string,
+  files: string[] = [],
+  options: RunVerificationOptions = {},
+): Promise<VerificationResult> {
+  const startedAt = Date.now();
+  const commands = await resolveVerificationCommands(cwd);
+  const checks: VerificationCheck[] = [];
+  for (const command of commands) {
+    checks.push(await runVerificationCommand(command, options));
+    if (checks.at(-1)?.status === "cancelled") break;
+  }
+  const status = checks.length === 0
+    ? "pending"
+    : checks.some((check) => check.status === "cancelled")
+      ? "cancelled"
+      : checks.every((check) => check.status === "passed")
+        ? "passed"
+        : "failed";
+  return {
+    id: `verification_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    sessionId: options.sessionId ?? "agent",
+    cwd,
+    status,
+    startedAt,
+    finishedAt: Date.now(),
+    checks,
+    files: [...new Set(files)].sort(),
+  };
 }
 
 function makeResult(

@@ -19,6 +19,8 @@ import type {
 } from "../tools/types.js";
 import type { PlanDecision, PlanProposal } from "./plan.js";
 import { buildSummarizationPrompt } from "../prompts/index.js";
+import { runVerification } from "../workflow/verify.js";
+import type { VerificationResult } from "../workflow/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
@@ -72,6 +74,10 @@ export interface AgentConfig {
   ) => Promise<SpawnAgentResult>;
   /** Optional hook fired after a tool reports changed files (for graph upkeep). */
   onFilesChanged?: (paths: string[]) => void;
+  /** Run trusted project checks after a successful approved file edit. */
+  verificationMode?: "manual" | "after-edit";
+  /** Session id included in automatic verification results. */
+  verificationSessionId?: string;
   /** Optional hook fired when the model loads a skill via skill_load. */
   onSkillLoaded?: (id: string) => void;
   /**
@@ -131,6 +137,8 @@ export class Agent {
   private readonly presentPlan: ((plan: PlanProposal) => Promise<PlanDecision>) | undefined;
   private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
+  private readonly verificationMode: "manual" | "after-edit";
+  private readonly verificationSessionId: string | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
   private readonly readTextFile: ((absPath: string) => Promise<string | null>) | undefined;
   private readonly writeTextFile: ((absPath: string, content: string) => Promise<void>) | undefined;
@@ -169,6 +177,8 @@ export class Agent {
     this.presentPlan = cfg.presentPlan;
     this.runSubAgent = cfg.runSubAgent;
     this.onFilesChanged = cfg.onFilesChanged;
+    this.verificationMode = cfg.verificationMode ?? "manual";
+    this.verificationSessionId = cfg.verificationSessionId;
     this.onSkillLoaded = cfg.onSkillLoaded;
     this.readTextFile = cfg.readTextFile;
     this.writeTextFile = cfg.writeTextFile;
@@ -486,6 +496,22 @@ export class Agent {
             ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
             ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
           });
+          if (this.verificationMode === "after-edit" && !result.isError && result.metadata?.diff) {
+            const files = result.metadata.diff.map((diff) => diff.path);
+            if (files.length > 0) {
+              const verification = await runVerification(this.cwd, files, {
+                ...(signal ? { signal } : {}),
+                ...(this.verificationSessionId ? { sessionId: this.verificationSessionId } : {}),
+              });
+              result = {
+                ...result,
+                content: `${result.content}\n\n${formatVerificationResult(verification)}`,
+                ...(verification.status === "failed" || verification.status === "cancelled"
+                  ? { isError: true }
+                  : {}),
+              };
+            }
+          }
         }
 
         yield {
@@ -835,6 +861,14 @@ export class Agent {
       Math.min(20_000, info.maxOutputTokens ?? Math.floor(contextWindow * 0.1));
     return Math.max(0, contextWindow - reserved);
   }
+}
+
+function formatVerificationResult(result: VerificationResult): string {
+  if (result.checks.length === 0) return "Verification not run: no trusted checks found.";
+  const checks = result.checks
+    .map((check) => `${check.id}: ${check.status}${check.exitCode !== undefined && check.exitCode !== null ? ` (exit ${check.exitCode})` : ""}`)
+    .join("\n");
+  return `Automatic verification ${result.status}.\n${checks}`;
 }
 
 /**

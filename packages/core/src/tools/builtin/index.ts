@@ -21,6 +21,7 @@ import {
   taskUpdateTool,
 } from "./tasks.js";
 import { writeFileTool } from "./write-file.js";
+import { verifyTool } from "./verify.js";
 
 /** A registry pre-loaded with the built-in tools. */
 export function defaultToolRegistry(): ToolRegistry {
@@ -46,7 +47,8 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(graphOverviewTool)
     .register(skillSearchTool)
     .register(skillLoadTool)
-    .register(askUserTool);
+    .register(askUserTool)
+    .register(verifyTool);
 }
 
 export { previewPatch } from "./apply-patch.js";
@@ -74,4 +76,5 @@ export {
   skillSearchTool,
   skillLoadTool,
   askUserTool,
+  verifyTool,
 };

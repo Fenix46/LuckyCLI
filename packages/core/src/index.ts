@@ -120,6 +120,7 @@ export {
   DEFAULT_VERIFICATION_OUTPUT_CHARS,
   DEFAULT_VERIFICATION_TIMEOUT_MS,
   resolveVerificationCommands,
+  runVerification,
   runVerificationCommand,
 } from "./workflow/verify.js";
 export type {
