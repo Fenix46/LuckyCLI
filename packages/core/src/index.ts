@@ -466,7 +466,7 @@ export {
 export { McpLocalClient } from "./mcp/local-client.js";
 export { McpRemoteClient } from "./mcp/remote-client.js";
 export type { McpClient } from "./mcp/client.js";
-export { McpManager } from "./mcp/manager.js";
+export { DEFAULT_MCP_CONTENT_CHARS, McpManager } from "./mcp/manager.js";
 export type { McpManagerOptions } from "./mcp/manager.js";
 export { McpOAuthProvider, nonInteractiveMcpOAuthProvider } from "./mcp/oauth-provider.js";
 export type { McpOAuthProviderOptions } from "./mcp/oauth-provider.js";
