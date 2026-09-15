@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { loadProjectConfig } from "../config/project.js";
 import { type VerificationCheck, type VerificationResult } from "./types.js";
 
 export const VERIFICATION_SOURCES = ["script", "convention"] as const;
@@ -148,7 +149,11 @@ export async function runVerification(
   options: RunVerificationOptions = {},
 ): Promise<VerificationResult> {
   const startedAt = Date.now();
-  const commands = await resolveVerificationCommands(cwd);
+  const configured = loadProjectConfig(cwd).checks;
+  const resolved = await resolveVerificationCommands(cwd);
+  const commands = configured?.length
+    ? resolved.filter((command) => configured.includes(command.id) || configured.includes(command.label))
+    : resolved;
   const checks: VerificationCheck[] = [];
   for (const command of commands) {
     checks.push(await runVerificationCommand(command, options));

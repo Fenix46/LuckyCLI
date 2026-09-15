@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveVerificationCommands } from "./verify.js";
+import { resolveVerificationCommands, runVerification } from "./verify.js";
 
 describe("verification command resolver", () => {
   const roots: string[] = [];
@@ -66,6 +66,15 @@ describe("verification command resolver", () => {
     const root = await fixture({ "README.md": "hello" });
 
     await expect(resolveVerificationCommands(root)).resolves.toEqual([]);
+  });
+
+  it("runs only checks selected by project configuration", async () => {
+    const root = await fixture({
+      "package.json": JSON.stringify({ scripts: { test: "node", build: "node" } }),
+      ".lucky/config.json": JSON.stringify({ checks: ["test"] }),
+    });
+    const result = await runVerification(root);
+    expect(result.checks.map((check) => check.id)).toEqual(["test"]);
   });
 
   it("ignores invalid package scripts and malformed package json", async () => {

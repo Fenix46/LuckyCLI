@@ -68,6 +68,14 @@ describe("graph build pipeline", () => {
     }
   });
 
+  it("applies graph exclusions from the project configuration", async () => {
+    await mkdir(join(root, ".lucky"), { recursive: true });
+    await writeFile(join(root, ".lucky", "config.json"), JSON.stringify({ graph: { exclude: ["pkg"] } }));
+    const summary = await buildGraph(root);
+    expect(summary.fileCount).toBe(2);
+    expect(summary.graph.nodes.map((node) => node.label)).not.toContain("run");
+  });
+
   it("resolves relative imports to the real file node, dropping the stub", async () => {
     const summary = await buildGraph(root);
     const { nodes, edges } = summary.graph;
