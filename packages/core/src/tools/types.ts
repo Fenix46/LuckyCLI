@@ -29,6 +29,8 @@ export interface SpawnAgentResult {
 export interface ToolContext {
   /** Working directory the agent is anchored to. */
   cwd: string;
+  /** Optional project allowlist for skill discovery and loading. */
+  allowedSkills?: readonly string[];
   /** Cancellation signal propagated from the agent loop. */
   signal?: AbortSignal;
   /** Optional bridge for tools that need to ask the human a question. */

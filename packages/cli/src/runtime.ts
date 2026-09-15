@@ -78,6 +78,7 @@ export interface BuildAgentOptions {
   maxTokens?: number;
   reasoningEffort?: string;
   thinkingEnabled?: boolean;
+  allowedSkills?: readonly string[];
   permissions?: ToolPermissionPolicy;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
@@ -175,7 +176,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const cwd = opts.cwd ?? process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
-  const skillActivator = opts.skillActivator ?? new SkillActivator();
+  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
 
   // Optionally recompose the system prompt from this session's context so the
@@ -205,6 +206,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     tools,
     system: appendProjectMemoryToSystemPrompt(composed, projectMemory),
     permissions: opts.permissions,
+    ...(opts.allowedSkills ? { allowedSkills: opts.allowedSkills } : {}),
     approveTool: opts.approveTool,
     askUser: opts.askUser,
     ...(opts.presentPlan ? { presentPlan: opts.presentPlan } : {}),
@@ -234,7 +236,7 @@ export async function buildAgentRuntime(
   // are picked up without rebuilding. This keeps session startup instant even
   // when a server is slow (e.g. first-run `npx` downloads) or wedged.
   const registry = createRuntimeToolRegistry(opts.extraTools);
-  const skillActivator = opts.skillActivator ?? new SkillActivator();
+  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
   const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator, graphEnricher });
 

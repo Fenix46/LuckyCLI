@@ -80,6 +80,8 @@ export interface AgentConfig {
   verificationSessionId?: string;
   /** Optional hook fired when the model loads a skill via skill_load. */
   onSkillLoaded?: (id: string) => void;
+  /** Optional project skill allowlist forwarded to skill tools. */
+  allowedSkills?: readonly string[];
   /**
    * Optional host-backed file access forwarded to the file tools: lets a host
    * (e.g. an ACP editor) serve reads from unsaved buffers and receive writes.
@@ -140,6 +142,7 @@ export class Agent {
   private readonly verificationMode: "manual" | "after-edit";
   private readonly verificationSessionId: string | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
+  private readonly allowedSkills: readonly string[] | undefined;
   private readonly readTextFile: ((absPath: string) => Promise<string | null>) | undefined;
   private readonly writeTextFile: ((absPath: string, content: string) => Promise<void>) | undefined;
   private readonly enrichTurn: ((userText: string) => Promise<string | null> | string | null) | undefined;
@@ -180,6 +183,7 @@ export class Agent {
     this.verificationMode = cfg.verificationMode ?? "manual";
     this.verificationSessionId = cfg.verificationSessionId;
     this.onSkillLoaded = cfg.onSkillLoaded;
+    this.allowedSkills = cfg.allowedSkills;
     this.readTextFile = cfg.readTextFile;
     this.writeTextFile = cfg.writeTextFile;
     this.enrichTurn = cfg.enrichTurn;
@@ -493,6 +497,7 @@ export class Agent {
             ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
             ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
             ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
+            ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
             ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
             ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
           });

@@ -303,6 +303,7 @@ export function Root({
       // graph presence, sub-agent profiles) so conditional sections react to it.
       composeSystemFromContext: true,
       permissions: config.permissions,
+      ...(config.skills ? { allowedSkills: config.skills } : {}),
       approveTool,
       askUser,
       presentPlan,
@@ -518,4 +519,3 @@ export function Root({
     />
   );
 }
-

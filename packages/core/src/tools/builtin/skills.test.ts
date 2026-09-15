@@ -100,6 +100,13 @@ describe("skill_load", () => {
     expect(res.content).toMatch(/No skill named/);
   });
 
+  it("rejects a skill outside the project allowlist", async () => {
+    await writeSkill("release-flow", RELEASE);
+    await rebuildSkillGraph(root);
+    const res = await skillLoadTool.execute({ name: "release-flow" }, { ...ctx, allowedSkills: ["other-skill"] });
+    expect(res.content).toContain("not enabled for this project");
+  });
+
   it("calls onSkillLoaded with the skill id", async () => {
     await writeSkill("release-flow", RELEASE);
     await rebuildSkillGraph(root);
