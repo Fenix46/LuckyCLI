@@ -3,14 +3,22 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 import { isMcpServerConfig, type McpServerConfig } from "../mcp/types.js";
 import type { ToolPermissionPolicy } from "../tools/permissions.js";
+import type { TokenCostRates } from "../usage-cost.js";
 
 const PermissionSchema = z.enum(["allow", "ask", "deny"]);
+const TokenCostRatesSchema = z.object({
+  inputPerMillion: z.number().finite().nonnegative(),
+  outputPerMillion: z.number().finite().nonnegative(),
+  cacheReadPerMillion: z.number().finite().nonnegative().optional(),
+  cacheWritePerMillion: z.number().finite().nonnegative().optional(),
+}).strict();
 export const ProjectConfigSchema = z.object({
   provider: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   checks: z.array(z.string().min(1)).optional(),
   graph: z.object({ exclude: z.array(z.string().min(1)) }).strict().optional(),
   skills: z.array(z.string().min(1)).optional(),
+  costs: z.record(z.string().min(1), TokenCostRatesSchema).optional(),
   mcp: z.record(z.string().min(1), z.unknown()).optional(),
   permissions: z.record(z.string().min(1), PermissionSchema).optional(),
 }).strict();
@@ -21,6 +29,7 @@ export interface ProjectConfig {
   checks?: string[];
   graphExclusions?: string[];
   skills?: string[];
+  tokenCosts?: Record<string, TokenCostRates>;
   mcp?: Record<string, McpServerConfig>;
   permissions?: ToolPermissionPolicy;
 }
@@ -42,6 +51,7 @@ export function loadProjectConfig(cwd: string): ProjectConfig {
     ...(result.checks ? { checks: result.checks } : {}),
     ...(exclusions.length ? { graphExclusions: exclusions } : {}),
     ...(result.skills ? { skills: result.skills } : {}),
+    ...(result.costs ? { tokenCosts: result.costs } : {}),
     ...(result.mcp ? { mcp: parseMcp(result.mcp) } : {}),
     ...(result.permissions ? { permissions: result.permissions } : {}),
   };

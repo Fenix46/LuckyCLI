@@ -13,12 +13,13 @@ describe("project configuration", () => {
       await writeFile(join(cwd, ".lucky/config.json"), JSON.stringify({
         provider: "ollama", model: "project-model", checks: ["npm test"], graph: { exclude: ["vendor"] },
         skills: ["code-review"], permissions: { exec: "deny" },
+        costs: { "ollama/project-model": { inputPerMillion: 0, outputPerMillion: 0 } },
       }));
       const project = loadProjectConfig(cwd);
-      expect(project).toMatchObject({ provider: "ollama", model: "project-model", graphExclusions: ["vendor"], skills: ["code-review"], permissions: { exec: "deny" } });
+      expect(project).toMatchObject({ provider: "ollama", model: "project-model", graphExclusions: ["vendor"], skills: ["code-review"], tokenCosts: { "ollama/project-model": { inputPerMillion: 0 } }, permissions: { exec: "deny" } });
       const global = { provider: "ollama" as const, model: "global-model", credentials: { ollama: { type: "ollama" as const, baseUrl: "http://localhost" } } };
       expect(resolveConfig({}, global, {}, cwd).model).toBe("project-model");
-      expect(resolveConfig({}, global, {}, cwd)).toMatchObject({ checks: ["npm test"], graphExclusions: ["vendor"], skills: ["code-review"] });
+      expect(resolveConfig({}, global, {}, cwd)).toMatchObject({ checks: ["npm test"], graphExclusions: ["vendor"], skills: ["code-review"], tokenCosts: { "ollama/project-model": { outputPerMillion: 0 } } });
       expect(resolveConfig({ model: "flag-model" }, global, {}, cwd).model).toBe("flag-model");
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });
@@ -31,6 +32,8 @@ describe("project configuration", () => {
       expect(() => loadProjectConfig(cwd)).toThrow();
       await writeFile(join(cwd, ".lucky/config.json"), JSON.stringify({ graph: { exclude: ["../outside"] } }));
       expect(() => loadProjectConfig(cwd)).toThrow("escapes root");
+      await writeFile(join(cwd, ".lucky/config.json"), JSON.stringify({ costs: { bad: { inputPerMillion: -1, outputPerMillion: 1 } } }));
+      expect(() => loadProjectConfig(cwd)).toThrow();
       await writeFile(join(cwd, ".lucky/config.json"), JSON.stringify({ mcp: { bad: { type: "remote" } } }));
       expect(() => loadProjectConfig(cwd)).toThrow("invalid MCP");
     } finally { await rm(cwd, { recursive: true, force: true }); }

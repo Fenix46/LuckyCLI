@@ -42,6 +42,8 @@ export interface ResolvedConfig {
   checks?: string[];
   graphExclusions?: string[];
   skills?: string[];
+  /** Optional per-model token prices, keyed by provider/model. */
+  tokenCosts?: Record<string, import("../usage-cost.js").TokenCostRates>;
   needsSetup: boolean;
 }
 
@@ -107,6 +109,7 @@ export function resolveConfig(
     ...(project.checks ? { checks: project.checks } : {}),
     ...(project.graphExclusions ? { graphExclusions: project.graphExclusions } : {}),
     ...(project.skills ? { skills: project.skills } : {}),
+    ...(project.tokenCosts ? { tokenCosts: project.tokenCosts } : {}),
     permissions: {
       ...DEFAULT_TOOL_PERMISSION_POLICY,
       ...(stored.permissions ?? {}),
