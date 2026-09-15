@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { loadSnapshot, readSnapshotFile } from "./snapshot.js";
+import { fileDiff } from "../diff.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -109,30 +110,43 @@ async function collectCheckpointDiff(
     const target = safePath(cwd, file.path);
     const beforeBytes = file.existed ? await readSnapshotFile(cwd, snapshot, file.path) : undefined;
     const before = beforeBytes?.toString("utf8") ?? "";
-    let after = "";
-    try { after = await readFile(target, "utf8"); } catch (error) {
+    let afterBytes: Buffer | undefined;
+    try { afterBytes = await readFile(target); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    if (before === after) continue;
-    const patch = redactText(`--- a/${file.path}\n+++ b/${file.path}\n${after}`, options.redact !== false);
+    const after = afterBytes?.toString("utf8") ?? "";
+    if (before === after && Boolean(afterBytes) === file.existed) continue;
+    const binary = Boolean(beforeBytes?.includes(0) || afterBytes?.includes(0));
+    const rawPatch = binary ? `Binary files a/${file.path} and b/${file.path} differ` : renderFilePatch(file.path, before, after);
+    const patch = binary ? undefined : redactText(rawPatch, options.redact !== false);
     const remaining = maxChars - totalChars;
-    const visible = patch.slice(0, Math.max(0, remaining));
-    const fileTruncated = patch.length > Math.max(0, remaining);
+    const visible = (patch ?? `[binary file: ${file.path}]`).slice(0, Math.max(0, remaining));
+    const fileTruncated = rawPatch.length > Math.max(0, remaining);
     if (fileTruncated) truncated = true;
     totalChars += visible.length;
     files.push({
       path: file.path,
       status: !file.existed ? "added" : after === "" ? "deleted" : "modified",
       source: `checkpoint:${checkpointId}`,
-      patch: visible,
-      binary: false,
+      ...(patch ? { patch: visible } : {}),
+      ...(binary ? { summary: "binary file changed" } : {}),
+      binary,
       truncated: fileTruncated,
-      additions: after === "" ? 0 : after.split("\n").length,
-      deletions: before === "" ? 0 : before.split("\n").length,
+      additions: binary ? 0 : countPatchLines(rawPatch, /^\+(?!\+\+)/),
+      deletions: binary ? 0 : countPatchLines(rawPatch, /^-(?!-\-)/),
     });
     if (totalChars >= maxChars) break;
   }
   return { cwd, source: `checkpoint:${checkpointId}`, files, truncated, totalChars };
+}
+
+function renderFilePatch(path: string, before: string, after: string): string {
+  const diff = fileDiff(path, before, after);
+  const lines = diff.hunks.flatMap((hunk) => [
+    `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
+    ...hunk.lines.map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`),
+  ]);
+  return [`diff --git a/${path} b/${path}`, `--- ${before ? `a/${path}` : "/dev/null"}`, `+++ ${after ? `b/${path}` : "/dev/null"}`, ...lines].join("\n");
 }
 
 function parseNameStatus(raw: string): Array<{ path: string; status: ReviewDiffFile["status"]; untracked?: boolean }> {

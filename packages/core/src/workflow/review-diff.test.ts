@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { collectReviewDiff } from "./review-diff.js";
+import { createSnapshot } from "./snapshot.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,6 +63,23 @@ describe("collectReviewDiff", () => {
       await git(cwd, "mv", "app.ts", "renamed.ts");
       const renamed = await collectReviewDiff({ cwd, source: "staged" });
       expect(renamed.files).toContainEqual(expect.objectContaining({ path: "renamed.ts", status: "renamed" }));
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("renders a real bounded checkpoint patch and detects binary content", async () => {
+    const cwd = await repo();
+    try {
+      const checkpoint = await createSnapshot(cwd, ["app.ts"], { id: "checkpoint-review", sessionId: "session", title: "Before" });
+      await writeFile(join(cwd, "app.ts"), "const value = 2;\n");
+      const result = await collectReviewDiff({ cwd, source: { checkpointId: checkpoint.id } });
+      expect(result.files[0]?.patch).toContain("-const value = 1;");
+      expect(result.files[0]?.patch).toContain("+const value = 2;");
+      expect(result.files[0]?.binary).toBe(false);
+      await writeFile(join(cwd, "app.ts"), Buffer.from([0, 1, 2]));
+      const binary = await collectReviewDiff({ cwd, source: { checkpointId: checkpoint.id } });
+      expect(binary.files[0]).toMatchObject({ binary: true, summary: "binary file changed" });
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
