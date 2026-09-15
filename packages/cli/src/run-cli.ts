@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolveConfig, type Agent, type ResolvedConfig } from "@luckycli/core";
 import { buildAgent } from "./runtime.js";
+import { formatMachineEvent, parseOutputFormat, type OutputFormat } from "./output.js";
 
 export const RUN_EXIT_CODES = {
   success: 0,
@@ -22,12 +23,17 @@ export async function runCommand(args: string[], io: RunCommandIO = {}): Promise
   const out = io.out ?? ((text: string) => process.stdout.write(text));
   const err = io.err ?? ((text: string) => process.stderr.write(text));
   let prompt: string;
-  let flags: { provider?: string; model?: string; file?: string; help?: boolean; nonInteractive?: boolean };
+  let flags: { provider?: string; model?: string; file?: string; help?: boolean; nonInteractive?: boolean; format?: OutputFormat };
   try {
     const parsed = parseRunArgs(args);
     flags = parsed.flags;
     prompt = parsed.prompt;
   } catch (error) {
+    err(`${error instanceof Error ? error.message : String(error)}\n`);
+    return RUN_EXIT_CODES.failure;
+  }
+  let format: OutputFormat;
+  try { format = parseOutputFormat(flags.format); } catch (error) {
     err(`${error instanceof Error ? error.message : String(error)}\n`);
     return RUN_EXIT_CODES.failure;
   }
@@ -86,18 +92,37 @@ export async function runCommand(args: string[], io: RunCommandIO = {}): Promise
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   let failed = false;
+  let output = "";
+  const emit = (text: string) => {
+    if (format === "text") out(text);
+    else output += text;
+  };
   try {
     for await (const event of agent.send(prompt, controller.signal)) {
-      if (event.type === "text") out(event.delta);
+      if (event.type === "text") {
+        emit(event.delta);
+        if (format === "jsonl") out(`${formatMachineEvent({ type: "text", delta: event.delta })}\n`);
+      }
       if (event.type === "error" || (event.type === "tool_end" && event.isError)) {
         failed = true;
-        err(`${event.type === "error" ? event.message : event.content}\n`);
+        const message = event.type === "error" ? event.message : event.content;
+        if (format === "text") err(`${message}\n`);
+        else if (format === "jsonl") out(`${formatMachineEvent({ type: "error", message })}\n`);
       }
-      if (event.type === "aborted") return RUN_EXIT_CODES.cancelled;
+      if (event.type === "aborted") {
+        if (format === "json") out(`${formatMachineEvent({ type: "result", command: "run", status: "cancelled", output })}\n`);
+        else if (format === "jsonl") out(`${formatMachineEvent({ type: "result", command: "run", status: "cancelled" })}\n`);
+        return RUN_EXIT_CODES.cancelled;
+      }
     }
+    const status = failed ? "failed" : "passed";
+    if (format === "json") out(`${formatMachineEvent({ type: "result", command: "run", status, output })}\n`);
+    else if (format === "jsonl") out(`${formatMachineEvent({ type: "result", command: "run", status })}\n`);
     return failed ? RUN_EXIT_CODES.failure : RUN_EXIT_CODES.success;
   } catch (error) {
-    err(`${error instanceof Error ? error.message : String(error)}\n`);
+    const message = error instanceof Error ? error.message : String(error);
+    if (format === "text") err(`${message}\n`);
+    else out(`${formatMachineEvent({ type: "error", command: "run", message })}\n`);
     return controller.signal.aborted ? RUN_EXIT_CODES.cancelled : RUN_EXIT_CODES.failure;
   } finally {
     process.removeListener("SIGINT", stop);
@@ -105,13 +130,14 @@ export async function runCommand(args: string[], io: RunCommandIO = {}): Promise
   }
 }
 
-function parseRunArgs(args: string[]): { flags: { provider?: string; model?: string; file?: string; help?: boolean; nonInteractive?: boolean }; prompt: string } {
-  const flags: { provider?: string; model?: string; file?: string; help?: boolean; nonInteractive?: boolean } = {};
+function parseRunArgs(args: string[]): { flags: { provider?: string; model?: string; file?: string; help?: boolean; nonInteractive?: boolean; format?: OutputFormat }; prompt: string } {
+  const flags: { provider?: string; model?: string; file?: string; help?: boolean; nonInteractive?: boolean; format?: OutputFormat } = {};
   const promptParts: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--help" || arg === "-h") flags.help = true;
     else if (arg === "--non-interactive") flags.nonInteractive = true;
+    else if (arg === "--format") flags.format = requiredValue(args, ++i, arg) as OutputFormat;
     else if (arg === "--provider" || arg === "-p") flags.provider = requiredValue(args, ++i, arg);
     else if (arg === "--model" || arg === "-m") flags.model = requiredValue(args, ++i, arg);
     else if (arg === "--file" || arg === "-f") flags.file = requiredValue(args, ++i, arg);

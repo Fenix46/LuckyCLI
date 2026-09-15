@@ -57,4 +57,19 @@ describe("runCommand", () => {
     });
     expect(cancelled).toBe(2);
   });
+
+  it("emits parseable JSON and JSONL output", async () => {
+    const json: string[] = [];
+    await expect(runCommand(["--format", "json", "hello"], {
+      out: (text) => json.push(text), resolve: () => config,
+      build: () => agent([{ type: "text", delta: "héllo\nworld" }]),
+    })).resolves.toBe(0);
+    expect(JSON.parse(json.join(""))).toMatchObject({ version: 1, type: "result", status: "passed", output: "héllo\nworld" });
+    const jsonl: string[] = [];
+    await runCommand(["--format", "jsonl", "hello"], {
+      out: (text) => jsonl.push(text), resolve: () => config,
+      build: () => agent([{ type: "text", delta: "ok" }]),
+    });
+    expect(jsonl.map((line) => JSON.parse(line).version)).toEqual([1, 1]);
+  });
 });

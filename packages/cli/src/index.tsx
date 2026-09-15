@@ -24,6 +24,7 @@ import { runAcpCommand } from "./acp/acp-cli.js";
 import { runMcpCommand } from "./mcp-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
 import { runCommand } from "./run-cli.js";
+import { runReviewCommand, runVerifyCommand } from "./workflow-cli.js";
 import { applyStagedUpdateIfAny } from "@luckycli/core";
 
 const HELP = `lucky — a multi-provider terminal agent
@@ -56,6 +57,9 @@ Commands:
   update --auto <mode>  set auto-update: off | notify | auto (default auto)
   run <prompt>          run one prompt without the interactive TUI
   run --file <path>     read the prompt from a file or stdin
+  run --format <mode>   text | json | jsonl output
+  verify                run configured project checks
+  review [head]         review the current project diff
 `;
 
 function printSessions(): void {
@@ -189,6 +193,17 @@ function main(): void {
       .then((code) => { if (code !== 0) process.exit(code); })
       .catch((err) => {
         process.stderr.write(`run failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
+    return;
+  }
+
+  if (rawArgs[0] === "verify" || rawArgs[0] === "review") {
+    const command = rawArgs[0] === "verify" ? runVerifyCommand : runReviewCommand;
+    command(rawArgs.slice(1))
+      .then((code) => { if (code !== 0) process.exit(code); })
+      .catch((err) => {
+        process.stderr.write(`${rawArgs[0]} failed: ${err instanceof Error ? err.message : err}\n`);
         process.exit(1);
       });
     return;
