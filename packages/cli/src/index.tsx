@@ -50,6 +50,7 @@ Commands:
   graph view [path]     render the graph as interactive HTML to explore
   mcp list              list configured MCP servers
   mcp status            connect to each MCP server and report status
+  mcp inspect <name>    show prompts and resources exposed by a server
   mcp login <name>      authorize a remote MCP server via OAuth
   mcp logout <name>     forget a remote MCP server's stored tokens
   update                check for a newer release

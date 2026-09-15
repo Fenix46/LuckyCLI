@@ -2,7 +2,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { McpServerConfig } from "@luckycli/core";
-import { mcpListLines, mcpStatusLines, runMcpCommand } from "./mcp-cli.js";
+import { mcpInspectLines, mcpListLines, mcpStatusLines, runMcpCommand } from "./mcp-cli.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureServer = resolve(here, "../../core/src/mcp/__fixtures__/stdio-server.mjs");
@@ -41,6 +41,22 @@ describe("mcpStatusLines", () => {
 });
 
 describe("runMcpCommand", () => {
+  it("formats prompt and resource capability details", () => {
+    expect(
+      mcpInspectLines(
+        "docs",
+        [{ name: "greet", description: "Greets a person." }],
+        [{ name: "guide", uri: "docs://guide", mimeType: "text/plain" }],
+      ),
+    ).toEqual([
+      "docs  connected",
+      "prompts:",
+      "  greet  Greets a person.",
+      "resources:",
+      "  guide  docs://guide  text/plain",
+    ]);
+  });
+
   it("lists configured servers from injected config", async () => {
     const out: string[] = [];
     const mcp: Record<string, McpServerConfig> = {
@@ -60,6 +76,24 @@ describe("runMcpCommand", () => {
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("connected");
     expect(out.join("\n")).toContain("2 tools");
+  });
+
+  it("inspects prompts and resources for one live server", async () => {
+    const out: string[] = [];
+    const mcp: Record<string, McpServerConfig> = {
+      docs: { type: "local", command: ["node", fixtureServer], timeout: 5_000 },
+    };
+    const code = await runMcpCommand(["inspect", "docs"], { mcp, out: (l) => out.push(l) });
+    expect(code).toBe(0);
+    expect(out.join("\n")).toContain("greet");
+    expect(out.join("\n")).toContain("test://greeting");
+  });
+
+  it("rejects inspect without a configured server", async () => {
+    const err: string[] = [];
+    const code = await runMcpCommand(["inspect", "ghost"], { mcp: {}, err: (l) => err.push(l) });
+    expect(code).toBe(1);
+    expect(err.join("\n")).toContain('No MCP server named "ghost"');
   });
 
   it("rejects an unknown subcommand with exit code 1", async () => {
