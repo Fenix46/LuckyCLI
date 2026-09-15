@@ -9,6 +9,7 @@ import React from "react";
 import {
   buildAndSaveGraph,
   graphDirPath,
+  impactOf,
   latestSession,
   listSessions,
   loadSession,
@@ -25,6 +26,7 @@ import { runMcpCommand } from "./mcp-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
 import { runCommand } from "./run-cli.js";
 import { runReviewCommand, runVerifyCommand } from "./workflow-cli.js";
+import { graphImpactLines } from "./graph-cli.js";
 import { applyStagedUpdateIfAny } from "@luckycli/core";
 
 const HELP = `lucky — a multi-provider terminal agent
@@ -48,6 +50,7 @@ Commands:
   graph build [path]    build the project knowledge graph into .lucky/graph
   graph rebuild [path]  rebuild it from scratch
   graph view [path]     render the graph as interactive HTML to explore
+  graph impact <query>  show immediate graph dependencies
   mcp list              list configured MCP servers
   mcp status            connect to each MCP server and report status
   mcp inspect <name>    show prompts and resources exposed by a server
@@ -97,14 +100,39 @@ async function runGraphView(target: string): Promise<void> {
 
 /** `lucky graph build|rebuild|view [path]` — graph subcommands; print and exit (no TUI). */
 async function runGraphCommand(args: string[]): Promise<void> {
-  const [sub, target = "."] = args;
+  const [sub, ...rest] = args;
+  if (sub === "impact") {
+    const query = rest[0];
+    const target = rest[1] ?? ".";
+    if (!query) {
+      process.stderr.write("Usage: lucky graph impact <query> [path]\n");
+      process.exit(1);
+      return;
+    }
+    const graph = await tryLoadGraph(target);
+    if (!graph) {
+      process.stderr.write(
+        `No graph found for ${target}. Run "lucky graph build" first.\n`,
+      );
+      process.exit(1);
+      return;
+    }
+    const lines = graphImpactLines(query, impactOf(graph, query));
+    lines.forEach((line) => process.stdout.write(`${line}\n`));
+    if (lines.length === 1 && lines[0]?.startsWith("No graph nodes matched")) {
+      process.exit(1);
+    }
+    return;
+  }
+
+  const target = rest[0] ?? ".";
   if (sub === "view") {
     await runGraphView(target);
     return;
   }
   if (sub !== "build" && sub !== "rebuild") {
     process.stderr.write(
-      `Unknown graph command "${sub ?? ""}". Usage: lucky graph build|rebuild|view [path]\n`,
+      `Unknown graph command "${sub ?? ""}". Usage: lucky graph build|rebuild|view [path]|impact <query> [path]\n`,
     );
     process.exit(1);
   }
