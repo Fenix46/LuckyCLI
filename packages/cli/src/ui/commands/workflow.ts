@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { resolve } from "node:path";
 import {
   attachSessionCheckpoint,
   buildReviewPrompt,
@@ -291,9 +292,17 @@ function emitReviewReport(
       ...findings.map((finding) => ({
         label: `${finding.severity} · ${finding.category} · ${finding.path}${finding.line ? `:${finding.line}` : ""}`,
         value: `${finding.title}${finding.outOfDiff ? " · outside diff" : ""}`,
+        ...(supportsHyperlinks() ? { link: `file://${resolve(process.cwd(), finding.path)}${finding.line ? `#L${finding.line}` : ""}` } : {}),
       })),
     ],
   });
+}
+
+function supportsHyperlinks(): boolean {
+  return Boolean(process.env.TERM_PROGRAM && ["iTerm.app", "WezTerm", "vscode", "Hyper"].includes(process.env.TERM_PROGRAM))
+    || process.env.TERM === "xterm-kitty"
+    || Boolean(process.env.KITTY_WINDOW_ID)
+    || Boolean(process.env.WT_SESSION);
 }
 
 async function restoreCommand(

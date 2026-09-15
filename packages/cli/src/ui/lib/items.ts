@@ -28,6 +28,8 @@ export type Item =
 export interface CommandRow {
   label: string;
   value: string;
+  /** Optional terminal hyperlink target for a file/line location. */
+  link?: string;
 }
 
 /** Attach output to the most recent matching tool item. */
