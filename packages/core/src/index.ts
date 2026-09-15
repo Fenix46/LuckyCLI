@@ -251,6 +251,8 @@ export {
   topModules,
 } from "./graph/query.js";
 export type { GraphImpact, GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
+export { estimateTokenCost } from "./usage-cost.js";
+export type { TokenCostEstimate, TokenCostRates } from "./usage-cost.js";
 export { renderGraphHtml } from "./graph/view.js";
 export {
   GraphContextEnricher,
