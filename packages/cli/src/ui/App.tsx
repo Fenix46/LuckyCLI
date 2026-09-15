@@ -336,6 +336,7 @@ export function App({
   const mcpPanel = useMcpPanel({
     mcpConfig,
     mcpStatus: mcpManager?.status() ?? {},
+    mcpManager,
     onMcpConfigChange,
     emit: (item) => setItems((prev) => [...prev, item]),
   });
