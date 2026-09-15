@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Checkpoint } from "@luckycli/core";
 import type { VerificationResult } from "@luckycli/core";
+import type { ReviewDiffResult, ReviewReport } from "@luckycli/core";
 import { RestoreConflictError } from "@luckycli/core";
 import type { Item } from "../lib/items.js";
 import type { Command, CommandContext } from "./types.js";
@@ -48,6 +49,14 @@ function harness(overrides: Partial<WorkflowCommandDeps> = {}) {
       }],
       files: [],
     } satisfies VerificationResult)),
+    collectReviewDiff: vi.fn(async () => ({
+      cwd: process.cwd(), source: "unstaged", truncated: false, totalChars: 1,
+      files: [{ path: "src/app.ts", status: "modified" as const, source: "unstaged", patch: "@@ -1 +1 @@\n+change", binary: false, truncated: false, additions: 1, deletions: 0 }],
+    } satisfies ReviewDiffResult)),
+    review: vi.fn(async () => ({
+      source: "unstaged", summary: "review summary", valid: true,
+      findings: [{ id: "f1", severity: "low" as const, category: "style" as const, path: "src/app.ts", line: 1, title: "Style", explanation: "Minor", outOfDiff: false }],
+    } satisfies ReviewReport)),
     ...overrides,
   };
   const ctx = {
@@ -158,6 +167,46 @@ describe("workflow commands", () => {
     await h.run("/verify", "cancel");
     expect(h.emitted.at(-1)).toEqual({ kind: "command", title: "Verification", rows: [{ label: "status", value: "cancelling" }] });
     resolveRun?.({ id: "verification-1", sessionId: "ses_abc_123", cwd: process.cwd(), status: "cancelled", startedAt: 1, checks: [], files: [] });
+    await running;
+  });
+
+  it("reviews the current diff and orders findings by severity", async () => {
+    const h = harness({
+      review: vi.fn(async () => ({
+        source: "head", summary: "two findings", valid: true,
+        findings: [
+          { id: "low", severity: "low" as const, category: "style" as const, path: "z.ts", title: "Low", explanation: "x", outOfDiff: false },
+          { id: "high", severity: "high" as const, category: "bug" as const, path: "a.ts", line: 2, title: "High", explanation: "x", outOfDiff: false },
+        ],
+      } satisfies ReviewReport)),
+    });
+    await h.run("/review", "head");
+    expect(h.deps.collectReviewDiff).toHaveBeenCalledWith({ cwd: process.cwd(), source: "head" });
+    expect(h.emitted.at(-1)).toMatchObject({ rows: [
+      { label: "status", value: "complete" },
+      { label: "summary", value: "two findings" },
+      { label: "high · bug · a.ts:2", value: "High" },
+      { label: "low · style · z.ts", value: "Low" },
+    ] });
+  });
+
+  it("reports an empty diff and review failures without breaking the command", async () => {
+    const empty = harness({ collectReviewDiff: vi.fn(async () => ({ cwd: process.cwd(), source: "unstaged", truncated: false, totalChars: 0, files: [] })) });
+    await empty.run("/review");
+    expect(empty.emitted.at(-1)).toMatchObject({ rows: [{ label: "status", value: "no diff available" }] });
+    const failed = harness({ review: vi.fn(async () => { throw new Error("provider down"); }) });
+    await failed.run("/review");
+    expect(failed.emitted.at(-1)).toEqual({ kind: "error", text: "provider down" });
+  });
+
+  it("cancels an active review", async () => {
+    let resolveReview: ((result: ReviewReport) => void) | undefined;
+    const h = harness({ review: vi.fn(() => new Promise<ReviewReport>((resolve) => { resolveReview = resolve; })) });
+    const running = h.run("/review");
+    await vi.waitFor(() => expect(h.deps.review).toHaveBeenCalled());
+    await h.run("/review", "cancel");
+    expect(h.emitted.at(-1)).toEqual({ kind: "command", title: "Review", rows: [{ label: "status", value: "cancelling" }] });
+    resolveReview?.({ source: "unstaged", summary: "cancelled", valid: true, findings: [] });
     await running;
   });
 });

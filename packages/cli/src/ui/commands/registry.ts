@@ -28,6 +28,7 @@ const MENU_ORDER = [
   "/checkpoint",
   "/undo",
   "/verify",
+  "/review",
 ];
 
 /**

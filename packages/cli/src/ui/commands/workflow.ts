@@ -2,13 +2,18 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   attachSessionCheckpoint,
+  buildReviewPrompt,
+  collectReviewDiff,
   createSnapshot,
   getSessionCheckpoint,
   listSessionCheckpoints,
   removeSessionCheckpoint,
+  parseReviewResponse,
   restoreSnapshot,
   runVerification,
   type Checkpoint,
+  type ReviewDiffResult,
+  type ReviewReport,
   type RestoreConflict,
   type VerificationResult,
 } from "@luckycli/core";
@@ -26,6 +31,8 @@ export interface WorkflowCommandDeps {
   removeCheckpoint: typeof removeSessionCheckpoint;
   restoreSnapshot: typeof restoreSnapshot;
   runVerification: (cwd: string, files?: string[], options?: { signal?: AbortSignal }) => Promise<VerificationResult>;
+  collectReviewDiff: typeof collectReviewDiff;
+  review: (diff: ReviewDiffResult, ctx: Parameters<Command["run"]>[1], signal: AbortSignal) => Promise<ReviewReport>;
 }
 
 const defaultDeps: WorkflowCommandDeps = {
@@ -37,11 +44,20 @@ const defaultDeps: WorkflowCommandDeps = {
   removeCheckpoint: removeSessionCheckpoint,
   restoreSnapshot,
   runVerification,
+  collectReviewDiff,
+  review: async (diff, ctx, signal) => {
+    let response = "";
+    for await (const event of ctx.agent.send(buildReviewPrompt(diff), signal)) {
+      if (event.type === "text") response += event.delta;
+    }
+    return parseReviewResponse(response, diff);
+  },
 };
 
 export function workflowCommands(deps: WorkflowCommandDeps = defaultDeps): Command[] {
   let activeVerification: AbortController | undefined;
   let lastVerification: VerificationResult | undefined;
+  let activeReview: AbortController | undefined;
   return [
     {
       name: "/verify",
@@ -82,6 +98,49 @@ export function workflowCommands(deps: WorkflowCommandDeps = defaultDeps): Comma
           emitError(ctx, error, "failed to run verification");
         } finally {
           activeVerification = undefined;
+        }
+      },
+    },
+    {
+      name: "/review",
+      description: "Review the current diff or a checkpoint",
+      async run(args, ctx) {
+        if (args === "cancel") {
+          if (!activeReview) {
+            ctx.emit({ kind: "error", text: "no review is active" });
+          } else {
+            activeReview.abort();
+            ctx.emit({ kind: "command", title: "Review", rows: [{ label: "status", value: "cancelling" }] });
+          }
+          return;
+        }
+        if (activeReview) {
+          ctx.emit({ kind: "error", text: "a review is already active" });
+          return;
+        }
+        const source = args === "head" ? "head" as const : args === "" ? "unstaged" as const : { checkpointId: args };
+        if (typeof source === "object") {
+          const sessionId = ctx.state.sessionId;
+          if (!sessionId || !deps.getCheckpoint(sessionId, source.checkpointId)) {
+            ctx.emit({ kind: "error", text: `checkpoint "${source.checkpointId}" was not found` });
+            return;
+          }
+        }
+        const controller = new AbortController();
+        activeReview = controller;
+        ctx.emit({ kind: "command", title: "Review", rows: [{ label: "status", value: "running" }] });
+        try {
+          const diff = await deps.collectReviewDiff({ cwd: process.cwd(), source });
+          if (diff.files.length === 0) {
+            ctx.emit({ kind: "command", title: "Review", rows: [{ label: "status", value: "no diff available" }] });
+            return;
+          }
+          const report = await deps.review(diff, ctx, controller.signal);
+          emitReviewReport(ctx, report);
+        } catch (error) {
+          emitError(ctx, error, "failed to review diff");
+        } finally {
+          activeReview = undefined;
         }
       },
     },
@@ -205,6 +264,33 @@ function emitVerificationResult(
       ...result.checks.map((check) => ({
         label: check.id,
         value: `${check.status}${check.exitCode !== undefined && check.exitCode !== null ? ` · exit ${check.exitCode}` : ""}`,
+      })),
+    ],
+  });
+}
+
+function emitReviewReport(
+  ctx: Parameters<Command["run"]>[1],
+  report: ReviewReport,
+): void {
+  const rank: Record<ReviewReport["findings"][number]["severity"], number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+    info: 4,
+  };
+  const findings = [...report.findings].sort((a, b) =>
+    rank[a.severity] - rank[b.severity] || a.path.localeCompare(b.path) || (a.line ?? 0) - (b.line ?? 0));
+  ctx.emit({
+    kind: "command",
+    title: "Review",
+    rows: [
+      { label: "status", value: report.valid ? "complete" : "unreadable" },
+      { label: "summary", value: report.summary || "no findings" },
+      ...findings.map((finding) => ({
+        label: `${finding.severity} · ${finding.category} · ${finding.path}${finding.line ? `:${finding.line}` : ""}`,
+        value: `${finding.title}${finding.outOfDiff ? " · outside diff" : ""}`,
       })),
     ],
   });

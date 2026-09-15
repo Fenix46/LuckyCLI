@@ -155,6 +155,7 @@ describe("slashMenuEntries", () => {
       "/checkpoint",
       "/undo",
       "/verify",
+      "/review",
       "/restore",
     ]);
     expect(entries.every((e) => e.desc.length > 0)).toBe(true);
