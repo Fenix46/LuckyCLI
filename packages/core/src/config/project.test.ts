@@ -11,13 +11,14 @@ describe("project configuration", () => {
     try {
       await mkdir(join(cwd, ".lucky"));
       await writeFile(join(cwd, ".lucky/config.json"), JSON.stringify({
-        provider: "ollama", model: "project-model", graph: { exclude: ["vendor"] },
+        provider: "ollama", model: "project-model", checks: ["npm test"], graph: { exclude: ["vendor"] },
         skills: ["code-review"], permissions: { exec: "deny" },
       }));
       const project = loadProjectConfig(cwd);
       expect(project).toMatchObject({ provider: "ollama", model: "project-model", graphExclusions: ["vendor"], skills: ["code-review"], permissions: { exec: "deny" } });
       const global = { provider: "ollama" as const, model: "global-model", credentials: { ollama: { type: "ollama" as const, baseUrl: "http://localhost" } } };
       expect(resolveConfig({}, global, {}, cwd).model).toBe("project-model");
+      expect(resolveConfig({}, global, {}, cwd)).toMatchObject({ checks: ["npm test"], graphExclusions: ["vendor"], skills: ["code-review"] });
       expect(resolveConfig({ model: "flag-model" }, global, {}, cwd).model).toBe("flag-model");
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });

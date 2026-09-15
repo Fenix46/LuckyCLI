@@ -38,6 +38,10 @@ export interface ResolvedConfig {
   credentials?: ProviderCredentials;
   mcp: Record<string, McpServerConfig>;
   permissions: ToolPermissionPolicy;
+  /** Project-scoped workflow and graph settings, when configured. */
+  checks?: string[];
+  graphExclusions?: string[];
+  skills?: string[];
   needsSetup: boolean;
 }
 
@@ -100,6 +104,9 @@ export function resolveConfig(
     ...(env.LUCKY_MAX_TOKENS ? { maxTokens: Number(env.LUCKY_MAX_TOKENS) } : {}),
     ...(credentials ? { credentials } : {}),
     mcp: normalizeMcpServers({ ...stored.mcp, ...project.mcp }),
+    ...(project.checks ? { checks: project.checks } : {}),
+    ...(project.graphExclusions ? { graphExclusions: project.graphExclusions } : {}),
+    ...(project.skills ? { skills: project.skills } : {}),
     permissions: {
       ...DEFAULT_TOOL_PERMISSION_POLICY,
       ...(stored.permissions ?? {}),
