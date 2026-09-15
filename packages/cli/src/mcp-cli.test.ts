@@ -32,9 +32,12 @@ describe("mcpStatusLines", () => {
     const lines = mcpStatusLines(
       { docs: { status: "connected" }, api: { status: "failed", error: "401 unauthorized" } },
       { docs: 3, api: 0 },
+      { docs: { prompts: 1, resources: 2 } },
     );
     expect(lines[0]).toContain("connected");
     expect(lines[0]).toContain("3 tools");
+    expect(lines[0]).toContain("1 prompts");
+    expect(lines[0]).toContain("2 resources");
     expect(lines[1]).toContain("failed");
     expect(lines[1]).toContain("401 unauthorized");
   });
