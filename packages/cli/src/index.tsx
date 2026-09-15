@@ -23,6 +23,7 @@ import { Root } from "./ui/Root.js";
 import { runAcpCommand } from "./acp/acp-cli.js";
 import { runMcpCommand } from "./mcp-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
+import { runCommand } from "./run-cli.js";
 import { applyStagedUpdateIfAny } from "@luckycli/core";
 
 const HELP = `lucky — a multi-provider terminal agent
@@ -53,6 +54,8 @@ Commands:
   update                check for a newer release
   update --apply        download, verify, and install the latest release
   update --auto <mode>  set auto-update: off | notify | auto (default auto)
+  run <prompt>          run one prompt without the interactive TUI
+  run --file <path>     read the prompt from a file or stdin
 `;
 
 function printSessions(): void {
@@ -176,6 +179,16 @@ function main(): void {
       })
       .catch((err) => {
         process.stderr.write(`update failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
+    return;
+  }
+
+  if (rawArgs[0] === "run") {
+    runCommand(rawArgs.slice(1))
+      .then((code) => { if (code !== 0) process.exit(code); })
+      .catch((err) => {
+        process.stderr.write(`run failed: ${err instanceof Error ? err.message : err}\n`);
         process.exit(1);
       });
     return;
