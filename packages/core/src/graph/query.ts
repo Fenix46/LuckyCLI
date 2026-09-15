@@ -103,6 +103,33 @@ export function neighborsOf(graph: Graph, id: string): Neighbor[] {
   return out;
 }
 
+export interface GraphImpact {
+  node: GraphNode;
+  neighbors: Neighbor[];
+}
+
+/**
+ * Resolve a query and return its immediate dependency impact. Results are
+ * deterministic and bounded so callers can render them safely in a prompt or
+ * terminal without accidentally expanding the whole graph.
+ */
+export function impactOf(graph: Graph, query: string, limit = 50): GraphImpact[] {
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error("Graph impact limit must be a positive integer.");
+  }
+  return resolveNodes(graph, query).map((node) => ({
+    node,
+    neighbors: neighborsOf(graph, node.id)
+      .sort(
+        (a, b) =>
+          a.relation.localeCompare(b.relation) ||
+          a.direction.localeCompare(b.direction) ||
+          a.node.label.localeCompare(b.node.label),
+      )
+      .slice(0, limit),
+  }));
+}
+
 /** Total degree (edges where the node is an endpoint) for every node. */
 function degrees(graph: Graph): Map<string, number> {
   const degree = new Map<string, number>();

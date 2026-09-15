@@ -244,12 +244,13 @@ export {
   callersOf,
   calleesOf,
   godNodes,
+  impactOf,
   neighborsOf,
   resolveNodes,
   summarize,
   topModules,
 } from "./graph/query.js";
-export type { GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
+export type { GraphImpact, GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
 export { renderGraphHtml } from "./graph/view.js";
 export {
   GraphContextEnricher,
