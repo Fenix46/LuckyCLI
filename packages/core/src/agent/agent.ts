@@ -383,7 +383,9 @@ export class Agent {
               throw err;
             }
             attempts += 1;
-            await sleep(TRANSIENT_RETRY_BACKOFF_MS * 2 ** (attempts - 1));
+            const delayMs = TRANSIENT_RETRY_BACKOFF_MS * 2 ** (attempts - 1);
+            yield { type: "retry", attempt: attempts, maxAttempts: MAX_TRANSIENT_RETRIES, delayMs };
+            await sleep(delayMs);
             if (signal?.aborted) throw err;
           }
         }

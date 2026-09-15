@@ -191,6 +191,19 @@ export function useTurnRunner({
                 },
               ]);
             },
+            onRetry: (attempt, maxAttempts, delayMs) => {
+              flushAssistant();
+              appendItems([
+                {
+                  kind: "command",
+                  title: "Provider Retry",
+                  rows: [
+                    { label: "attempt", value: `${attempt}/${maxAttempts}` },
+                    { label: "backoff", value: `${formatNumber(delayMs)} ms` },
+                  ],
+                },
+              ]);
+            },
             onTurnEnd: (usage) => {
               if (usage) onUsage(usage);
             },

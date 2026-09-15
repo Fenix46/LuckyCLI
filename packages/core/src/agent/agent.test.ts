@@ -776,6 +776,12 @@ describe("Agent loop", () => {
     expect(calls).toBe(2);
     expect(events.some((e) => e.type === "error")).toBe(false);
     expect(events.some((e) => e.type === "text" && e.delta === "recovered")).toBe(true);
+    expect(events.find((e) => e.type === "retry")).toEqual({
+      type: "retry",
+      attempt: 1,
+      maxAttempts: 2,
+      delayMs: 500,
+    });
   });
 
   it("gives up on a persistently transient provider error", async () => {

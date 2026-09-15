@@ -8,6 +8,7 @@ export interface EventHandlers {
   onError: (message: string) => void;
   onContext: (status: ContextStatus) => void;
   onCompacted: (result: { beforeTokens?: number; afterTokens?: number; removedMessages: number; keptMessages: number }) => void;
+  onRetry: (attempt: number, maxAttempts: number, delayMs: number) => void;
   onTurnEnd: (usage?: TokenUsage) => void;
   onAborted: () => void;
 }
@@ -35,6 +36,9 @@ export function handleEvent(event: AgentEvent, h: EventHandlers): void {
       break;
     case "context_compacted":
       h.onCompacted(event.result);
+      break;
+    case "retry":
+      h.onRetry(event.attempt, event.maxAttempts, event.delayMs);
       break;
     case "turn_end":
       h.onTurnEnd(event.usage);
