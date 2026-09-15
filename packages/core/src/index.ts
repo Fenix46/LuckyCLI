@@ -347,6 +347,8 @@ export {
   resolveCredentials,
 } from "./config/config.js";
 export type { CliOverrides, ResolvedConfig } from "./config/config.js";
+export { loadProjectConfig, ProjectConfigSchema } from "./config/project.js";
+export type { ProjectConfig } from "./config/project.js";
 
 // Prompt assembly — composed from the section files in ./prompts.
 export {
