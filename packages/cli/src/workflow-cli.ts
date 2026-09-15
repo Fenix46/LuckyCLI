@@ -1,12 +1,14 @@
-import { buildReviewPrompt, collectReviewDiff, parseReviewResponse, resolveConfig, runVerification, type Agent, type ResolvedConfig } from "@luckycli/core";
+import { buildReviewPrompt, collectReviewDiff, parseReviewResponse, resolveConfig, runVerification, type Agent, type ResolvedConfig, type ReviewDiffResult, type VerificationResult } from "@luckycli/core";
 import { buildAgent } from "./runtime.js";
 import { formatMachineEvent, parseOutputFormat, type OutputFormat } from "./output.js";
 
-interface WorkflowCliIO {
+export interface WorkflowCliIO {
   out?: (text: string) => void;
   err?: (text: string) => void;
   resolve?: (flags: { provider?: string; model?: string }) => ResolvedConfig;
   build?: (config: ResolvedConfig) => Agent;
+  collect?: typeof collectReviewDiff;
+  verify?: typeof runVerification;
 }
 
 export async function runVerifyCommand(args: string[], io: WorkflowCliIO = {}): Promise<number> {
@@ -17,7 +19,7 @@ export async function runVerifyCommand(args: string[], io: WorkflowCliIO = {}): 
     err(`${error instanceof Error ? error.message : String(error)}\n`); return 1;
   }
   try {
-    const result = await runVerification(process.cwd());
+    const result = await (io.verify ?? runVerification)(process.cwd());
     if (format === "text") out(`${result.status} (${result.checks.length} checks)\n`);
     else if (format === "json") out(`${formatMachineEvent({ type: "result", command: "verify", status: result.status, result })}\n`);
     else {
@@ -38,7 +40,7 @@ export async function runReviewCommand(args: string[], io: WorkflowCliIO = {}): 
   const format = parseOutputFormat(option(args, "--format") ?? option(args, "-f"));
   const source = args.includes("head") ? "head" as const : "unstaged" as const;
   try {
-    const diff = await collectReviewDiff({ cwd: process.cwd(), source });
+    const diff = await (io.collect ?? collectReviewDiff)({ cwd: process.cwd(), source });
     if (diff.files.length === 0) {
       if (format === "text") out("no diff available\n"); else out(`${formatMachineEvent({ type: "result", command: "review", status: "empty", findings: [] })}\n`);
       return 0;
