@@ -211,6 +211,7 @@ export function ItemView({
         <StatusView
           provider={item.provider}
           context={item.context}
+          costRates={item.costRates}
           theme={theme}
           width={width}
         />

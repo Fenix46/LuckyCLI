@@ -68,6 +68,18 @@ describe("session store", () => {
     expect(loadSession(session.id)).toEqual(session);
   });
 
+  it("round-trips optional usage and retry metrics", () => {
+    const session = makeSession({
+      usage: { inputTokens: 1200, outputTokens: 340, cacheReadTokens: 80 },
+      retryCount: 2,
+    });
+    saveSession(session);
+    expect(loadSession(session.id)).toMatchObject({
+      usage: { inputTokens: 1200, outputTokens: 340, cacheReadTokens: 80 },
+      retryCount: 2,
+    });
+  });
+
   it("returns undefined for a missing session", () => {
     expect(loadSession("ses_nope")).toBeUndefined();
   });

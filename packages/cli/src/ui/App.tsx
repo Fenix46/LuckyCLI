@@ -11,6 +11,7 @@ import {
   type ProviderQuotaStatus,
   type Session,
   type TokenUsage,
+  type TokenCostRates,
   type ToolResultMetadata,
   claudeEffortLevelsForModel,
   createSessionId,
@@ -111,6 +112,7 @@ interface AppProps {
   planRequest: PlanRequest | null;
   agentUsage: AgentUsageMap;
   mcpManager?: McpManager;
+  tokenCosts?: Record<string, TokenCostRates>;
   mcpConfig: Record<string, McpServerConfig>;
   onMcpConfigChange: (nextMcpConfig: Record<string, McpServerConfig>) => void;
   onTriggerSetup: () => void;
@@ -137,6 +139,7 @@ export function App({
   planRequest,
   agentUsage,
   mcpManager,
+  tokenCosts,
   mcpConfig,
   onMcpConfigChange,
   onTriggerSetup,
@@ -204,6 +207,8 @@ export function App({
         createdAt: sessionCreatedAtRef.current,
         updatedAt: Date.now(),
         messages,
+        usage: agent.totalTokenUsage,
+        retryCount: agent.totalRetryCount,
       });
     } catch {
       // persistence is best-effort; never break the session over a write error
@@ -769,6 +774,7 @@ export function App({
             contextStatus,
           },
           ui: {
+            tokenCosts,
             openMcpPanel: mcpPanel.open,
             openSkillPanel: skillPanel.open,
             openAgentsPanel: agentsPanel.open,

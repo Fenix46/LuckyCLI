@@ -99,6 +99,10 @@ export interface AgentConfig {
   enrichTurn?: (userText: string) => Promise<string | null> | string | null;
   /** Prior conversation to resume from. Copied into the history on construction. */
   messages?: Message[];
+  /** Cumulative usage restored from a persisted session. */
+  initialUsage?: TokenUsage;
+  /** Retry count restored from a persisted session. */
+  initialRetryCount?: number;
 }
 
 export type ToolApproval = "allow" | "always" | "deny" | boolean;
@@ -152,6 +156,7 @@ export class Agent {
   /** Consecutive failures per tool-call signature, reset on success. */
   private readonly repeatedToolFailures = new Map<string, number>();
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  private retryCount = 0;
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -184,6 +189,8 @@ export class Agent {
     this.verificationSessionId = cfg.verificationSessionId;
     this.onSkillLoaded = cfg.onSkillLoaded;
     this.allowedSkills = cfg.allowedSkills;
+    this.totalUsage = { ...this.totalUsage, ...(cfg.initialUsage ?? {}) };
+    this.retryCount = cfg.initialRetryCount ?? 0;
     this.readTextFile = cfg.readTextFile;
     this.writeTextFile = cfg.writeTextFile;
     this.enrichTurn = cfg.enrichTurn;
@@ -198,6 +205,10 @@ export class Agent {
   /** Cumulative token usage across every turn this agent has run. */
   get totalTokenUsage(): TokenUsage {
     return { ...this.totalUsage };
+  }
+
+  get totalRetryCount(): number {
+    return this.retryCount;
   }
 
   private currentModelInfo(): ModelInfo {
@@ -383,6 +394,7 @@ export class Agent {
               throw err;
             }
             attempts += 1;
+            this.retryCount += 1;
             const delayMs = TRANSIENT_RETRY_BACKOFF_MS * 2 ** (attempts - 1);
             yield { type: "retry", attempt: attempts, maxAttempts: MAX_TRANSIENT_RETRIES, delayMs };
             await sleep(delayMs);

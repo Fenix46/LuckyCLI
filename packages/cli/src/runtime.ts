@@ -106,6 +106,8 @@ export interface BuildAgentOptions {
   toolRegistry?: RuntimeToolRegistry;
   /** Prior conversation to resume from (e.g. a loaded session). */
   messages?: Message[];
+  initialUsage?: import("@luckycli/core").TokenUsage;
+  initialRetryCount?: number;
   /**
    * Session skill activator. Shared between the agent (so skill_load marks a
    * skill active) and the UI turn loop (so it augments the user turn). When
@@ -221,6 +223,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.thinkingEnabled !== undefined ? { thinkingEnabled: opts.thinkingEnabled } : {}),
     ...(opts.messages?.length ? { messages: opts.messages } : {}),
+    ...(opts.initialUsage ? { initialUsage: opts.initialUsage } : {}),
+    ...(opts.initialRetryCount !== undefined ? { initialRetryCount: opts.initialRetryCount } : {}),
   });
 }
 

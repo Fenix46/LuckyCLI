@@ -1,4 +1,4 @@
-import type { ContextStatus, ProviderQuotaStatus, ProviderStatus } from "@luckycli/core";
+import { estimateTokenCost, type ContextStatus, type ProviderQuotaStatus, type ProviderStatus, type TokenCostRates } from "@luckycli/core";
 import type { CommandRow } from "./items.js";
 import { formatNumber, prettyCwd } from "./format.js";
 
@@ -103,6 +103,22 @@ export function totalUsageDetail(context: ContextStatus): string | undefined {
     parts.push(`${formatNumber(context.totalCacheWriteTokens)} cache write`);
   }
   return parts.join(" · ");
+}
+
+export function estimatedCostDetail(context: ContextStatus, rates: TokenCostRates): string | undefined {
+  if (context.totalInputTokens === undefined || context.totalOutputTokens === undefined) {
+    return undefined;
+  }
+  const estimate = estimateTokenCost(
+    {
+      inputTokens: context.totalInputTokens,
+      outputTokens: context.totalOutputTokens,
+      ...(context.totalCacheReadTokens !== undefined ? { cacheReadTokens: context.totalCacheReadTokens } : {}),
+      ...(context.totalCacheWriteTokens !== undefined ? { cacheWriteTokens: context.totalCacheWriteTokens } : {}),
+    },
+    rates,
+  );
+  return `${estimate.total.toFixed(6)} ${rates.currency ?? "configured units"}`;
 }
 
 export function quotaUsedPercent(quota: ProviderQuotaStatus): number | undefined {

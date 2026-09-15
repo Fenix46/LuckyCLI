@@ -1,6 +1,7 @@
 import type { TokenUsage } from "./providers/types.js";
 
 export interface TokenCostRates {
+  currency?: string;
   inputPerMillion: number;
   outputPerMillion: number;
   cacheReadPerMillion?: number;

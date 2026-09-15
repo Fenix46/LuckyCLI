@@ -7,6 +7,7 @@ import type { TokenCostRates } from "../usage-cost.js";
 
 const PermissionSchema = z.enum(["allow", "ask", "deny"]);
 const TokenCostRatesSchema = z.object({
+  currency: z.string().min(1).optional(),
   inputPerMillion: z.number().finite().nonnegative(),
   outputPerMillion: z.number().finite().nonnegative(),
   cacheReadPerMillion: z.number().finite().nonnegative().optional(),

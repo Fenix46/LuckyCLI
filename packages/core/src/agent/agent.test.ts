@@ -149,6 +149,19 @@ function toolCallStep(id: string): StreamChunk[] {
 }
 
 describe("Agent loop", () => {
+  it("starts with persisted usage and retry metrics", () => {
+    const agent = new Agent({
+      provider: new ScriptedProvider([]),
+      model: "mock",
+      tools: new ToolRegistry(),
+      initialUsage: { inputTokens: 120, outputTokens: 30, cacheReadTokens: 4 },
+      initialRetryCount: 2,
+    });
+
+    expect(agent.totalTokenUsage).toEqual({ inputTokens: 120, outputTokens: 30, cacheReadTokens: 4, cacheWriteTokens: 0 });
+    expect(agent.totalRetryCount).toBe(2);
+  });
+
   it("streams text and finishes a simple turn", async () => {
     const provider = new ScriptedProvider([
       [

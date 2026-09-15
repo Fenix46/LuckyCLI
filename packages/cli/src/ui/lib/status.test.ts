@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { totalUsageDetail } from "./status.js";
+import { estimatedCostDetail, totalUsageDetail } from "./status.js";
 
 describe("totalUsageDetail", () => {
   it("formats cumulative input, output, and cache usage", () => {
@@ -17,5 +17,22 @@ describe("totalUsageDetail", () => {
 
   it("stays hidden when cumulative usage is unavailable", () => {
     expect(totalUsageDetail({ model: "test", tokenCounter: "unavailable" })).toBeUndefined();
+  });
+});
+
+describe("estimatedCostDetail", () => {
+  it("formats the configured cumulative token cost", () => {
+    expect(
+      estimatedCostDetail(
+        { model: "test", tokenCounter: "provider", totalInputTokens: 1_000_000, totalOutputTokens: 500_000 },
+        { currency: "USD", inputPerMillion: 2, outputPerMillion: 4 },
+      ),
+    ).toBe("4.000000 USD");
+  });
+
+  it("stays hidden until both cumulative totals are available", () => {
+    expect(
+      estimatedCostDetail({ model: "test", tokenCounter: "provider", totalInputTokens: 10 }, { inputPerMillion: 1, outputPerMillion: 1 }),
+    ).toBeUndefined();
   });
 });

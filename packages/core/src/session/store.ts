@@ -21,7 +21,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Message, ProviderId } from "../providers/types.js";
+import type { Message, ProviderId, TokenUsage } from "../providers/types.js";
 import { CheckpointSchema, type Checkpoint } from "../workflow/types.js";
 
 const SESSION_ID_RE = /^ses_[a-z0-9]+_[a-z0-9]+$/;
@@ -48,6 +48,10 @@ export interface Session {
   messages: Message[];
   /** Optional for backwards compatibility with sessions saved before checkpoints. */
   checkpoints?: Checkpoint[];
+  /** Cumulative provider usage, optional for backwards compatibility. */
+  usage?: TokenUsage;
+  /** Number of transient provider retries across the session. */
+  retryCount?: number;
 }
 
 export function sessionsDirPath(): string {
