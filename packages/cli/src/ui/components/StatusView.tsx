@@ -10,6 +10,7 @@ import {
   quotaLabel,
   quotaUsedPercent,
   quotaResetDetail,
+  totalUsageDetail,
 } from "../lib/status.js";
 
 export function StatusView({
@@ -64,6 +65,12 @@ export function StatusView({
           theme={theme}
           width={panelWidth - 8}
         />
+
+        {totalUsageDetail(context) ? (
+          <Box marginTop={1}>
+            <Text color={theme.muted}>Session usage: {totalUsageDetail(context)}</Text>
+          </Box>
+        ) : null}
 
         {provider.quotas?.length ? (
           <Box flexDirection="column">

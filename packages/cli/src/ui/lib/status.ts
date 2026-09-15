@@ -88,6 +88,23 @@ export function contextDetail(context: ContextStatus): string | undefined {
   return undefined;
 }
 
+export function totalUsageDetail(context: ContextStatus): string | undefined {
+  if (context.totalInputTokens === undefined && context.totalOutputTokens === undefined) {
+    return undefined;
+  }
+  const parts = [
+    `${formatNumber(context.totalInputTokens ?? 0)} in`,
+    `${formatNumber(context.totalOutputTokens ?? 0)} out`,
+  ];
+  if (context.totalCacheReadTokens !== undefined) {
+    parts.push(`${formatNumber(context.totalCacheReadTokens)} cache read`);
+  }
+  if (context.totalCacheWriteTokens !== undefined) {
+    parts.push(`${formatNumber(context.totalCacheWriteTokens)} cache write`);
+  }
+  return parts.join(" · ");
+}
+
 export function quotaUsedPercent(quota: ProviderQuotaStatus): number | undefined {
   const match = quota.remaining?.match(/\((\d+)% used\)/);
   if (match?.[1]) return Number(match[1]);
