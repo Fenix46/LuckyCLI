@@ -21,7 +21,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Message, ProviderId } from "../providers/types.js";
+import type { Message, ProviderId, TokenUsage } from "../providers/types.js";
+import { CheckpointSchema, type Checkpoint } from "../workflow/types.js";
 
 const SESSION_ID_RE = /^ses_[a-z0-9]+_[a-z0-9]+$/;
 
@@ -45,6 +46,12 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   messages: Message[];
+  /** Optional for backwards compatibility with sessions saved before checkpoints. */
+  checkpoints?: Checkpoint[];
+  /** Cumulative provider usage, optional for backwards compatibility. */
+  usage?: TokenUsage;
+  /** Number of transient provider retries across the session. */
+  retryCount?: number;
 }
 
 export function sessionsDirPath(): string {
@@ -166,4 +173,63 @@ export function deleteSession(id: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Attach or replace a checkpoint in a persisted session. */
+export function attachSessionCheckpoint(
+  sessionId: string,
+  checkpoint: Checkpoint,
+): boolean {
+  const session = loadSession(sessionId);
+  if (!session) return false;
+  CheckpointSchema.parse(checkpoint);
+  if (checkpoint.sessionId !== sessionId) {
+    throw new Error("Checkpoint does not belong to the session.");
+  }
+  const checkpoints = session.checkpoints ? [...session.checkpoints] : [];
+  const index = checkpoints.findIndex((entry) => entry.id === checkpoint.id);
+  if (index === -1) checkpoints.push(checkpoint);
+  else checkpoints[index] = checkpoint;
+  session.checkpoints = checkpoints;
+  session.updatedAt = Date.now();
+  saveSession(session);
+  return true;
+}
+
+/** List valid checkpoints for a session, newest first. Corrupt entries are skipped. */
+export function listSessionCheckpoints(sessionId: string): Checkpoint[] {
+  const session = loadSession(sessionId);
+  if (!session?.checkpoints) return [];
+  return session.checkpoints
+    .flatMap((entry) => {
+      const parsed = CheckpointSchema.safeParse(entry);
+      return parsed.success ? [parsed.data] : [];
+    })
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Load one checkpoint and report corruption instead of silently restoring it. */
+export function getSessionCheckpoint(
+  sessionId: string,
+  checkpointId: string,
+): Checkpoint | undefined {
+  const session = loadSession(sessionId);
+  const entry = session?.checkpoints?.find((checkpoint) => checkpoint.id === checkpointId);
+  if (!entry) return undefined;
+  return CheckpointSchema.parse(entry);
+}
+
+/** Remove one checkpoint reference from a persisted session. */
+export function removeSessionCheckpoint(
+  sessionId: string,
+  checkpointId: string,
+): boolean {
+  const session = loadSession(sessionId);
+  if (!session?.checkpoints) return false;
+  const checkpoints = session.checkpoints.filter((checkpoint) => checkpoint.id !== checkpointId);
+  if (checkpoints.length === session.checkpoints.length) return false;
+  session.checkpoints = checkpoints;
+  session.updatedAt = Date.now();
+  saveSession(session);
+  return true;
 }

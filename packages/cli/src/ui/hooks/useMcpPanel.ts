@@ -6,6 +6,9 @@ import {
   withMcpServer,
   withoutMcpServer,
   type CatalogServerSummary,
+  type McpManager,
+  type McpPromptDescriptor,
+  type McpResourceDescriptor,
   type McpServerConfig,
 } from "@luckycli/core";
 import { installCatalogServer } from "../commands/mcp.js";
@@ -22,6 +25,7 @@ export function toggleTab(tab: McpPanelTab): McpPanelTab {
 export interface UseMcpPanelOptions {
   mcpConfig: Record<string, McpServerConfig>;
   mcpStatus: Record<string, { status: string; error?: string }>;
+  mcpManager?: McpManager;
   onMcpConfigChange(next: Record<string, McpServerConfig>): void;
   emit(item: Item): void;
 }
@@ -41,6 +45,13 @@ export interface McpPanelController {
     selectedSearchIndex: number;
     loading: boolean;
     error: string | null;
+    capabilityDetails: {
+      server: string;
+      prompts: McpPromptDescriptor[];
+      resources: McpResourceDescriptor[];
+      loading: boolean;
+      error: string | null;
+    } | null;
   };
 }
 
@@ -50,7 +61,7 @@ export interface McpPanelController {
  * only the open() call and the render slot.
  */
 export function useMcpPanel(options: UseMcpPanelOptions): McpPanelController {
-  const { mcpConfig, mcpStatus, onMcpConfigChange, emit } = options;
+  const { mcpConfig, mcpStatus, mcpManager, onMcpConfigChange, emit } = options;
   const [isOpen, setIsOpen] = useState(false);
   const [tab, setTab] = useState<McpPanelTab>("installed");
   const [query, setQuery] = useState("");
@@ -59,6 +70,8 @@ export function useMcpPanel(options: UseMcpPanelOptions): McpPanelController {
   const [error, setError] = useState<string | null>(null);
   const [selectedInstalledIndex, setSelectedInstalledIndex] = useState(0);
   const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
+  const [capabilityDetails, setCapabilityDetails] = useState<McpPanelController["panelProps"]["capabilityDetails"]>(null);
+  const [capabilityRefresh, setCapabilityRefresh] = useState(0);
 
   useEffect(() => {
     setSelectedInstalledIndex(0);
@@ -105,6 +118,40 @@ export function useMcpPanel(options: UseMcpPanelOptions): McpPanelController {
   }, [isOpen, tab, query]);
 
   const installedRows = buildInstalledMcpRows(mcpConfig, mcpStatus);
+  const selectedInstalledServer = installedRows[selectedInstalledIndex]?.name;
+  const selectedInstalledStatus = selectedInstalledServer
+    ? mcpStatus[selectedInstalledServer]?.status
+    : undefined;
+
+  useEffect(() => {
+    if (!isOpen || tab !== "installed" || !mcpManager || !selectedInstalledServer || selectedInstalledStatus !== "connected") {
+      setCapabilityDetails(null);
+      return;
+    }
+    let cancelled = false;
+    setCapabilityDetails({ server: selectedInstalledServer, prompts: [], resources: [], loading: true, error: null });
+    void Promise.all([
+      mcpManager.listPrompts(selectedInstalledServer),
+      mcpManager.listResources(selectedInstalledServer),
+    ])
+      .then(([prompts, resources]) => {
+        if (cancelled) return;
+        setCapabilityDetails({ server: selectedInstalledServer, prompts, resources, loading: false, error: null });
+      })
+      .catch((detailsError) => {
+        if (cancelled) return;
+        setCapabilityDetails({
+          server: selectedInstalledServer,
+          prompts: [],
+          resources: [],
+          loading: false,
+          error: detailsError instanceof Error ? detailsError.message : String(detailsError),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [capabilityRefresh, isOpen, mcpManager, selectedInstalledServer, selectedInstalledStatus, tab]);
 
   const open = useCallback((nextTab: McpPanelTab, nextQuery = "") => {
     setIsOpen(true);
@@ -179,6 +226,7 @@ export function useMcpPanel(options: UseMcpPanelOptions): McpPanelController {
           return true;
         }
         if (_in === "r" || _in === "R") {
+          setCapabilityRefresh((prev) => prev + 1);
           onMcpConfigChange(mcpConfig);
           emit({
             kind: "command",
@@ -238,6 +286,7 @@ export function useMcpPanel(options: UseMcpPanelOptions): McpPanelController {
       selectedSearchIndex,
       loading,
       error,
+      capabilityDetails,
     },
   };
 }

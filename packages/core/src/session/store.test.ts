@@ -3,14 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Message } from "../providers/types.js";
+import type { Checkpoint } from "../workflow/types.js";
 import {
+  attachSessionCheckpoint,
   createSessionId,
   deleteSession,
+  getSessionCheckpoint,
   deriveTitle,
   isValidSessionId,
   latestSession,
   listSessions,
+  listSessionCheckpoints,
   loadSession,
+  removeSessionCheckpoint,
   saveSession,
   sessionsDirPath,
   type Session,
@@ -27,6 +32,19 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     createdAt: now,
     updatedAt: now,
     messages: [{ role: "user", content: [{ type: "text", text: "hello there" }] }],
+    ...overrides,
+  };
+}
+
+function makeCheckpoint(sessionId: string, overrides: Partial<Checkpoint> = {}): Checkpoint {
+  return {
+    id: "checkpoint-1",
+    sessionId,
+    cwd: "/project",
+    title: "Before edit",
+    createdAt: 100,
+    status: "passed",
+    files: [],
     ...overrides,
   };
 }
@@ -48,6 +66,18 @@ describe("session store", () => {
     const session = makeSession();
     saveSession(session);
     expect(loadSession(session.id)).toEqual(session);
+  });
+
+  it("round-trips optional usage and retry metrics", () => {
+    const session = makeSession({
+      usage: { inputTokens: 1200, outputTokens: 340, cacheReadTokens: 80 },
+      retryCount: 2,
+    });
+    saveSession(session);
+    expect(loadSession(session.id)).toMatchObject({
+      usage: { inputTokens: 1200, outputTokens: 340, cacheReadTokens: 80 },
+      retryCount: 2,
+    });
   });
 
   it("returns undefined for a missing session", () => {
@@ -111,5 +141,53 @@ describe("session store", () => {
     );
 
     expect(listSessions()).toEqual([]);
+  });
+
+  it("attaches, lists, replaces and removes session checkpoints", () => {
+    const session = makeSession();
+    saveSession(session);
+    const older = makeCheckpoint(session.id, { createdAt: 100 });
+    const newer = makeCheckpoint(session.id, { id: "checkpoint-2", createdAt: 200 });
+
+    expect(attachSessionCheckpoint(session.id, older)).toBe(true);
+    expect(attachSessionCheckpoint(session.id, newer)).toBe(true);
+    expect(listSessionCheckpoints(session.id).map((entry) => entry.id)).toEqual([
+      "checkpoint-2",
+      "checkpoint-1",
+    ]);
+    expect(getSessionCheckpoint(session.id, "checkpoint-1")).toEqual(older);
+    expect(attachSessionCheckpoint(session.id, { ...older, title: "Updated" })).toBe(true);
+    expect(getSessionCheckpoint(session.id, "checkpoint-1")?.title).toBe("Updated");
+    expect(removeSessionCheckpoint(session.id, "checkpoint-1")).toBe(true);
+    expect(getSessionCheckpoint(session.id, "checkpoint-1")).toBeUndefined();
+  });
+
+  it("keeps checkpoint lists isolated and accepts legacy sessions", () => {
+    const first = makeSession();
+    const second = makeSession();
+    saveSession(first);
+    saveSession(second);
+    attachSessionCheckpoint(first.id, makeCheckpoint(first.id));
+
+    expect(listSessionCheckpoints(second.id)).toEqual([]);
+    expect(attachSessionCheckpoint("ses_missing_123", makeCheckpoint("ses_missing_123"))).toBe(false);
+    expect(loadSession(first.id)).toMatchObject({ checkpoints: [makeCheckpoint(first.id)] });
+    expect(loadSession(second.id)).not.toHaveProperty("checkpoints");
+  });
+
+  it("skips corrupt checkpoints in lists and reports them when requested", () => {
+    const session = makeSession({
+      checkpoints: [
+        { ...makeCheckpoint("wrong-session"), id: "broken", createdAt: -1 },
+      ],
+    });
+    session.checkpoints = [
+      makeCheckpoint(session.id),
+      { ...makeCheckpoint(session.id), id: "broken", createdAt: -1 },
+    ];
+    saveSession(session);
+
+    expect(listSessionCheckpoints(session.id).map((entry) => entry.id)).toEqual(["checkpoint-1"]);
+    expect(() => getSessionCheckpoint(session.id, "broken")).toThrow();
   });
 });

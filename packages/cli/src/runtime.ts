@@ -78,6 +78,7 @@ export interface BuildAgentOptions {
   maxTokens?: number;
   reasoningEffort?: string;
   thinkingEnabled?: boolean;
+  allowedSkills?: readonly string[];
   permissions?: ToolPermissionPolicy;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
@@ -105,6 +106,8 @@ export interface BuildAgentOptions {
   toolRegistry?: RuntimeToolRegistry;
   /** Prior conversation to resume from (e.g. a loaded session). */
   messages?: Message[];
+  initialUsage?: import("@luckycli/core").TokenUsage;
+  initialRetryCount?: number;
   /**
    * Session skill activator. Shared between the agent (so skill_load marks a
    * skill active) and the UI turn loop (so it augments the user turn). When
@@ -175,7 +178,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const cwd = opts.cwd ?? process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
-  const skillActivator = opts.skillActivator ?? new SkillActivator();
+  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
 
   // Optionally recompose the system prompt from this session's context so the
@@ -205,6 +208,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     tools,
     system: appendProjectMemoryToSystemPrompt(composed, projectMemory),
     permissions: opts.permissions,
+    ...(opts.allowedSkills ? { allowedSkills: opts.allowedSkills } : {}),
     approveTool: opts.approveTool,
     askUser: opts.askUser,
     ...(opts.presentPlan ? { presentPlan: opts.presentPlan } : {}),
@@ -219,6 +223,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.thinkingEnabled !== undefined ? { thinkingEnabled: opts.thinkingEnabled } : {}),
     ...(opts.messages?.length ? { messages: opts.messages } : {}),
+    ...(opts.initialUsage ? { initialUsage: opts.initialUsage } : {}),
+    ...(opts.initialRetryCount !== undefined ? { initialRetryCount: opts.initialRetryCount } : {}),
   });
 }
 
@@ -234,7 +240,7 @@ export async function buildAgentRuntime(
   // are picked up without rebuilding. This keeps session startup instant even
   // when a server is slow (e.g. first-run `npx` downloads) or wedged.
   const registry = createRuntimeToolRegistry(opts.extraTools);
-  const skillActivator = opts.skillActivator ?? new SkillActivator();
+  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
   const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator, graphEnricher });
 

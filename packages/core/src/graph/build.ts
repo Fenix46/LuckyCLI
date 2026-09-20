@@ -15,6 +15,7 @@ import { collectFiles } from "./detect.js";
 import { extractorFor } from "./extract/index.js";
 import { parse } from "./extract/parser.js";
 import { saveGraph } from "./store.js";
+import { loadProjectConfig } from "../config/project.js";
 import {
   type CallCandidate,
   type Graph,
@@ -38,6 +39,7 @@ export interface BuildProgress {
 
 export interface BuildOptions {
   signal?: AbortSignal;
+  exclude?: string[];
   onProgress?: (progress: BuildProgress) => void;
 }
 
@@ -55,7 +57,7 @@ export interface GraphBuildSummary {
 /** Build the project graph in memory without persisting it. */
 export async function buildGraph(cwd: string, options: BuildOptions = {}): Promise<GraphBuildSummary> {
   const root = resolve(cwd);
-  const files = await collectFiles(root, options.signal);
+  const files = await collectFiles(root, options.signal, options.exclude ?? loadProjectConfig(root).graphExclusions ?? []);
 
   const nodes = new Map<string, GraphNode>();
   const rawEdges: GraphEdge[] = [];

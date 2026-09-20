@@ -81,6 +81,82 @@ export type { AgentProfile, NewAgentProfile } from "./agents/profiles.js";
 export { runSubAgent } from "./agents/runner.js";
 export type { SubAgentRequest, SubAgentResult } from "./agents/runner.js";
 
+// Agent workflow contracts.
+export {
+  CheckpointFileSchema,
+  CheckpointSchema,
+  VerificationCheckSchema,
+  VerificationResultSchema,
+  WORKFLOW_STATUSES,
+  WorkflowStatusSchema,
+  parseCheckpoint,
+  parseVerificationResult,
+} from "./workflow/types.js";
+export type {
+  Checkpoint,
+  CheckpointFile,
+  VerificationCheck,
+  VerificationResult,
+  WorkflowStatus,
+} from "./workflow/types.js";
+export {
+  createSnapshot,
+  loadSnapshot,
+  readSnapshotFile,
+  SNAPSHOT_FORMAT_VERSION,
+} from "./workflow/snapshot.js";
+export type { CreateSnapshotOptions } from "./workflow/snapshot.js";
+export {
+  restoreSnapshot,
+  RestoreConflictError,
+  RESTORE_POLICIES,
+} from "./workflow/restore.js";
+export type {
+  RestoreConflict,
+  RestorePolicy,
+  RestoreResult,
+} from "./workflow/restore.js";
+export {
+  DEFAULT_VERIFICATION_OUTPUT_CHARS,
+  DEFAULT_VERIFICATION_TIMEOUT_MS,
+  resolveVerificationCommands,
+  runVerification,
+  runVerificationCommand,
+} from "./workflow/verify.js";
+export type {
+  VerificationCommand,
+  VerificationEvent,
+  VerificationRunnerOptions,
+  VerificationSource,
+} from "./workflow/verify.js";
+export {
+  collectReviewDiff,
+  DEFAULT_REVIEW_MAX_CHARS,
+  DEFAULT_REVIEW_MAX_FILES,
+} from "./workflow/review-diff.js";
+export type {
+  ReviewDiffFile,
+  ReviewDiffOptions,
+  ReviewDiffResult,
+  ReviewDiffSource,
+} from "./workflow/review-diff.js";
+export {
+  buildReviewPrompt,
+  parseReviewResponse,
+  REVIEW_CATEGORIES,
+  REVIEW_SEVERITIES,
+  ReviewFindingSchema,
+  ReviewReportSchema,
+} from "./workflow/review.js";
+export type { ReviewFinding, ReviewReport } from "./workflow/review.js";
+
+export {
+  attachSessionCheckpoint,
+  getSessionCheckpoint,
+  listSessionCheckpoints,
+  removeSessionCheckpoint,
+} from "./session/store.js";
+
 export {
   TASK_STATUSES,
   TaskSchema,
@@ -168,12 +244,15 @@ export {
   callersOf,
   calleesOf,
   godNodes,
+  impactOf,
   neighborsOf,
   resolveNodes,
   summarize,
   topModules,
 } from "./graph/query.js";
-export type { GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
+export type { GraphImpact, GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
+export { estimateTokenCost } from "./usage-cost.js";
+export type { TokenCostEstimate, TokenCostRates } from "./usage-cost.js";
 export { renderGraphHtml } from "./graph/view.js";
 export {
   GraphContextEnricher,
@@ -271,6 +350,8 @@ export {
   resolveCredentials,
 } from "./config/config.js";
 export type { CliOverrides, ResolvedConfig } from "./config/config.js";
+export { loadProjectConfig, ProjectConfigSchema } from "./config/project.js";
+export type { ProjectConfig } from "./config/project.js";
 
 // Prompt assembly — composed from the section files in ./prompts.
 export {
@@ -388,7 +469,7 @@ export {
 export { McpLocalClient } from "./mcp/local-client.js";
 export { McpRemoteClient } from "./mcp/remote-client.js";
 export type { McpClient } from "./mcp/client.js";
-export { McpManager } from "./mcp/manager.js";
+export { DEFAULT_MCP_CONTENT_CHARS, McpManager } from "./mcp/manager.js";
 export type { McpManagerOptions } from "./mcp/manager.js";
 export { McpOAuthProvider, nonInteractiveMcpOAuthProvider } from "./mcp/oauth-provider.js";
 export type { McpOAuthProviderOptions } from "./mcp/oauth-provider.js";

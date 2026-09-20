@@ -3,6 +3,7 @@ import {
   callersOf,
   calleesOf,
   godNodes,
+  impactOf,
   neighborsOf,
   resolveNodes,
   suggestNodes,
@@ -71,6 +72,17 @@ describe("graph query helpers", () => {
     expect(suggestNodes(g, "PLAYLISTFROM").map((n) => n.id)).toEqual(["f1"]);
     expect(suggestNodes(g, "nope")).toEqual([]);
     expect(suggestNodes(g, "")).toEqual([]);
+  });
+
+  it("returns deterministic, bounded impact neighbors", () => {
+    const impacts = impactOf(fixture(), "beta", 2);
+    expect(impacts).toHaveLength(1);
+    expect(impacts[0]?.node.label).toBe("beta");
+    expect(impacts[0]?.neighbors.map((neighbor) => [neighbor.direction, neighbor.node.label])).toEqual([
+      ["in", "alpha"],
+      ["in", "gamma"],
+    ]);
+    expect(() => impactOf(fixture(), "beta", 0)).toThrow(/positive integer/);
   });
 
   it("caps suggestions at the requested limit", () => {

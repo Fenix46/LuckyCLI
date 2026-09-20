@@ -108,7 +108,8 @@ export function providerCommands(deps: ProviderCommandDeps = defaultDeps): Comma
             ctx.agent.contextStatus(),
           ]);
           ctx.ui.setContextStatus(status);
-          ctx.emit({ kind: "status", provider: providerStatus, context: status });
+          const costRates = ctx.ui.tokenCosts?.[`${ctx.meta.provider}/${ctx.meta.model}`];
+          ctx.emit({ kind: "status", provider: providerStatus, context: status, ...(costRates ? { costRates } : {}) });
         } catch (error) {
           emitError(ctx, error, "failed to read provider status");
         }

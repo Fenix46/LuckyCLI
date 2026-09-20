@@ -23,7 +23,11 @@ export interface McpManagerOptions extends McpLocalClientOptions {
     name: string,
     config: McpRemoteServerConfig,
   ) => OAuthClientProvider | undefined;
+  /** Maximum flattened prompt/resource content returned to callers. */
+  maxContentChars?: number;
 }
+
+export const DEFAULT_MCP_CONTENT_CHARS = 64 * 1024;
 
 interface ConnectedServer {
   config: McpServerConfig;
@@ -36,7 +40,15 @@ export class McpManager {
   private readonly servers = new Map<string, ConnectedServer>();
   private closed = false;
 
-  constructor(private readonly options: McpManagerOptions = {}) {}
+  private readonly maxContentChars: number;
+
+  constructor(private readonly options: McpManagerOptions = {}) {
+    const maxContentChars = options.maxContentChars ?? DEFAULT_MCP_CONTENT_CHARS;
+    if (!Number.isInteger(maxContentChars) || maxContentChars <= 0) {
+      throw new Error("MCP maxContentChars must be a positive integer.");
+    }
+    this.maxContentChars = maxContentChars;
+  }
 
   async connectAll(
     configs: Record<string, McpServerConfig>,
@@ -107,7 +119,12 @@ export class McpManager {
 
   /** List prompts offered by a connected server. */
   async listPrompts(server: string): Promise<McpPromptDescriptor[]> {
-    return this.requireClient(server).listPrompts();
+    try {
+      return await this.requireClient(server).listPrompts();
+    } catch (error) {
+      if (isUnsupportedCapability(error)) return [];
+      throw error;
+    }
   }
 
   /** Fetch a prompt from a connected server, flattened to text. */
@@ -116,17 +133,28 @@ export class McpManager {
     name: string,
     args?: Record<string, string>,
   ): Promise<string> {
-    return this.requireClient(server).getPrompt(name, args);
+    return boundMcpContent(
+      await this.requireClient(server).getPrompt(name, args),
+      this.maxContentChars,
+    );
   }
 
   /** List resources offered by a connected server. */
   async listResources(server: string): Promise<McpResourceDescriptor[]> {
-    return this.requireClient(server).listResources();
+    try {
+      return await this.requireClient(server).listResources();
+    } catch (error) {
+      if (isUnsupportedCapability(error)) return [];
+      throw error;
+    }
   }
 
   /** Read a resource from a connected server, flattened to text. */
   async readResource(server: string, uri: string): Promise<string> {
-    return this.requireClient(server).readResource(uri);
+    return boundMcpContent(
+      await this.requireClient(server).readResource(uri),
+      this.maxContentChars,
+    );
   }
 
   private requireClient(server: string): McpClient {
@@ -188,6 +216,20 @@ export class McpManager {
     this.servers.delete(name);
     if (existing) await existing.client.close().catch(() => {});
   }
+}
+
+function boundMcpContent(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+  return `${content.slice(0, maxChars)}\n[truncated MCP content at ${maxChars} characters]`;
+}
+
+function isUnsupportedCapability(error: unknown): boolean {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = error.code;
+    if (code === -32601) return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /method not found|unsupported|capability/i.test(message);
 }
 
 /**

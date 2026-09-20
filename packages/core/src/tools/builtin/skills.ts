@@ -45,12 +45,14 @@ export const skillSearchTool = defineTool({
   schema: z.object({
     query: z.string().describe("Words to match against skill names, descriptions, and keywords."),
   }),
-  async execute({ query }) {
+  async execute({ query }, ctx) {
     const graph = await tryLoadSkillGraph();
     if (!graph) return { content: NO_SKILLS };
 
     const terms = normalizeSkillName(query).split(" ").filter(Boolean);
+    const allowed = ctxAllowedSkills(ctx.allowedSkills);
     const scored = skillNodes(graph)
+      .filter((node) => !allowed || allowed.has(node.id))
       .map((node) => {
         const hay = [
           node.label,
@@ -88,6 +90,8 @@ export const skillLoadTool = defineTool({
     if (!graph) return { content: NO_SKILLS };
 
     const id = normalizeSkillName(name);
+    const allowed = ctxAllowedSkills(ctx.allowedSkills);
+    if (allowed && !allowed.has(id)) return { content: `Skill "${name}" is not enabled for this project.` };
     const node = skillNodes(graph).find((n) => n.id === id);
     if (!node || !node.attrs) {
       return { content: `No skill named "${name}". Use skill_search to discover skills.` };
@@ -112,6 +116,10 @@ export const skillLoadTool = defineTool({
     return { content: `<skill name="${node.label}">\n${body}${tail}\n</skill>` };
   },
 });
+
+function ctxAllowedSkills(skills: readonly string[] | undefined): Set<string> | undefined {
+  return skills ? new Set(skills.map(normalizeSkillName)) : undefined;
+}
 
 /** Remove a leading `--- ... ---` frontmatter block from a skill.md body. */
 function stripFrontmatter(source: string): string {

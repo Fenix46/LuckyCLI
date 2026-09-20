@@ -21,9 +21,11 @@ import type { SkillNode } from "./types.js";
 export class SkillActivator {
   private readonly active = new Set<string>();
   private readonly root: string;
+  private readonly allowed: Set<string> | undefined;
 
-  constructor(root = skillsRootDir()) {
+  constructor(root = skillsRootDir(), allowedSkills?: readonly string[]) {
     this.root = root;
+    this.allowed = allowedSkills ? new Set(allowedSkills.map(normalizeSkillName)) : undefined;
   }
 
   /** Skills loaded so far this session (normalized ids). */
@@ -41,6 +43,7 @@ export class SkillActivator {
     if (!graph) return null;
 
     const id = normalizeSkillName(name);
+    if (this.allowed && !this.allowed.has(id)) return null;
     const node = graph.nodes.find(
       (n): n is SkillNode => n.kind === "skill" && n.id === id,
     );

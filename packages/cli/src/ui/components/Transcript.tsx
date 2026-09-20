@@ -16,6 +16,7 @@ import { StreamingMarkdown } from "../markdown/StreamingMarkdown.js";
 import { IntroBanner } from "./IntroBanner.js";
 import { PromptBlock } from "./PromptBlock.js";
 import { StatusView } from "./StatusView.js";
+import { link as terminalLink, LINK_END } from "../../vendor/ink/termio/osc.js";
 
 /**
  * The whole scrollback transcript as a plain, freely-growing column.
@@ -210,6 +211,7 @@ export function ItemView({
         <StatusView
           provider={item.provider}
           context={item.context}
+          costRates={item.costRates}
           theme={theme}
           width={width}
         />
@@ -260,7 +262,7 @@ export function ItemView({
           <Box flexDirection="column" paddingLeft={2} marginTop={1}>
             {item.rows.map((row, idx) => (
               <Box key={idx} flexDirection="row">
-                <Text color={theme.muted}>{row.label.padEnd(14)}</Text>
+                <Text color={theme.muted}>{row.link ? `${terminalLink(row.link)}${row.label}${LINK_END}`.padEnd(14) : row.label.padEnd(14)}</Text>
                 <Text color="white">{row.value}</Text>
               </Box>
             ))}

@@ -61,6 +61,15 @@ describe("SkillActivator.activate", () => {
     expect(await act.activate("Release-Flow")).toContain('<skill name="release-flow">');
   });
 
+  it("enforces a project skill allowlist", async () => {
+    await writeSkill("release-flow", RELEASE);
+    await writeSkill("npm-publish", PUBLISH);
+    await rebuildSkillGraph(root);
+    const act = new SkillActivator(root, ["release-flow"]);
+    expect(await act.activate("release-flow")).toContain("release-flow");
+    expect(await act.activate("npm-publish")).toBeNull();
+  });
+
   it("returns null for an unknown skill", async () => {
     await writeSkill("release-flow", RELEASE);
     await rebuildSkillGraph(root);

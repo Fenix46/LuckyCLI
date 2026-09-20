@@ -1,11 +1,23 @@
 import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
-import type { CatalogServerSummary } from "@luckycli/core";
+import type {
+  CatalogServerSummary,
+  McpPromptDescriptor,
+  McpResourceDescriptor,
+} from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import type { InstalledMcpRow } from "../lib/mcp-rows.js";
 import { truncateSingleLine } from "../lib/format.js";
 
 export type McpPanelTab = "installed" | "search";
+
+export interface McpCapabilityDetails {
+  server: string;
+  prompts: McpPromptDescriptor[];
+  resources: McpResourceDescriptor[];
+  loading: boolean;
+  error: string | null;
+}
 
 export function McpPanel({
   theme,
@@ -18,6 +30,7 @@ export function McpPanel({
   selectedSearchIndex,
   loading,
   error,
+  capabilityDetails,
 }: {
   theme: Theme;
   width: number;
@@ -29,6 +42,7 @@ export function McpPanel({
   selectedSearchIndex: number;
   loading: boolean;
   error: string | null;
+  capabilityDetails: McpCapabilityDetails | null;
 }): React.JSX.Element {
   return (
     <Box flexDirection="column" paddingLeft={2} marginBottom={1} width="100%">
@@ -65,6 +79,9 @@ export function McpPanel({
           <Box marginTop={1}>
             <Text color={theme.muted} dimColor>enter toggle · d remove · r reload · tab switch · esc close</Text>
           </Box>
+          {capabilityDetails ? (
+            <CapabilityDetails details={capabilityDetails} theme={theme} width={width} />
+          ) : null}
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>
@@ -95,6 +112,40 @@ export function McpPanel({
           </Box>
         </Box>
       )}
+    </Box>
+  );
+}
+
+function CapabilityDetails({
+  details,
+  theme,
+  width,
+}: {
+  details: McpCapabilityDetails;
+  theme: Theme;
+  width: number;
+}): React.JSX.Element {
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text bold color={theme.accent}>{details.server} capabilities</Text>
+      {details.loading ? <Text color={theme.muted}>Loading capabilities...</Text> : null}
+      {details.error ? <Text color={theme.error}>{details.error}</Text> : null}
+      {!details.loading && !details.error ? (
+        <>
+          <Text color={theme.muted}>prompts: {details.prompts.length}</Text>
+          {details.prompts.slice(0, 3).map((prompt) => (
+            <Text key={prompt.name} color="white">
+              {`  · ${truncateSingleLine(prompt.name, Math.max(16, width - 8))}`}
+            </Text>
+          ))}
+          <Text color={theme.muted}>resources: {details.resources.length}</Text>
+          {details.resources.slice(0, 3).map((resource) => (
+            <Text key={resource.uri} color="white">
+              {`  · ${truncateSingleLine(resource.name, Math.max(16, width - 8))}`}
+            </Text>
+          ))}
+        </>
+      ) : null}
     </Box>
   );
 }

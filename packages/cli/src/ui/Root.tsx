@@ -285,6 +285,8 @@ export function Root({
     model: string;
     credentials: ProviderCredentials;
     messages?: Message[];
+    initialUsage?: import("@luckycli/core").TokenUsage;
+    initialRetryCount?: number;
     /**
      * MCP servers to load. Defaults to the current state, but callers that have
      * just changed the config must pass the next value explicitly: the state
@@ -303,6 +305,7 @@ export function Root({
       // graph presence, sub-agent profiles) so conditional sections react to it.
       composeSystemFromContext: true,
       permissions: config.permissions,
+      ...(config.skills ? { allowedSkills: config.skills } : {}),
       approveTool,
       askUser,
       presentPlan,
@@ -321,6 +324,8 @@ export function Root({
         ? { thinkingEnabled: config.thinkingEnabled }
         : {}),
       ...(next.messages?.length ? { messages: next.messages } : {}),
+      ...(next.initialUsage ? { initialUsage: next.initialUsage } : {}),
+      ...(next.initialRetryCount !== undefined ? { initialRetryCount: next.initialRetryCount } : {}),
     });
 
     if (activationId !== activationIdRef.current) {
@@ -357,6 +362,8 @@ export function Root({
       model: config.model,
       credentials: config.credentials,
       ...(resume?.messages?.length ? { messages: resume.messages } : {}),
+      ...(resume?.usage ? { initialUsage: resume.usage } : {}),
+      ...(resume?.retryCount !== undefined ? { initialRetryCount: resume.retryCount } : {}),
     });
   // Intentionally one-shot for initial boot config.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -370,6 +377,8 @@ export function Root({
       model: result.model,
       credentials: result.credentials,
       ...(carriedMessages.length ? { messages: carriedMessages } : {}),
+      ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
+      ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
     });
     setPendingMessages(null);
     setSetupFallbackRuntime(null);
@@ -405,6 +414,8 @@ export function Root({
       model: resolved.model,
       credentials: resolved.credentials,
       ...(session.messages.length ? { messages: session.messages } : {}),
+      ...(session.usage ? { initialUsage: session.usage } : {}),
+      ...(session.retryCount !== undefined ? { initialRetryCount: session.retryCount } : {}),
     });
   }
 
@@ -424,6 +435,8 @@ export function Root({
       model,
       credentials: runtime.credentials,
       ...(carried.length ? { messages: carried } : {}),
+      initialUsage: runtime.agent.totalTokenUsage,
+      initialRetryCount: runtime.agent.totalRetryCount,
     });
   }
 
@@ -448,6 +461,8 @@ export function Root({
         model: config.model,
         credentials: config.credentials,
         ...(carriedMessages.length ? { messages: carriedMessages } : {}),
+        ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
+        ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
       });
     }
   }
@@ -460,6 +475,8 @@ export function Root({
       model: runtime.model,
       credentials: runtime.credentials,
       messages: [...runtime.agent.messages],
+      initialUsage: runtime.agent.totalTokenUsage,
+      initialRetryCount: runtime.agent.totalRetryCount,
       // Pass the new config explicitly: setMcpConfig above hasn't applied yet,
       // so the closure's mcpConfig still holds the previous servers.
       mcp: nextMcpConfig,
@@ -507,6 +524,7 @@ export function Root({
       planRequest={planRequest}
       agentUsage={agentUsage}
       mcpManager={runtime.mcpManager}
+      tokenCosts={config.tokenCosts}
       mcpConfig={mcpConfig}
       onMcpConfigChange={onMcpConfigChange}
       onTriggerSetup={onTriggerProviderSetup}
@@ -518,4 +536,3 @@ export function Root({
     />
   );
 }
-

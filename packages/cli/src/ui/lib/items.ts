@@ -1,4 +1,4 @@
-import type { ContextStatus, Message, ProviderStatus, ToolResultMetadata } from "@luckycli/core";
+import type { ContextStatus, Message, ProviderStatus, TokenCostRates, ToolResultMetadata } from "@luckycli/core";
 
 /** A line in the scrollback transcript. */
 export type Item =
@@ -16,7 +16,7 @@ export type Item =
     }
   | { kind: "command"; title: string; rows: CommandRow[] }
   | { kind: "plan"; title: string; markdown: string }
-  | { kind: "status"; provider: ProviderStatus; context: ContextStatus }
+  | { kind: "status"; provider: ProviderStatus; context: ContextStatus; costRates?: TokenCostRates }
   | { kind: "error"; text: string }
   // Transient items — built per-render, never persisted. They ride INSIDE the
   // virtualized list (like Claude Code's streaming reply) so the ScrollBox
@@ -28,6 +28,8 @@ export type Item =
 export interface CommandRow {
   label: string;
   value: string;
+  /** Optional terminal hyperlink target for a file/line location. */
+  link?: string;
 }
 
 /** Attach output to the most recent matching tool item. */

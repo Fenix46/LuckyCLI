@@ -72,8 +72,10 @@ export interface DetectedFile {
 export async function* detectFiles(
   root: string,
   signal?: AbortSignal,
+  excludes: string[] = [],
 ): AsyncGenerator<DetectedFile> {
   for await (const file of walkFiles(root, signal)) {
+    if (excludes.some((exclude) => file.relPath === exclude || file.relPath.startsWith(`${exclude}/`))) continue;
     if (file.relPath === PROJECT_MEMORY_DIR || file.relPath.startsWith(`${PROJECT_MEMORY_DIR}/`)) {
       continue;
     }
@@ -85,8 +87,8 @@ export async function* detectFiles(
 }
 
 /** Collect all detectable files under `root` into an array. */
-export async function collectFiles(root: string, signal?: AbortSignal): Promise<DetectedFile[]> {
+export async function collectFiles(root: string, signal?: AbortSignal, excludes: string[] = []): Promise<DetectedFile[]> {
   const out: DetectedFile[] = [];
-  for await (const file of detectFiles(root, signal)) out.push(file);
+  for await (const file of detectFiles(root, signal, excludes)) out.push(file);
   return out;
 }

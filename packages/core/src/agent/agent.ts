@@ -19,6 +19,8 @@ import type {
 } from "../tools/types.js";
 import type { PlanDecision, PlanProposal } from "./plan.js";
 import { buildSummarizationPrompt } from "../prompts/index.js";
+import { runVerification } from "../workflow/verify.js";
+import type { VerificationResult } from "../workflow/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
@@ -72,8 +74,14 @@ export interface AgentConfig {
   ) => Promise<SpawnAgentResult>;
   /** Optional hook fired after a tool reports changed files (for graph upkeep). */
   onFilesChanged?: (paths: string[]) => void;
+  /** Run trusted project checks after a successful approved file edit. */
+  verificationMode?: "manual" | "after-edit";
+  /** Session id included in automatic verification results. */
+  verificationSessionId?: string;
   /** Optional hook fired when the model loads a skill via skill_load. */
   onSkillLoaded?: (id: string) => void;
+  /** Optional project skill allowlist forwarded to skill tools. */
+  allowedSkills?: readonly string[];
   /**
    * Optional host-backed file access forwarded to the file tools: lets a host
    * (e.g. an ACP editor) serve reads from unsaved buffers and receive writes.
@@ -91,6 +99,10 @@ export interface AgentConfig {
   enrichTurn?: (userText: string) => Promise<string | null> | string | null;
   /** Prior conversation to resume from. Copied into the history on construction. */
   messages?: Message[];
+  /** Cumulative usage restored from a persisted session. */
+  initialUsage?: TokenUsage;
+  /** Retry count restored from a persisted session. */
+  initialRetryCount?: number;
 }
 
 export type ToolApproval = "allow" | "always" | "deny" | boolean;
@@ -131,7 +143,10 @@ export class Agent {
   private readonly presentPlan: ((plan: PlanProposal) => Promise<PlanDecision>) | undefined;
   private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
+  private readonly verificationMode: "manual" | "after-edit";
+  private readonly verificationSessionId: string | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
+  private readonly allowedSkills: readonly string[] | undefined;
   private readonly readTextFile: ((absPath: string) => Promise<string | null>) | undefined;
   private readonly writeTextFile: ((absPath: string, content: string) => Promise<void>) | undefined;
   private readonly enrichTurn: ((userText: string) => Promise<string | null> | string | null) | undefined;
@@ -141,6 +156,7 @@ export class Agent {
   /** Consecutive failures per tool-call signature, reset on success. */
   private readonly repeatedToolFailures = new Map<string, number>();
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  private retryCount = 0;
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -169,7 +185,12 @@ export class Agent {
     this.presentPlan = cfg.presentPlan;
     this.runSubAgent = cfg.runSubAgent;
     this.onFilesChanged = cfg.onFilesChanged;
+    this.verificationMode = cfg.verificationMode ?? "manual";
+    this.verificationSessionId = cfg.verificationSessionId;
     this.onSkillLoaded = cfg.onSkillLoaded;
+    this.allowedSkills = cfg.allowedSkills;
+    this.totalUsage = { ...this.totalUsage, ...(cfg.initialUsage ?? {}) };
+    this.retryCount = cfg.initialRetryCount ?? 0;
     this.readTextFile = cfg.readTextFile;
     this.writeTextFile = cfg.writeTextFile;
     this.enrichTurn = cfg.enrichTurn;
@@ -184,6 +205,10 @@ export class Agent {
   /** Cumulative token usage across every turn this agent has run. */
   get totalTokenUsage(): TokenUsage {
     return { ...this.totalUsage };
+  }
+
+  get totalRetryCount(): number {
+    return this.retryCount;
   }
 
   private currentModelInfo(): ModelInfo {
@@ -369,7 +394,10 @@ export class Agent {
               throw err;
             }
             attempts += 1;
-            await sleep(TRANSIENT_RETRY_BACKOFF_MS * 2 ** (attempts - 1));
+            this.retryCount += 1;
+            const delayMs = TRANSIENT_RETRY_BACKOFF_MS * 2 ** (attempts - 1);
+            yield { type: "retry", attempt: attempts, maxAttempts: MAX_TRANSIENT_RETRIES, delayMs };
+            await sleep(delayMs);
             if (signal?.aborted) throw err;
           }
         }
@@ -483,9 +511,26 @@ export class Agent {
             ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
             ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
             ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
+            ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
             ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
             ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
           });
+          if (this.verificationMode === "after-edit" && !result.isError && result.metadata?.diff) {
+            const files = result.metadata.diff.map((diff) => diff.path);
+            if (files.length > 0) {
+              const verification = await runVerification(this.cwd, files, {
+                ...(signal ? { signal } : {}),
+                ...(this.verificationSessionId ? { sessionId: this.verificationSessionId } : {}),
+              });
+              result = {
+                ...result,
+                content: `${result.content}\n\n${formatVerificationResult(verification)}`,
+                ...(verification.status === "failed" || verification.status === "cancelled"
+                  ? { isError: true }
+                  : {}),
+              };
+            }
+          }
         }
 
         yield {
@@ -835,6 +880,14 @@ export class Agent {
       Math.min(20_000, info.maxOutputTokens ?? Math.floor(contextWindow * 0.1));
     return Math.max(0, contextWindow - reserved);
   }
+}
+
+function formatVerificationResult(result: VerificationResult): string {
+  if (result.checks.length === 0) return "Verification not run: no trusted checks found.";
+  const checks = result.checks
+    .map((check) => `${check.id}: ${check.status}${check.exitCode !== undefined && check.exitCode !== null ? ` (exit ${check.exitCode})` : ""}`)
+    .join("\n");
+  return `Automatic verification ${result.status}.\n${checks}`;
 }
 
 /**

@@ -37,6 +37,7 @@ export type AgentEvent =
   | { type: "reasoning" }
   | { type: "context"; status: ContextStatus }
   | { type: "context_compacted"; result: CompactionResult }
+  | { type: "retry"; attempt: number; maxAttempts: number; delayMs: number }
   | { type: "tool_start"; id: string; name: string; input: unknown }
   | {
       type: "tool_end";

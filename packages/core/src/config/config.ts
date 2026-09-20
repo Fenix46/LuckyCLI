@@ -6,6 +6,7 @@ import { isProviderId } from "../providers/types.js";
 import { DEFAULT_TOOL_PERMISSION_POLICY, parseToolPermissionPolicyEnv, type ToolPermissionPolicy } from "../tools/permissions.js";
 import { buildSystemPrompt } from "../prompts/index.js";
 import { getReasoningEffort, getThinkingEnabled, loadStoredConfig, type StoredConfig } from "./store.js";
+import { loadProjectConfig } from "./project.js";
 
 /**
  * The default system prompt, composed from the section files in ../prompts.
@@ -37,6 +38,12 @@ export interface ResolvedConfig {
   credentials?: ProviderCredentials;
   mcp: Record<string, McpServerConfig>;
   permissions: ToolPermissionPolicy;
+  /** Project-scoped workflow and graph settings, when configured. */
+  checks?: string[];
+  graphExclusions?: string[];
+  skills?: string[];
+  /** Optional per-model token prices, keyed by provider/model. */
+  tokenCosts?: Record<string, import("../usage-cost.js").TokenCostRates>;
   needsSetup: boolean;
 }
 
@@ -49,8 +56,10 @@ export function resolveConfig(
   overrides: CliOverrides = {},
   stored: StoredConfig = loadStoredConfig(),
   env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
 ): ResolvedConfig {
-  const providerRaw = overrides.provider ?? stored.provider ?? env.LUCKY_PROVIDER;
+  const project = loadProjectConfig(cwd);
+  const providerRaw = overrides.provider ?? project.provider ?? stored.provider ?? env.LUCKY_PROVIDER;
   let provider: ProviderId | undefined;
   if (providerRaw) {
     if (!isProviderId(providerRaw)) {
@@ -63,6 +72,7 @@ export function resolveConfig(
 
   const model = provider
     ? overrides.model ??
+      project.model ??
       stored.model ??
       env.LUCKY_MODEL ??
       PROVIDER_CATALOG[provider].defaultModel
@@ -95,10 +105,15 @@ export function resolveConfig(
       : {}),
     ...(env.LUCKY_MAX_TOKENS ? { maxTokens: Number(env.LUCKY_MAX_TOKENS) } : {}),
     ...(credentials ? { credentials } : {}),
-    mcp: normalizeMcpServers(stored.mcp),
+    mcp: normalizeMcpServers({ ...stored.mcp, ...project.mcp }),
+    ...(project.checks ? { checks: project.checks } : {}),
+    ...(project.graphExclusions ? { graphExclusions: project.graphExclusions } : {}),
+    ...(project.skills ? { skills: project.skills } : {}),
+    ...(project.tokenCosts ? { tokenCosts: project.tokenCosts } : {}),
     permissions: {
       ...DEFAULT_TOOL_PERMISSION_POLICY,
       ...(stored.permissions ?? {}),
+      ...(project.permissions ?? {}),
       ...(envPermissions ?? {}),
     },
     needsSetup: !provider || !credentials,

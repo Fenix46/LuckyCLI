@@ -130,6 +130,26 @@ describe("McpManager", () => {
     await expect(manager.readResource("docs", "test://greeting")).resolves.toBe("hello resource");
   });
 
+  it("bounds flattened prompt and resource content", async () => {
+    const manager = new McpManager({ maxContentChars: 5 });
+    managers.push(manager);
+    await manager.connectAll({
+      docs: { type: "local", command: ["node", fixtureServer], timeout: 5_000 },
+    });
+
+    await expect(manager.getPrompt("docs", "greet", { name: "World" })).resolves.toBe(
+      "Hello\n[truncated MCP content at 5 characters]",
+    );
+    await expect(manager.readResource("docs", "test://greeting")).resolves.toBe(
+      "hello\n[truncated MCP content at 5 characters]",
+    );
+  });
+
+  it("rejects invalid MCP content limits", () => {
+    expect(() => new McpManager({ maxContentChars: 0 })).toThrow(/positive integer/);
+    expect(() => new McpManager({ maxContentChars: 1.5 })).toThrow(/positive integer/);
+  });
+
   it("throws when querying prompts/resources of a server that is not connected", async () => {
     const manager = new McpManager();
     managers.push(manager);
