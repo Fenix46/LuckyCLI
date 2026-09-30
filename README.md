@@ -264,6 +264,7 @@ running it.
 | `/status` | Show provider auth, account, quota and context status |
 | `/compact` | Summarize older chat history now |
 | `/copy [n]` | Copy the latest reply (or the n-th from the end) to the clipboard |
+| `/rules` | View or edit which shell commands are allowed, need approval, or are blocked |
 | `/resume` | Pick a saved session to resume |
 | `/theme` | Choose terminal UI colors |
 | `/graph` | Build or refresh the project knowledge graph |
@@ -309,8 +310,18 @@ side-effecting ones prompt for approval.
 - **Approval modes** (`Shift+Tab`). *Normal* asks for every side-effecting
   tool; *accept edits* auto-approves file edits but still asks for shell
   commands; *auto* approves everything (and accepts presented plans) so the agent can work unattended —
-  except shell calls that opt into a destructive command (`allowDangerous`),
-  which always ask. Tools denied by policy stay denied in every mode.
+  except risky shell commands, which always ask: pushes, publishes, deploys,
+  downloaded or inline scripts (`curl … | sh`, `bash -c`), destructive commands,
+  and `npm run`/`make` scripts whose body does any of that (`npm run clean` →
+  `rm -rf dist`). "Allow always" on a risky command covers only that exact
+  command. Tools denied by policy stay denied in every mode.
+- **Command rules.** `/rules allow|ask|deny <pattern>` (or `LUCKY_COMMAND_RULES`,
+  e.g. `allow=npm test;deny=git push --force*`) decides per command, in every
+  mode: `allow` never asks, `ask` always asks, `deny` never runs. Patterns match a
+  command and its longer forms by whole words (`git push` covers
+  `git push origin main`), or as globs with `*`; each part of a `&&`/`;`/`|`
+  chain is checked on its own. Rules apply while `exec` is approval-gated (the
+  default).
 - **Filesystem sandbox.** File tools reject absolute paths and anything that
   escapes the working directory.
 - **Destructive-command guard.** `exec` classifies commands and refuses clearly
