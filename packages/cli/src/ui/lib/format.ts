@@ -136,6 +136,8 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
       case "exec":
       case "PowerShell":
         return ["Run", "Ran"];
+      case "process":
+        return ["Check process", "Checked process"];
       case "read_file":
         return ["Read", "Read"];
       case "write_file":
@@ -177,7 +179,16 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
 
 export function toolTarget(name: string, input: unknown): string {
   const command = inputString(input, "command");
-  if ((name === "exec" || name === "PowerShell") && command) return command;
+  if ((name === "exec" || name === "PowerShell") && command) {
+    const background = (input as { background?: unknown }).background === true;
+    return background ? `${command} (background)` : command;
+  }
+
+  if (name === "process") {
+    const action = inputString(input, "action") ?? "";
+    const id = inputString(input, "id");
+    return id ? `${action} ${id}` : action;
+  }
 
   const path = inputString(input, "path");
   if (["read_file", "write_file", "edit_file", "list_dir"].includes(name) && path) {

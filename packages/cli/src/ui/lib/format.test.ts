@@ -6,6 +6,7 @@ import {
   formatElapsed,
   formatToolResultSummary,
   formatTurnSummary,
+  formatToolAction,
   truncateMiddle,
   plural,
   toolResultPreviewLines,
@@ -106,5 +107,15 @@ describe("plural", () => {
     expect(plural(3, "line")).toBe("3 lines");
     expect(plural(1, "entry", "entries")).toBe("1 entry");
     expect(formatToolResultSummary("list_dir", "only.txt")).toBe("1 entry");
+  });
+});
+
+describe("background process rows", () => {
+  it("label background commands and process actions", () => {
+    expect(formatToolAction("exec", { command: "npm run dev", background: true }, true)).toBe(
+      "Run npm run dev (background)",
+    );
+    expect(formatToolAction("process", { action: "output", id: "bg1" }, false)).toBe("Checked process output bg1");
+    expect(formatToolAction("process", { action: "list" }, false)).toBe("Checked process list");
   });
 });

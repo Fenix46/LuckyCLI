@@ -295,7 +295,8 @@ side-effecting ones prompt for approval.
 | `write_file` | ask | Write UTF-8 text to a file |
 | `edit_file` | ask | Replace an exact snippet in a file (fuzzy snippet matching) |
 | `apply_patch` | ask | Apply a unified-diff patch to text files |
-| `exec` | ask | Run a shell command and return its combined output |
+| `exec` | ask | Run a shell command and return its combined output; `background: true` keeps servers/watchers running |
+| `process` | allow | List, read the new output of, or stop the background commands this session started |
 | `powershell` | ask | Run a PowerShell command (Windows) and return its output |
 
 ### Safety model
