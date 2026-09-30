@@ -2,11 +2,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { defineTool } from "../types.js";
+import { truncateOutput } from "./exec.js";
 
 const execFileAsync = promisify(execFile);
-const MAX_BUFFER = 256 * 1024;
-const MAX_RETURN_CHARS = 64 * 1024;
-const DEFAULT_TIMEOUT_MS = 30_000;
+// Same limits as exec: generous capture, head+tail trimming, 2-minute default.
+const MAX_BUFFER = 16 * 1024 * 1024;
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 type PowerShellExecutable = "pwsh" | "pwsh.exe" | "powershell.exe";
 
@@ -30,7 +31,7 @@ export const powerShellTool = defineTool({
       .positive()
       .max(600_000)
       .optional()
-      .describe("Optional timeout in milliseconds (default 30000)."),
+      .describe("Optional timeout in milliseconds (default 120000, max 600000)."),
     allowDangerous: z
       .boolean()
       .optional()
@@ -227,11 +228,6 @@ function extractPowerShellBaseCommand(command: string): string {
   return basename.toLowerCase().replace(/\.exe$/, "");
 }
 
-function truncateOutput(output: string): string {
-  if (output.length <= MAX_RETURN_CHARS) return output;
-  const omitted = output.length - MAX_RETURN_CHARS;
-  return `${output.slice(0, MAX_RETURN_CHARS)}\n\n[truncated ${omitted} chars]`;
-}
 
 function formatFailurePrefix(err: { code?: unknown; signal?: unknown }): string {
   const parts: string[] = [];

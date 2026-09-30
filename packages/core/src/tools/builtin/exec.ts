@@ -4,9 +4,16 @@ import { z } from "zod";
 import { defineTool } from "../types.js";
 
 const execAsync = promisify(exec);
-const MAX_BUFFER = 256 * 1024;
+// Output is captured generously (a noisy build must not be killed for
+// talking too much) and trimmed to MAX_RETURN_CHARS before reaching the model.
+const MAX_BUFFER = 16 * 1024 * 1024;
 const MAX_RETURN_CHARS = 64 * 1024;
-const DEFAULT_TIMEOUT_MS = 30_000;
+// Share of the returned budget kept from the START of the output; the rest
+// comes from the end, where test failures, compiler errors and exit summaries
+// usually are.
+const HEAD_SHARE = 0.25;
+// Long enough for a typical build or test run; the model can raise it per call.
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 export type CommandSemantics = {
   category: "read_only" | "mutating" | "destructive" | "unknown";
@@ -27,7 +34,7 @@ export const execTool = defineTool({
       .positive()
       .max(600_000)
       .optional()
-      .describe("Optional timeout in milliseconds (default 30000)."),
+      .describe("Optional timeout in milliseconds (default 120000, max 600000)."),
     allowDangerous: z
       .boolean()
       .optional()
@@ -54,9 +61,9 @@ export const execTool = defineTool({
       const out = [stdout, stderr].filter(Boolean).join("\n").trim();
       return { content: truncateOutput(out || "(no output)") };
     } catch (err) {
-      const e = err as { stdout?: string; stderr?: string; message?: string; code?: unknown; signal?: unknown };
+      const e = err as { stdout?: string; stderr?: string; message?: string; code?: unknown; signal?: unknown; killed?: unknown };
       const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n").trim();
-      const prefix = formatFailurePrefix(e);
+      const prefix = formatFailurePrefix(e, timeoutMs ?? DEFAULT_TIMEOUT_MS);
       return { content: truncateOutput([prefix, out || "command failed"].filter(Boolean).join("\n")), isError: true };
     }
   },
@@ -119,15 +126,29 @@ export function classifyCommandSemantics(command: string): CommandSemantics {
   return { category: "unknown", reason: "unclassified command" };
 }
 
-function truncateOutput(output: string): string {
+/**
+ * Trim oversized output to MAX_RETURN_CHARS, keeping both ends: the head shows
+ * what ran, the tail holds the verdict (failures, errors, summaries) that a
+ * head-only cut would drop.
+ */
+export function truncateOutput(output: string): string {
   if (output.length <= MAX_RETURN_CHARS) return output;
-  const omitted = output.length - MAX_RETURN_CHARS;
-  return `${output.slice(0, MAX_RETURN_CHARS)}\n\n[truncated ${omitted} chars]`;
+  const headChars = Math.floor(MAX_RETURN_CHARS * HEAD_SHARE);
+  const tailChars = MAX_RETURN_CHARS - headChars;
+  const omitted = output.length - headChars - tailChars;
+  return `${output.slice(0, headChars)}\n\n[truncated ${omitted} chars]\n\n${output.slice(-tailChars)}`;
 }
 
-function formatFailurePrefix(err: { code?: unknown; signal?: unknown }): string {
+function formatFailurePrefix(
+  err: { code?: unknown; signal?: unknown; killed?: unknown },
+  timeoutMs: number,
+): string {
   const parts: string[] = [];
-  if (err.code !== undefined) parts.push(`exit=${String(err.code)}`);
-  if (err.signal !== undefined) parts.push(`signal=${String(err.signal)}`);
+  if (err.code !== undefined && err.code !== null) parts.push(`exit=${String(err.code)}`);
+  if (err.signal !== undefined && err.signal !== null) parts.push(`signal=${String(err.signal)}`);
+  if (err.killed === true && err.signal === "SIGTERM") {
+    const limit = timeoutMs < 1000 ? `${timeoutMs}ms` : `${Math.round(timeoutMs / 1000)}s`;
+    parts.push(`timed out after ${limit}; retry with a larger timeoutMs if the command needs longer`);
+  }
   return parts.length ? `[command failed: ${parts.join(" ")}]` : "";
 }

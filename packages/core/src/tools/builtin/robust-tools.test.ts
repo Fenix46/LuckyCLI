@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
-import { classifyCommandSemantics, execTool } from "./exec.js";
+import { classifyCommandSemantics, execTool, truncateOutput } from "./exec.js";
 import { classifyPowerShellCommandSemantics, powerShellTool } from "./powershell.js";
 import { resetTaskList, setActiveTaskListId } from "../../tasks/store.js";
 import { projectMemoryTool } from "./project-memory.js";
@@ -267,6 +267,33 @@ describe("robust built-in tools", () => {
     const registry = new ToolRegistry().register(execTool);
     const result = await registry.execute("exec", { command: "printf ok" }, { cwd: root });
     expect(result).toEqual({ content: "ok" });
+  });
+
+  it("keeps the head and the tail of oversized exec output", () => {
+    const output = `HEAD${"x".repeat(200_000)}TAIL-ERROR`;
+    const trimmed = truncateOutput(output);
+    expect(trimmed.length).toBeLessThan(70_000);
+    expect(trimmed.startsWith("HEAD")).toBe(true);
+    expect(trimmed.endsWith("TAIL-ERROR")).toBe(true);
+    expect(trimmed).toMatch(/\[truncated \d+ chars\]/);
+  });
+
+  it("does not kill commands with large output", async () => {
+    const registry = new ToolRegistry().register(execTool);
+    const result = await registry.execute(
+      "exec",
+      { command: "node -e \"process.stdout.write('y'.repeat(1024*1024)); console.log('\\nDONE')\"" },
+      { cwd: root },
+    );
+    expect(result.isError).toBeUndefined();
+    expect(result.content.trimEnd().endsWith("DONE")).toBe(true);
+  });
+
+  it("explains a timeout", async () => {
+    const registry = new ToolRegistry().register(execTool);
+    const result = await registry.execute("exec", { command: "sleep 5", timeoutMs: 200 }, { cwd: root });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("timed out after 200ms");
   });
 
   it("classifies PowerShell command semantics", () => {
