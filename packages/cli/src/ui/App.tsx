@@ -392,16 +392,26 @@ export function App({
     setSelectedQuestionOptionIndex(0);
   }, [userQuestionRequest]);
 
-  const footerEffort =
-    meta.provider === "openai-oauth" || meta.provider === "claude"
-      ? getReasoningEffort(loadStoredConfig(), meta.provider)
-      : undefined;
-  const footerThinking =
-    meta.provider === "claude"
-      ? getThinkingEnabled(loadStoredConfig(), meta.provider)
-        ? "adaptive"
-        : "off"
-      : undefined;
+  // The footer's effort/thinking readout comes from the stored config. Reading
+  // it is a synchronous disk read + JSON parse, and App re-renders on every
+  // spinner tick (~8×/s) while a turn runs — so read it once per change of
+  // model or transcript (commands like /thinking always emit an item) instead
+  // of on every render.
+  const { footerEffort, footerThinking } = useMemo(() => {
+    const cfg = loadStoredConfig();
+    return {
+      footerEffort:
+        meta.provider === "openai-oauth" || meta.provider === "claude"
+          ? getReasoningEffort(cfg, meta.provider)
+          : undefined,
+      footerThinking:
+        meta.provider === "claude"
+          ? getThinkingEnabled(cfg, meta.provider)
+            ? "adaptive"
+            : "off"
+          : undefined,
+    };
+  }, [meta.provider, meta.model, items.length, effortPicker]);
 
   // All modal keyboard handling goes through one useInput (the router). The
   // array order IS the precedence chain, top = highest priority. Handlers
