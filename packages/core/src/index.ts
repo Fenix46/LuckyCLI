@@ -7,13 +7,15 @@
 
 // Package version (single source of truth: core's package.json).
 export { CORE_VERSION } from "./version.js";
+export { detectProjectFacts, renderProjectFacts } from "./project-facts.js";
+export type { ProjectFacts } from "./project-facts.js";
 
 // Provider layer (also triggers built-in provider registration on import).
 export * from "./providers/index.js";
 
 // Agent loop.
 export { Agent } from "./agent/agent.js";
-export type { AgentConfig, ToolApproval } from "./agent/agent.js";
+export type { AgentConfig, ToolApproval, VerificationMode } from "./agent/agent.js";
 export type { AgentEvent, CompactionResult, ContextStatus } from "./agent/types.js";
 
 // Tools.
@@ -26,6 +28,13 @@ export {
   resolveToolPermission,
 } from "./tools/permissions.js";
 export type { ToolPermission, ToolPermissionPolicy } from "./tools/permissions.js";
+export {
+  evaluateCommand,
+  matchesCommandPattern,
+  mergeCommandRules,
+  parseCommandRulesEnv,
+} from "./tools/command-policy.js";
+export type { CommandAction, CommandRules, CommandVerdict } from "./tools/command-policy.js";
 export { defineTool } from "./tools/types.js";
 export type {
   AskUserRequest,
@@ -41,6 +50,7 @@ export type { DiffHunk, DiffLine, FileDiff } from "./diff.js";
 export {
   defaultToolRegistry,
   execTool,
+  processTool,
   readFileTool,
   writeFileTool,
   editFileTool,
@@ -234,6 +244,7 @@ export type { Extractor, ExtractorContext } from "./graph/extract/types.js";
 export { buildAndSaveGraph, buildGraph } from "./graph/build.js";
 export type { BuildOptions, BuildProgress, GraphBuildSummary } from "./graph/build.js";
 export { updateGraphForFiles } from "./graph/update.js";
+export { findStaleGraphFiles, refreshGraph } from "./graph/refresh.js";
 export type { UpdateSummary } from "./graph/update.js";
 export {
   diffSnapshots,
@@ -241,6 +252,7 @@ export {
   trackedGraphFiles,
 } from "./graph/fs-snapshot.js";
 export {
+  blastRadius,
   callersOf,
   calleesOf,
   godNodes,
@@ -250,6 +262,7 @@ export {
   summarize,
   topModules,
 } from "./graph/query.js";
+export type { BlastRadius, Dependent } from "./graph/query.js";
 export type { GraphImpact, GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
 export { estimateTokenCost } from "./usage-cost.js";
 export type { TokenCostEstimate, TokenCostRates } from "./usage-cost.js";

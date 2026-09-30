@@ -4,8 +4,10 @@ import type { ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import type { Item } from "../lib/items.js";
 import {
+  formatDuration,
   formatToolAction,
   formatToolResultSummary,
+  liveTailLines,
   toolResultPreviewLines,
   truncateSingleLine,
 } from "../lib/format.js";
@@ -49,21 +51,28 @@ export function TranscriptList({
     <Box flexDirection="column" width="100%">
       {items.map((item, index) => (
         <TranscriptItem
-          key={`${index}:${item.kind}`}
+          key={`${index}:${item.kind === "streaming" ? "assistant" : item.kind}`}
           item={item}
           previous={index > 0 ? items[index - 1] : undefined}
           theme={theme}
           width={width}
           provider={provider}
           model={model}
-          activityFrame={activityFrame}
+          // Only a running tool row animates. Every other row gets a constant
+          // frame so the memoized item skips the 120ms spinner re-render —
+          // otherwise the whole transcript reconciles on every tick.
+          activityFrame={isRunningTool(item) ? activityFrame : 0}
         />
       ))}
     </Box>
   );
 }
 
-export function TranscriptItem({
+function isRunningTool(item: Item): boolean {
+  return item.kind === "tool" && item.output === undefined;
+}
+
+function TranscriptItemInner({
   item,
   previous,
   theme,
@@ -92,16 +101,35 @@ export function TranscriptItem({
         provider={provider}
         model={model}
         activityFrame={activityFrame}
+        continuation={continuesReply(previous)}
       />
     </Box>
   );
 }
 
+/**
+ * Memoized on its props: committed items are immutable, so a row only
+ * re-renders when its own item, neighbor, theme, size or frame changes.
+ */
+export const TranscriptItem = React.memo(TranscriptItemInner);
+
+/**
+ * A reply block that follows the agent's own tool rows or narration belongs
+ * to the same reply: it drops the "lucky" header so a turn reads as one
+ * continuous answer instead of a stack of repeated headers.
+ */
+function continuesReply(previous?: Item): boolean {
+  return previous?.kind === "tool" || previous?.kind === "assistant" || previous?.kind === "streaming";
+}
+
 function spacingBefore(item: Item, previous?: Item): number {
   if (!previous) return 1;
-  if (item.kind === "tool" && previous.kind === "tool") return 0;
-  if (item.kind === "tool" && previous.kind === "assistant") return 0;
-  return item.kind !== previous.kind || item.kind === "user" ? 2 : 1;
+  // A new user turn gets the most air; everything inside a reply stays tight.
+  if (item.kind === "user") return 2;
+  if (item.kind === "tool" && (previous.kind === "tool" || previous.kind === "assistant" || previous.kind === "streaming")) {
+    return 0;
+  }
+  return 1;
 }
 
 export function ItemView({
@@ -111,6 +139,7 @@ export function ItemView({
   provider,
   model,
   activityFrame = 0,
+  continuation = false,
 }: {
   item: Item;
   theme: Theme;
@@ -118,6 +147,8 @@ export function ItemView({
   provider?: ProviderId;
   model?: string;
   activityFrame?: number;
+  /** This reply block continues the previous one: skip the header. */
+  continuation?: boolean;
 }): React.JSX.Element {
   switch (item.kind) {
     case "intro":
@@ -140,10 +171,7 @@ export function ItemView({
     case "assistant":
       return (
         <Box flexDirection="column">
-          <Box flexDirection="row">
-            <Text bold color={theme.success}>● lucky</Text>
-            <Text color={theme.muted}> › </Text>
-          </Box>
+          {continuation ? null : <ReplyHeader theme={theme} />}
           <Box paddingLeft={2}>
             <Markdown text={item.text} theme={theme} />
           </Box>
@@ -176,14 +204,26 @@ export function ItemView({
           ? SPINNER_FRAMES[activityFrame % SPINNER_FRAMES.length] ?? "●"
           : "●";
       const action = formatToolAction(item.name, item.input, isRunning, item.error);
+      const duration = item.durationMs !== undefined ? formatDuration(item.durationMs) : "";
       const result = item.output ? formatToolResultSummary(item.name, item.output, item.error) : "";
       return (
         <Box flexDirection="column" paddingLeft={2}>
           <Box flexDirection="row" gap={1}>
             <Text bold color={toolColor}>{statusSymbol}</Text>
-            <Text bold wrap="truncate-end">{truncateSingleLine(action, Math.max(24, width - 8))}</Text>
-            {isRunning ? <Text color={theme.accent}>…</Text> : null}
+            <Text bold wrap="truncate-end">
+              {truncateSingleLine(action, Math.max(24, width - 8 - (duration ? duration.length + 1 : 0)))}
+            </Text>
+            {duration ? <Text color={theme.muted} dimColor>{duration}</Text> : null}
           </Box>
+          {isRunning && item.live ? (
+            <Box flexDirection="column" paddingLeft={2}>
+              {liveTailLines(item.live).map((line, i) => (
+                <Text key={i} color={theme.muted} dimColor wrap="truncate-end">
+                  {"  "}{truncateSingleLine(line, Math.max(16, width - 12))}
+                </Text>
+              ))}
+            </Box>
+          ) : null}
           {!isRunning && item.metadata?.diff?.length ? (
             <Box paddingLeft={2}>
               <DiffView diffs={item.metadata.diff} theme={theme} width={Math.max(24, width - 4)} />
@@ -222,13 +262,40 @@ export function ItemView({
       // and the text is committed to a real assistant item.
       return (
         <Box flexDirection="column">
-          <Box flexDirection="row">
-            <Text bold color={theme.success}>● lucky</Text>
-            <Text color={theme.muted}> › </Text>
-          </Box>
+          {continuation ? null : <ReplyHeader theme={theme} />}
           <Box paddingLeft={2}>
             <StreamingMarkdown text={item.text} theme={theme} />
           </Box>
+        </Box>
+      );
+    case "turnSummary":
+      return (
+        <Box paddingLeft={2}>
+          <Text color={theme.muted} dimColor wrap="truncate-end">
+            {truncateSingleLine(item.text, Math.max(16, width - 4))}
+          </Text>
+        </Box>
+      );
+    case "diff":
+      return (
+        <Box flexDirection="column" paddingLeft={2}>
+          <Text bold color={theme.accent}>▌ {item.title}</Text>
+          <Box marginTop={1} paddingLeft={2}>
+            <DiffView diffs={item.diffs} theme={theme} width={Math.max(24, width - 4)} />
+          </Box>
+        </Box>
+      );
+    case "notice":
+      return (
+        <Box paddingLeft={2}>
+          {item.tone === "info" ? (
+            <Text color={theme.muted}>› </Text>
+          ) : (
+            <Text color={theme.warning}>✕ </Text>
+          )}
+          <Text color={theme.muted} wrap="truncate-end">
+            {truncateSingleLine(item.text, Math.max(16, width - 6))}
+          </Text>
         </Box>
       );
     case "hint":
@@ -270,4 +337,13 @@ export function ItemView({
         </Box>
       );
   }
+}
+
+function ReplyHeader({ theme }: { theme: Theme }): React.JSX.Element {
+  return (
+    <Box flexDirection="row">
+      <Text bold color={theme.success}>● lucky</Text>
+      <Text color={theme.muted}> › </Text>
+    </Box>
+  );
 }

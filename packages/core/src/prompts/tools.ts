@@ -42,7 +42,7 @@ const GROUPS: ToolGroup[] = [
     intro:
       "When the project has a knowledge graph, treat it as your primary index. Use it to locate a symbol, see who calls it, and gauge the blast radius of a change before you touch anything — then confirm in the real file before editing. Fall back to text search only when the graph has no answer. Don't open many files at random to \"look around\" if the graph or a search can point you straight at the target.",
     tools: [
-      { name: "graph_query", text: "find a symbol or file, and inspect callers, callees, and neighbors to understand impact." },
+      { name: "graph_query", text: "find a symbol or file, inspect callers, callees and neighbors, or get the transitive impact of changing it." },
       { name: "graph_overview", text: "get a high-level map when the relevant area of the codebase is unclear." },
       { name: "grep", text: "search file contents by text or regex when the graph doesn't cover the need." },
       { name: "glob", text: "find files by name or path pattern when you don't know the exact path." },
@@ -54,7 +54,8 @@ const GROUPS: ToolGroup[] = [
     intro:
       "Prefer the dedicated tools above over shell commands when one fits — they let the user review your work and are safer. Reserve the shell for genuine system commands (running tests, git, build steps). Don't use it to read, edit, or search files when a dedicated tool exists.",
     tools: [
-      { name: "exec", text: "run a non-interactive shell command. Use absolute paths when ambiguity matters." },
+      { name: "exec", text: "run a non-interactive shell command (2-minute default timeout; pass timeoutMs for longer builds). Never run a dev server, watcher or other never-ending command in the foreground: pass background: true instead." },
+      { name: "process", text: "list, read the new output of, or stop commands started with background: true — e.g. wait for a dev server to report it is ready, then test against it, then stop it when done." },
       { name: "PowerShell", text: "on Windows, prefer this for commands, file writes, quoting, paths, and redirection." },
     ],
   },
@@ -73,7 +74,7 @@ const GROUPS: ToolGroup[] = [
   {
     heading: "## Delegation",
     intro:
-      "When large work splits cleanly into parts that benefit from different models, delegate. Delegation is sequential: run one sub-agent to completion, read its report, then delegate the next part. The sub-agent can't see this conversation, so put everything it needs in the task. Prefer low-cost profiles for simple parts (e.g. docs). If a profile is on a provider the user isn't logged into, spawn_agent errors — tell the user to fix it in /agents.",
+      "When large work splits cleanly into parts that benefit from different models, delegate. Independent parts run in parallel when you issue several spawn_agent calls at once, each with the files it will write and no overlap between them; otherwise delegation is sequential: run one sub-agent, read its report, then delegate the next part. The sub-agent can't see this conversation, so put everything it needs in the task. Prefer low-cost profiles for simple parts (e.g. docs). If a profile is on a provider the user isn't logged into, spawn_agent errors — tell the user to fix it in /agents.",
     // Only worth explaining when at least one sub-agent profile exists.
     requires: (ctx) => ctx.hasSubAgents === true,
     tools: [

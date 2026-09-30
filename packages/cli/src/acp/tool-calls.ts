@@ -142,6 +142,31 @@ export function toolCallStart(
   };
 }
 
+// Live output tail sent while a call runs; the final update carries it all.
+const LIVE_OUTPUT_TAIL_CHARS = 4_000;
+
+/**
+ * An in-progress `tool_call_update` carrying the tail of what a running call
+ * has printed so far. Update content replaces the previous content, so each
+ * one sends the whole (bounded) tail.
+ */
+export function toolCallProgress(
+  sessionId: string,
+  toolCallId: string,
+  output: string,
+): SessionNotification {
+  const tail = output.length > LIVE_OUTPUT_TAIL_CHARS ? `…${output.slice(-LIVE_OUTPUT_TAIL_CHARS)}` : output;
+  return {
+    sessionId,
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId,
+      status: "in_progress",
+      content: [{ type: "content", content: { type: "text", text: tail } }],
+    },
+  };
+}
+
 export interface ToolEndEvent {
   id: string;
   name: string;

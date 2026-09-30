@@ -2,6 +2,7 @@ import { Box, Text, useApp, useWindowSize } from "../vendor/ink-compat.js";
 import React, { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import {
   type Agent,
+  type ContentPart,
   type ContextStatus,
   type Message,
   type McpManager,
@@ -34,7 +35,9 @@ import {
 } from "@luckycli/core";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
-import { messagesToItems, patchLastTool } from "./lib/items.js";
+import { appendLiveOutput, collectDiffs, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
+import { formatToolAction } from "./lib/format.js";
+import { formatUsageFooter } from "./lib/status.js";
 import {
   getModelPickerState,
   getThemePickerState,
@@ -63,7 +66,8 @@ import { useStableActivity } from "./hooks/useStableActivity.js";
 import { useMcpPanel } from "./hooks/useMcpPanel.js";
 import { useSkillPanel } from "./hooks/useSkillPanel.js";
 import { useModalRouter, type ModalHandler } from "./hooks/useModalRouter.js";
-import { useTurnRunner } from "./hooks/useTurnRunner.js";
+import { useTurnRunner, type TurnOutcome } from "./hooks/useTurnRunner.js";
+import { useTerminalStatus } from "./hooks/useTerminalStatus.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { EffortPickerView, ModelPickerView, ThemePickerView } from "./components/Pickers.js";
 import { SlashMenu } from "./components/SlashMenu.js";
@@ -77,6 +81,7 @@ import { SkillPanel } from "./components/SkillPanel.js";
 import { AgentsPanel } from "./components/AgentsPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
+import { QueuedPromptsView, type QueuedPrompt } from "./components/QueuedPrompts.js";
 import type {
   ApprovalRequest,
   UserQuestionRequest,
@@ -277,24 +282,94 @@ export function App({
     [],
   );
   const patchTool = useCallback(
-    (name: string, output: string, error: boolean, metadata?: ToolResultMetadata) =>
-      setItems((prev) => patchLastTool(prev, name, output, error, metadata)),
+    (
+      name: string,
+      output: string,
+      error: boolean,
+      metadata: ToolResultMetadata | undefined,
+      id: string,
+      finishedAt: number,
+    ) => setItems((prev) => patchLastTool(prev, name, output, error, metadata, id, finishedAt)),
     [],
   );
   const onUsage = useCallback((_usage: TokenUsage) => {}, []);
+  const onToolOutput = useCallback(
+    (id: string, chunk: string) => setItems((prev) => appendLiveOutput(prev, id, chunk)),
+    [],
+  );
   const { busy, startedAt, streaming, reasoning, abort, runTurn } = useTurnRunner({
     agent,
     appendItems,
     patchTool,
     onContext: setContextStatus,
     onUsage,
+    onToolOutput,
     persist: persistSession,
     skills: skillActivator,
     graphEnricher,
   });
+  // Prompts submitted while a turn is running. They are sent in order, each as
+  // its own turn, as soon as the current one settles — so the user can line up
+  // follow-ups and walk away. The ref is the source of truth for the drain
+  // loop; the state mirrors it for rendering.
+  const queueRef = useRef<QueuedPrompt[]>([]);
+  const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
+  const syncQueue = useCallback(() => setQueuedPrompts([...queueRef.current]), []);
+  // True from the first turn until the queue is drained. A ref, not the
+  // `busy` state, decides whether a submit queues: a render-stale `busy`
+  // right after the drain finished would strand the prompt in the queue.
+  const turnActiveRef = useRef(false);
+
+  /**
+   * Run a turn, then drain any prompts queued meanwhile. An interrupted turn
+   * stops the drain: the queued text goes back into the input box so nothing
+   * typed is lost and nothing runs without the user's say-so.
+   */
+  const runTurnAndDrain = useCallback(
+    async (content: string | ContentPart[]) => {
+      turnActiveRef.current = true;
+      let outcome: TurnOutcome;
+      try {
+        outcome = await runTurn(content);
+        while (!outcome.aborted && queueRef.current.length > 0) {
+          const next = queueRef.current.shift()!;
+          syncQueue();
+          setItems((prev) => [...prev, { kind: "user", text: next.text }]);
+          outcome = await runTurn(next.content);
+        }
+      } finally {
+        turnActiveRef.current = false;
+      }
+      if (queueRef.current.length > 0) {
+        const pending = queueRef.current;
+        queueRef.current = [];
+        syncQueue();
+        setInput(pending.map((prompt) => prompt.text).join("\n\n"));
+        if (pending.some((prompt) => typeof prompt.content !== "string")) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: "Queued image attachments were dropped; attach them again before resending." },
+          ]);
+        }
+      }
+    },
+    [runTurn, syncQueue],
+  );
   const { elapsedSeconds, activityFrame } = useElapsedTimer(
     busy || compacting,
     busy ? startedAt : compactStartedAt,
+  );
+
+  // Title, progress indicator and bell reflect whether lucky is working or
+  // waiting on the user, so the tab says so even while it's in the background.
+  useTerminalStatus(
+    approvalRequest
+      ? "approval"
+      : userQuestionRequest
+        ? "question"
+        : busy || compacting
+          ? "working"
+          : "idle",
   );
 
   // Terminal dimensions, re-rendering on resize (Ink's official hook).
@@ -386,16 +461,26 @@ export function App({
     setSelectedQuestionOptionIndex(0);
   }, [userQuestionRequest]);
 
-  const footerEffort =
-    meta.provider === "openai-oauth" || meta.provider === "claude"
-      ? getReasoningEffort(loadStoredConfig(), meta.provider)
-      : undefined;
-  const footerThinking =
-    meta.provider === "claude"
-      ? getThinkingEnabled(loadStoredConfig(), meta.provider)
-        ? "adaptive"
-        : "off"
-      : undefined;
+  // The footer's effort/thinking readout comes from the stored config. Reading
+  // it is a synchronous disk read + JSON parse, and App re-renders on every
+  // spinner tick (~8×/s) while a turn runs — so read it once per change of
+  // model or transcript (commands like /thinking always emit an item) instead
+  // of on every render.
+  const { footerEffort, footerThinking } = useMemo(() => {
+    const cfg = loadStoredConfig();
+    return {
+      footerEffort:
+        meta.provider === "openai-oauth" || meta.provider === "claude"
+          ? getReasoningEffort(cfg, meta.provider)
+          : undefined,
+      footerThinking:
+        meta.provider === "claude"
+          ? getThinkingEnabled(cfg, meta.provider)
+            ? "adaptive"
+            : "off"
+          : undefined,
+    };
+  }, [meta.provider, meta.model, items.length, effortPicker]);
 
   // All modal keyboard handling goes through one useInput (the router). The
   // array order IS the precedence chain, top = highest priority. Handlers
@@ -432,6 +517,8 @@ export function App({
           const decision = approvalOptions[selectedApprovalIndex] ?? "deny";
           approvalRequest.resolve(decision);
           setApprovalRequest(null);
+          const decidedName = approvalRequest.name;
+          setItems((prev) => restartRunningTool(prev, decidedName, Date.now()));
           // Refusing a tool stops the whole turn, like Esc — the model does
           // not get to react to the denial and keep working.
           if (decision === "deny") abort();
@@ -440,6 +527,8 @@ export function App({
         if (key.escape) {
           approvalRequest.resolve("deny");
           setApprovalRequest(null);
+          const deniedName = approvalRequest.name;
+          setItems((prev) => restartRunningTool(prev, deniedName, Date.now()));
           abort();
         }
         return true; // swallow everything else while the approval is open
@@ -754,7 +843,10 @@ export function App({
         return;
       }
 
-      if (!text || busy || compacting) return;
+      if (!text || compacting) return;
+      // Slash commands never queue: they act on the live session state, which
+      // a running turn is still changing.
+      if ((busy || turnActiveRef.current) && text.startsWith("/")) return;
 
       // Registry-backed commands, plus the unknown-command error: slash
       // input never reaches the model. The context is built per dispatch so
@@ -772,6 +864,7 @@ export function App({
             sessionId: sessionIdRef.current,
             taskListId,
             contextStatus,
+            diffs: { turn: collectDiffs(items, "turn"), session: collectDiffs(items, "session") },
           },
           ui: {
             tokenCosts,
@@ -788,7 +881,7 @@ export function App({
                 ...prev,
                 { kind: "command", title: "Skill loaded", rows: [{ label: "skill", value: name }] },
               ]);
-              await runTurn(block);
+              await runTurnAndDrain(block);
               return true;
             },
             triggerSetup: onTriggerSetup,
@@ -829,11 +922,16 @@ export function App({
       const content = buildTurnContent(expanded, attachedImagesRef.current);
       attachedImagesRef.current = {};
       nextImageIdRef.current = 1;
-      setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       setInput("");
-      await runTurn(content);
+      if (turnActiveRef.current) {
+        queueRef.current = [...queueRef.current, { text: expanded, content }];
+        syncQueue();
+        return;
+      }
+      setItems((prev) => [...prev, { kind: "user", text: expanded }]);
+      await runTurnAndDrain(content);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurn, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in
@@ -841,6 +939,17 @@ export function App({
   // deltas) don't make the "lucky thinking" header flicker or appear to stall.
   const { phase: activityPhase } = useStableActivity(busy, streamingPreview.length > 0);
   const messageWidth = Math.max(32, terminalSize.width - 4);
+  // The tool call in flight, for the activity line ("working · Run npm test").
+  const runningToolAction = useMemo(() => {
+    if (!busy) return undefined;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item?.kind === "tool" && item.output === undefined) {
+        return formatToolAction(item.name, item.input, true);
+      }
+    }
+    return undefined;
+  }, [busy, items]);
   // Content width inside the bordered input frame: the frame consumes 4 more
   // columns (left/right border + paddingX) on top of the root's paddingX.
   // Sizing the inner content to messageWidth instead pushes the right border
@@ -962,7 +1071,7 @@ export function App({
           !filteredCommands.some((cmd) => cmd.name === input)
         ) &&
         !approvalRequest &&
-        (!busy || Boolean(userQuestionRequest))
+        !compacting
       }
     />
   );
@@ -1030,14 +1139,22 @@ export function App({
           elapsedSeconds={elapsedSeconds}
           frame={activityFrame}
           phase={
-            activityPhase === "streaming"
-              ? "responding"
-              : reasoning
-                ? "reasoning"
-                : "thinking"
+            runningToolAction
+              ? "working"
+              : activityPhase === "streaming"
+                ? "responding"
+                : reasoning
+                  ? "reasoning"
+                  : "thinking"
           }
+          {...(runningToolAction && !compacting ? { detail: runningToolAction } : {})}
+          width={messageWidth}
           {...(compacting ? { label: "compacting" } : {})}
         />
+      ) : null}
+
+      {queuedPrompts.length > 0 && !approvalRequest && !userQuestionRequest ? (
+        <QueuedPromptsView prompts={queuedPrompts} theme={activeTheme} width={messageWidth} />
       ) : null}
 
       {/* Input frame: a single rounded border instead of full-width rules.
@@ -1049,7 +1166,15 @@ export function App({
         width={terminalSize.width - 2}
         marginTop={1}
         borderStyle="round"
-        borderColor={busy || compacting ? activeTheme.accent : activeTheme.muted}
+        borderColor={
+          approvalRequest
+            ? activeTheme.warning
+            : userQuestionRequest
+              ? activeTheme.primary
+              : busy || compacting
+                ? activeTheme.accent
+                : activeTheme.muted
+        }
         paddingX={1}
       >
         {approvalRequest ? (
@@ -1096,6 +1221,7 @@ export function App({
         contextStatus={contextStatus}
         effort={footerEffort}
         thinking={footerThinking}
+        usage={formatUsageFooter(agent.totalTokenUsage, tokenCosts?.[`${meta.provider}/${meta.model}`])}
       />
       </Box>
     </Box>

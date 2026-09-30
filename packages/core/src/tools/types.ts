@@ -18,6 +18,12 @@ export interface SpawnAgentRequest {
   agent: string;
   /** The task instructions for the sub-agent. */
   task: string;
+  /**
+   * Files the sub-agent may write (paths, directories or globs). When set,
+   * its file tools refuse anything else, and calls with disjoint lists can
+   * run in parallel.
+   */
+  files?: string[];
 }
 
 /** What the spawn_agent bridge returns once the sub-agent finishes. */
@@ -33,6 +39,12 @@ export interface ToolContext {
   allowedSkills?: readonly string[];
   /** Cancellation signal propagated from the agent loop. */
   signal?: AbortSignal;
+  /**
+   * Live output of a long-running tool (e.g. a shell command's stdout/stderr
+   * as it arrives), surfaced to the UI while the call is still running. The
+   * final result still carries the complete output for the model.
+   */
+  onOutput?: (chunk: string) => void;
   /** Optional bridge for tools that need to ask the human a question. */
   askUser?: (request: AskUserRequest) => Promise<string>;
   /**
@@ -55,6 +67,13 @@ export interface ToolContext {
    * without the model having to ask. Fire-and-forget; never throws.
    */
   onFilesChanged?: (paths: string[]) => void;
+  /**
+   * Notify the host that files may have changed in ways the tool can't
+   * enumerate — a shell command that isn't read-only (git checkout, codegen,
+   * sed -i, a build). The host re-scans what it tracks (e.g. the graph).
+   * Fire-and-forget; never throws.
+   */
+  onWorkspaceChanged?: () => void;
   /**
    * Notify the host that a skill was explicitly loaded by the model (via
    * skill_load), so the host can mark it active for the session and the
@@ -112,6 +131,20 @@ export interface Tool<Schema extends z.ZodType = z.ZodType> {
    */
   parametersSchema?: Record<string, unknown>;
   readonly?: boolean;
+  /**
+   * Safe to run concurrently with other such calls in the same step: no side
+   * effects, no user interaction, no shared mutable state. When the model
+   * requests several of these at once (and none needs approval) the agent
+   * runs them in parallel. Results are still reported in call order.
+   */
+  concurrencySafe?: boolean;
+  /**
+   * What a call will write (paths, directories or globs), or undefined when
+   * it can't say. Several calls that all declare disjoint claims run in
+   * parallel after each is approved; any overlap, or a call without claims,
+   * keeps them sequential.
+   */
+  conflictKeys?: (input: unknown) => string[] | undefined;
   execute(input: z.infer<Schema>, ctx: ToolContext): Promise<ToolResult>;
 }
 

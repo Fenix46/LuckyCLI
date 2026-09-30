@@ -10,18 +10,28 @@ import type {
   TokenUsage,
 } from "../providers/types.js";
 import { modelInfo } from "../providers/catalog.js";
-import { resolveToolPermission, type ToolPermissionPolicy } from "../tools/permissions.js";
+import {
+  resolveToolPermission,
+  type ToolPermission,
+  type ToolPermissionPolicy,
+} from "../tools/permissions.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type {
   AskUserRequest,
   SpawnAgentRequest,
   SpawnAgentResult,
+  ToolResult,
 } from "../tools/types.js";
 import type { PlanDecision, PlanProposal } from "./plan.js";
 import { buildSummarizationPrompt } from "../prompts/index.js";
-import { runVerification } from "../workflow/verify.js";
+import {
+  resolveVerificationCommands,
+  runVerification,
+  runVerificationCommand,
+} from "../workflow/verify.js";
 import type { VerificationResult } from "../workflow/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
+import { ownershipOverlaps } from "../agents/ownership.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
 // Compaction summaries are a mechanical, low-stakes task: run them on the
@@ -74,8 +84,17 @@ export interface AgentConfig {
   ) => Promise<SpawnAgentResult>;
   /** Optional hook fired after a tool reports changed files (for graph upkeep). */
   onFilesChanged?: (paths: string[]) => void;
-  /** Run trusted project checks after a successful approved file edit. */
-  verificationMode?: "manual" | "after-edit";
+  /** Optional hook fired when a tool may have changed unknown files (shell commands). */
+  onWorkspaceChanged?: () => void;
+  /**
+   * When to run the project's checks automatically:
+   * - "manual" (default): only when asked;
+   * - "after-edit": every trusted check after each successful file edit;
+   * - "end-of-turn": one quick check (typecheck, else build, else test) when
+   *   the model is about to finish a turn in which it edited files; a failure
+   *   is handed back to the model to fix (at most twice per turn).
+   */
+  verificationMode?: VerificationMode;
   /** Session id included in automatic verification results. */
   verificationSessionId?: string;
   /** Optional hook fired when the model loads a skill via skill_load. */
@@ -143,7 +162,8 @@ export class Agent {
   private readonly presentPlan: ((plan: PlanProposal) => Promise<PlanDecision>) | undefined;
   private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
-  private readonly verificationMode: "manual" | "after-edit";
+  private readonly onWorkspaceChanged: (() => void) | undefined;
+  private verificationMode: VerificationMode;
   private readonly verificationSessionId: string | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
   private readonly allowedSkills: readonly string[] | undefined;
@@ -185,6 +205,7 @@ export class Agent {
     this.presentPlan = cfg.presentPlan;
     this.runSubAgent = cfg.runSubAgent;
     this.onFilesChanged = cfg.onFilesChanged;
+    this.onWorkspaceChanged = cfg.onWorkspaceChanged;
     this.verificationMode = cfg.verificationMode ?? "manual";
     this.verificationSessionId = cfg.verificationSessionId;
     this.onSkillLoaded = cfg.onSkillLoaded;
@@ -262,6 +283,11 @@ export class Agent {
     return this.compactHistory(undefined, { force: true });
   }
 
+  /** Change when checks run automatically (e.g. when the session enters auto mode). */
+  setVerificationMode(mode: VerificationMode): void {
+    this.verificationMode = mode;
+  }
+
   /** Run one user turn to completion, yielding events as work progresses. */
   async *send(
     userInput: string | ContentPart[],
@@ -290,6 +316,9 @@ export class Agent {
     // Failure tracking is per turn: a new user message resets the counters so
     // a tool that legitimately recovered isn't throttled by an old failure.
     this.repeatedToolFailures.clear();
+    // Files edited this turn, and how many end-of-turn checks already ran.
+    const editedThisTurn = new Set<string>();
+    let autoChecks = 0;
 
     // Use the cheap, already-known context size for the routine pre-turn check.
     // The previous stream's final usage measured the full transcript we sent, so
@@ -430,6 +459,24 @@ export class Agent {
 
       if (usage) this.recordUsage(usage);
 
+      // About to finish after editing files: in end-of-turn mode, check the
+      // work first and hand a failure back to the model instead of ending.
+      if (
+        toolCalls.length === 0 &&
+        this.verificationMode === "end-of-turn" &&
+        editedThisTurn.size > 0 &&
+        assistantBlocks.length > 0 &&
+        autoChecks < MAX_AUTO_CHECKS &&
+        !signal?.aborted
+      ) {
+        autoChecks += 1;
+        const failure = yield* this.runEndOfTurnCheck(signal);
+        if (failure) {
+          this.history.push({ role: "user", content: [{ type: "text", text: failure }] });
+          continue;
+        }
+      }
+
       // No tools requested -> the turn is complete.
       if (toolCalls.length === 0 || finishReason !== "tool_calls") {
         // A turn can end with tool calls left unexecuted — e.g. max_tokens cut
@@ -460,36 +507,59 @@ export class Agent {
         return;
       }
 
+      // Concurrency-safe calls that need no approval (reads, searches,
+      // fetches) start together up front, so a step that reads five files
+      // costs one file's latency instead of five. Events and results are still
+      // produced in call order below; the loop just awaits the running promise.
+      const prefetched = new Map<ToolCallPart, Promise<ToolResult>>();
+      const parallelCalls = toolCalls.filter(
+        (call) =>
+          this.tools.get(call.name)?.concurrencySafe === true &&
+          this.permissionFor(call.name) === "allow",
+      );
+      if (parallelCalls.length > 1) {
+        for (const call of parallelCalls) {
+          prefetched.set(call, this.runTool(call, signal));
+        }
+      }
+
+      // Calls that declare what they will touch (e.g. sub-agents with the
+      // files they own) run side by side when the declarations don't overlap:
+      // each is announced and approved in order first, then all approved ones
+      // start together. Otherwise they run one after another as usual.
+      const decided = new Map<ToolCallPart, { permission: ToolPermission; approved: boolean }>();
+      const claims = toolCalls
+        .map((call) => ({ call, keys: this.tools.get(call.name)?.conflictKeys?.(call.arguments) }))
+        .filter((entry): entry is { call: ToolCallPart; keys: string[] } => entry.keys !== undefined);
+      if (claims.length > 1 && claims.every((a, i) => claims.every((b, j) => i === j || !ownershipOverlaps(a.keys, b.keys)))) {
+        for (const { call } of claims) {
+          yield { type: "tool_start", id: call.id, name: call.name, input: call.arguments };
+          // A rejection that interrupted the turn must not keep prompting for
+          // the rest of the group.
+          const decision = signal?.aborted
+            ? { permission: this.permissionFor(call.name), approved: false }
+            : await this.decide(call);
+          decided.set(call, decision);
+        }
+        for (const { call } of claims) {
+          const decision = decided.get(call);
+          if (decision?.approved && decision.permission !== "deny") prefetched.set(call, this.runTool(call, signal));
+        }
+      }
+
       // Execute every requested tool, feeding results back as one user turn.
       const resultBlocks: ContentPart[] = [];
       for (const call of toolCalls) {
-        yield {
-          type: "tool_start",
-          id: call.id,
-          name: call.name,
-          input: call.arguments,
-        };
-
-        const tool = this.tools.get(call.name);
-        const hasExplicitPolicy = this.permissions !== undefined;
-        const permission = hasExplicitPolicy
-          ? resolveToolPermission(this.permissions, call.name, tool?.readonly ?? false)
-          : tool?.readonly
-            ? "allow"
-            : "ask";
-
-        // Backward compatibility: without an explicit policy, an ask-level tool
-        // is allowed when no approval bridge exists, matching the original
-        // Agent behavior. With an explicit policy, ask requires approval.
-        let approved = permission === "allow" || (!hasExplicitPolicy && permission === "ask" && !this.approveTool);
-        if (permission === "ask" && this.approveTool) {
-          try {
-            const decision = await this.approveTool(call.name, call.arguments);
-            approved = decision === true || decision === "allow" || decision === "always";
-          } catch {
-            approved = false;
-          }
+        const early = decided.get(call);
+        if (!early) {
+          yield {
+            type: "tool_start",
+            id: call.id,
+            name: call.name,
+            input: call.arguments,
+          };
         }
+        const { permission, approved } = early ?? (await this.decide(call));
 
         let result;
         if (permission === "deny") {
@@ -503,18 +573,43 @@ export class Agent {
             isError: true,
           };
         } else {
-          result = await this.tools.execute(call.name, call.arguments, {
-            cwd: this.cwd,
-            ...(signal ? { signal } : {}),
-            ...(this.askUser ? { askUser: this.askUser } : {}),
-            ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
-            ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
-            ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
-            ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
-            ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
-            ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
-            ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
-          });
+          const prefetchedResult = prefetched.get(call);
+          if (prefetchedResult) {
+            result = await prefetchedResult;
+          } else {
+            // Run the tool while relaying its live output: the loop wakes on
+            // either new output or completion, so output events are yielded
+            // in between without waiting for the tool to finish.
+            let pending = "";
+            let wake: (() => void) | undefined;
+            const running = this.runTool(call, signal, (chunk) => {
+              pending += chunk;
+              wake?.();
+            });
+            let settled: ToolResult | undefined;
+            void running.then((value) => {
+              settled = value;
+              wake?.();
+            });
+            while (settled === undefined) {
+              await new Promise<void>((resolve) => {
+                wake = resolve;
+                if (pending || settled !== undefined) resolve();
+              });
+              wake = undefined;
+              if (pending && settled === undefined) {
+                const chunk = pending;
+                pending = "";
+                yield { type: "tool_output", id: call.id, name: call.name, chunk };
+                // Batch bursts of output into fewer, larger events.
+                await sleep(OUTPUT_BATCH_MS);
+              }
+            }
+            result = settled;
+          }
+          if (!result.isError && result.metadata?.diff) {
+            for (const diff of result.metadata.diff) editedThisTurn.add(diff.path);
+          }
           if (this.verificationMode === "after-edit" && !result.isError && result.metadata?.diff) {
             const files = result.metadata.diff.map((diff) => diff.path);
             if (files.length > 0) {
@@ -603,6 +698,91 @@ export class Agent {
       type: "error",
       message: `Reached max steps (${this.maxSteps}) without completing.`,
     };
+  }
+
+  /**
+   * Run the project's quickest meaningful check, shown to the host as a
+   * `verify` tool call. Returns the message to hand back to the model when it
+   * failed, or undefined when it passed or there is nothing to run.
+   */
+  private async *runEndOfTurnCheck(signal?: AbortSignal): AsyncGenerator<AgentEvent, string | undefined> {
+    const commands = await resolveVerificationCommands(this.cwd);
+    const check =
+      commands.find((c) => c.id === "typecheck") ??
+      commands.find((c) => c.id === "build") ??
+      commands[0];
+    if (!check) return undefined;
+    const id = `auto-check-${Date.now().toString(36)}`;
+    const label = check.argv.join(" ");
+    yield { type: "tool_start", id, name: "verify", input: { check: check.id, command: label, automatic: true } };
+    const result = await runVerificationCommand(check, {
+      timeoutMs: AUTO_CHECK_TIMEOUT_MS,
+      ...(signal ? { signal } : {}),
+    });
+    const failed = result.status !== "passed" && result.status !== "cancelled";
+    const tail = result.output.trim().split("\n").slice(-AUTO_CHECK_OUTPUT_LINES).join("\n");
+    yield {
+      type: "tool_end",
+      id,
+      name: "verify",
+      content: `${label}: ${result.status}${tail ? `\n${tail}` : ""}`,
+      isError: failed,
+    };
+    if (!failed) return undefined;
+    return (
+      `[automatic check] \`${label}\` failed after your edits:\n\n${tail}\n\n` +
+      "Fix the cause, then finish. If the failure is unrelated to your change, say so instead of working around it."
+    );
+  }
+
+  /** Resolve a call's permission and, when it asks, the user's decision. */
+  private async decide(call: ToolCallPart): Promise<{ permission: ToolPermission; approved: boolean }> {
+    const hasExplicitPolicy = this.permissions !== undefined;
+    const permission = this.permissionFor(call.name);
+    // Backward compatibility: without an explicit policy, an ask-level tool
+    // is allowed when no approval bridge exists, matching the original
+    // Agent behavior. With an explicit policy, ask requires approval.
+    let approved = permission === "allow" || (!hasExplicitPolicy && permission === "ask" && !this.approveTool);
+    if (permission === "ask" && this.approveTool) {
+      try {
+        const decision = await this.approveTool(call.name, call.arguments);
+        approved = decision === true || decision === "allow" || decision === "always";
+      } catch {
+        approved = false;
+      }
+    }
+    return { permission, approved };
+  }
+
+  /** The effective permission for a tool, honoring an explicit policy. */
+  private permissionFor(name: string): ToolPermission {
+    const tool = this.tools.get(name);
+    if (this.permissions !== undefined) {
+      return resolveToolPermission(this.permissions, name, tool?.readonly ?? false);
+    }
+    return tool?.readonly ? "allow" : "ask";
+  }
+
+  /** Execute one approved tool call with the agent's full tool context. */
+  private runTool(
+    call: ToolCallPart,
+    signal?: AbortSignal,
+    onOutput?: (chunk: string) => void,
+  ): Promise<ToolResult> {
+    return this.tools.execute(call.name, call.arguments, {
+      cwd: this.cwd,
+      ...(signal ? { signal } : {}),
+      ...(onOutput ? { onOutput } : {}),
+      ...(this.askUser ? { askUser: this.askUser } : {}),
+      ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
+      ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
+      ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
+      ...(this.onWorkspaceChanged ? { onWorkspaceChanged: this.onWorkspaceChanged } : {}),
+      ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
+      ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
+      ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
+      ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
+    });
   }
 
   /**
@@ -903,6 +1083,15 @@ function isAbortError(err: unknown): boolean {
 
 /** How many times a transient provider failure is retried per step. */
 const MAX_TRANSIENT_RETRIES = 2;
+// End-of-turn checks: at most this many per turn (a fix attempt each), each
+// bounded in time, handing back this much of the failing output.
+const MAX_AUTO_CHECKS = 2;
+const AUTO_CHECK_TIMEOUT_MS = 5 * 60 * 1000;
+const AUTO_CHECK_OUTPUT_LINES = 40;
+
+export type VerificationMode = "manual" | "after-edit" | "end-of-turn";
+// Minimum spacing between tool_output events for one call.
+const OUTPUT_BATCH_MS = 100;
 /** Base backoff for transient retries; doubles per attempt (500ms, 1s). */
 const TRANSIENT_RETRY_BACKOFF_MS = 500;
 /** Consecutive identical tool-call failures before the turn gives up. */

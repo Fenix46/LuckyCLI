@@ -47,6 +47,15 @@ describe("graph tools", () => {
     expect(callees.content).toContain("beta (function)");
   });
 
+  it("graph_query impact lists transitive dependents and the files to review", async () => {
+    const r = await graphQueryTool.execute({ query: "beta", relation: "impact" }, { cwd });
+    expect(r.content).toContain("Impact of changing beta (function)");
+    expect(r.content).toContain("direct (calls) alpha (function)");
+    expect(r.content).toContain("Files to review:");
+    const none = await graphQueryTool.execute({ query: "alpha", relation: "impact" }, { cwd });
+    expect(none.content).toContain("nothing in the project depends on it");
+  });
+
   it("graph_query neighbors splits project code from external libraries", async () => {
     const r = await graphQueryTool.execute({ query: "a.ts", relation: "neighbors" }, { cwd });
     // The file's own symbols are under project code.

@@ -1,6 +1,6 @@
-import { estimateTokenCost, type ContextStatus, type ProviderQuotaStatus, type ProviderStatus, type TokenCostRates } from "@luckycli/core";
+import { estimateTokenCost, type ContextStatus, type ProviderQuotaStatus, type ProviderStatus, type TokenCostRates, type TokenUsage } from "@luckycli/core";
 import type { CommandRow } from "./items.js";
-import { formatNumber, prettyCwd } from "./format.js";
+import { formatCompactNumber, formatNumber, prettyCwd } from "./format.js";
 
 export function contextRows(status: ContextStatus): CommandRow[] {
   return [
@@ -154,14 +154,34 @@ export function quotaLabel(label: string): string {
   }
 }
 
+/**
+ * Session usage for the footer: tokens in/out so far and, when the user has
+ * configured rates for this model, the estimated cost ("↑15k ↓2.1k · ≈0.0412 USD").
+ * Empty before the first turn.
+ */
+export function formatUsageFooter(usage: TokenUsage, rates?: TokenCostRates): string {
+  if (usage.inputTokens === 0 && usage.outputTokens === 0) return "";
+  const tokens = `↑${formatCompactNumber(usage.inputTokens)} ↓${formatCompactNumber(usage.outputTokens)}`;
+  if (!rates) return tokens;
+  try {
+    const { total } = estimateTokenCost(usage, rates);
+    const digits = total >= 1 ? 2 : 4;
+    return `${tokens} · ≈${total.toFixed(digits)} ${rates.currency ?? ""}`.trimEnd();
+  } catch {
+    return tokens;
+  }
+}
+
 export function formatStatusFooter(
   status: ContextStatus | null,
   options: {
     effort?: string;
     thinking?: string;
+    usage?: string;
   } = {},
 ): string {
   const parts = [`ctx: ${formatContextFooter(status)}`];
+  if (options.usage) parts.push(options.usage);
   if (options.effort) parts.push(`effort: ${options.effort}`);
   if (options.thinking) parts.push(`thinking: ${options.thinking}`);
   return parts.join(" ┃ ");
@@ -172,8 +192,8 @@ export function formatContextFooter(status: ContextStatus | null): string {
   if (status.usedTokens !== undefined && status.usableTokens) {
     const used = status.usedPercentage ?? Math.round((status.ratio ?? 0) * 100);
     const remaining = status.remainingPercentage ?? Math.max(0, 100 - used);
-    return `${formatNumber(status.usedTokens)}/${formatNumber(status.usableTokens)} · ${remaining}% free`;
+    return `${formatCompactNumber(status.usedTokens)}/${formatCompactNumber(status.usableTokens)} · ${remaining}% free`;
   }
-  if (status.contextWindow) return `${formatNumber(status.contextWindow)} window`;
+  if (status.contextWindow) return `${formatCompactNumber(status.contextWindow)} window`;
   return "syncing…";
 }

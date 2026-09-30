@@ -16,6 +16,7 @@
  */
 
 import type { EnvironmentInfo } from "./environment.js";
+import type { ProjectFacts } from "../project-facts.js";
 
 /**
  * Everything a section needs to decide what (if anything) to contribute. Built
@@ -36,6 +37,8 @@ export interface PromptContext {
   hasSubAgents?: boolean;
   /** Whether any skill is installed (gates the skills protocol blurb). */
   hasSkills?: boolean;
+  /** Toolchain, commands and git state detected in the working directory. */
+  project?: ProjectFacts;
   /** Environment variables, for per-section overrides (LUCKY_PROMPT_*). */
   env: NodeJS.ProcessEnv;
 }

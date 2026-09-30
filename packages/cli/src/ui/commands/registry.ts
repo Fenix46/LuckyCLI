@@ -3,6 +3,7 @@ import { unknownCommand } from "./helpers.js";
 import { maintenanceCommands } from "./maintenance.js";
 import { mcpCommands } from "./mcp.js";
 import { providerCommands } from "./provider.js";
+import { rulesCommands } from "./rules.js";
 import { skillCommands } from "./skill.js";
 import { workflowCommands } from "./workflow.js";
 import type { Command, CommandContext } from "./types.js";
@@ -19,9 +20,12 @@ const MENU_ORDER = [
   "/status",
   "/update",
   "/compact",
+  "/copy",
+  "/diff",
   "/resume",
   "/provider",
   "/theme",
+  "/rules",
   "/graph",
   "/task",
   "/exit",
@@ -68,6 +72,7 @@ export function buildCommandRegistry(skillNames: string[] = []): Command[] {
     ...mcpCommands(),
     ...skillCommands(),
     ...workflowCommands(),
+    ...rulesCommands(),
   ];
   const reserved = new Set(base.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
   const commands = [...base, ...skillAliasCommands(skillNames, reserved)];

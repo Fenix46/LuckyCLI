@@ -1,11 +1,12 @@
 /**
- * Sequential sub-agent execution.
+ * Sub-agent execution.
  *
  * Given a profile (provider + model + role) and a task, runSubAgent builds a
  * child Agent on that provider, runs it to completion, and returns a textual
- * report plus the token usage it consumed. Phase 1 is strictly sequential: one
- * sub-agent runs start-to-finish before control returns to the caller, so there
- * is never more than one writer on the filesystem.
+ * report plus the token usage it consumed. One call runs one sub-agent; the
+ * main agent loop may run several calls side by side when each declares the
+ * files it owns and those don't overlap (see ownership.ts) — each child's file
+ * tools are then restricted to its own files.
  *
  * The child Agent reuses the same engine as the main agent — it is fully
  * provider-agnostic, so a sub-agent on Gemini and one on Claude differ only in
@@ -24,6 +25,7 @@ import { isProviderId } from "../providers/types.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { defaultToolRegistry } from "../tools/builtin/index.js";
 import type { AgentProfile } from "./profiles.js";
+import { restrictWrites } from "./ownership.js";
 
 export interface SubAgentRequest {
   /** The profile to run as. */
@@ -51,6 +53,12 @@ export interface SubAgentRequest {
   onUsage?: (usage: TokenUsage) => void;
   /** Forwarded to the sub-agent's tools (e.g. graph upkeep). */
   onFilesChanged?: (paths: string[]) => void;
+  /**
+   * Files the sub-agent may write (paths, directories or globs). When set,
+   * its file tools refuse writes anywhere else — what makes running several
+   * sub-agents in parallel safe.
+   */
+  writableFiles?: string[];
 }
 
 export interface SubAgentResult {
@@ -88,7 +96,7 @@ export function subAgentToolRegistry(): ToolRegistry {
 
 /** Combine a profile persona with the base system prompt. */
 function composeSystemPrompt(base: string, profile: AgentProfile): string {
-  const role = `You are the "${profile.name}" sub-agent: ${profile.description}\n\nWork only on the task you are given, then report back concisely what you did and any key findings — the main agent relays your report, so include only the essentials.`;
+  const role = `You are the "${profile.name}" sub-agent: ${profile.description}\n\nWork only on the task you are given, then report back concisely what you did and any key findings — the main agent relays your report, so include only the essentials. Other sub-agents may be working at the same time: write only the files your task names, and if you need a change elsewhere, describe it in your report instead of making it.`;
   const persona = profile.systemPrompt?.trim();
   return [persona, role, base].filter(Boolean).join("\n\n");
 }
@@ -129,7 +137,9 @@ export async function runSubAgent(
   const agent = new Agent({
     provider,
     model: req.profile.model,
-    tools: req.tools ?? subAgentToolRegistry(),
+    tools: req.writableFiles?.length
+      ? restrictWrites(req.tools ?? subAgentToolRegistry(), req.writableFiles)
+      : (req.tools ?? subAgentToolRegistry()),
     system: composeSystemPrompt(req.system, req.profile),
     cwd: req.cwd,
     enrichTurn: (text) => enricher.enrich(text),

@@ -6,7 +6,9 @@ import {
   listTasks,
   loadStoredConfig,
   resetTaskList,
+  type Message,
 } from "@luckycli/core";
+import { setClipboard } from "../../vendor/ink/termio/osc.js";
 import { THEMES } from "../themes.js";
 import { formatNumber } from "../lib/format.js";
 import { unknownCommand } from "./helpers.js";
@@ -18,6 +20,8 @@ export interface BasicCommandDeps {
   listTasks: typeof listTasks;
   resetTaskList: typeof resetTaskList;
   loadConfig: typeof loadStoredConfig;
+  /** Put text on the system clipboard (OSC 52 / tmux / native helper). */
+  copyToClipboard: (text: string) => Promise<void>;
 }
 
 const defaultDeps: BasicCommandDeps = {
@@ -25,7 +29,29 @@ const defaultDeps: BasicCommandDeps = {
   listTasks,
   resetTaskList,
   loadConfig: loadStoredConfig,
+  copyToClipboard: async (text) => {
+    const sequence = await setClipboard(text);
+    if (sequence) process.stdout.write(sequence);
+  },
 };
+
+/**
+ * Assistant replies (text only, tool calls dropped), newest first — what
+ * /copy picks from.
+ */
+export function assistantReplies(messages: readonly Message[]): string[] {
+  const replies: string[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || message.role !== "assistant") continue;
+    const text = message.content
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("")
+      .trim();
+    if (text) replies.push(text);
+  }
+  return replies;
+}
 
 export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
   return [
@@ -139,6 +165,69 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
                   label: s.id === ctx.state.sessionId ? "current" : s.id,
                   value: `${s.messageCount} msgs · ${s.title ?? "(untitled)"}`,
                 })),
+        });
+      },
+    },
+    {
+      name: "/copy",
+      description: "Copy the last reply to the clipboard (/copy 2 = the one before)",
+      async run(args, ctx) {
+        const nth = args ? Number(args) : 1;
+        if (!Number.isInteger(nth) || nth < 1) {
+          ctx.emit({ kind: "error", text: "usage: /copy [n] — n counts back from the latest reply (1 = latest)" });
+          return;
+        }
+        const reply = assistantReplies(ctx.agent.messages)[nth - 1];
+        if (!reply) {
+          ctx.emit({ kind: "error", text: nth === 1 ? "no reply to copy yet" : `there is no reply #${nth} to copy` });
+          return;
+        }
+        try {
+          await deps.copyToClipboard(reply);
+        } catch (error) {
+          ctx.emit({
+            kind: "error",
+            text: `could not copy to the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+          });
+          return;
+        }
+        const lines = reply.split("\n").length;
+        ctx.emit({
+          kind: "command",
+          title: "Copied",
+          rows: [
+            { label: "reply", value: nth === 1 ? "latest" : `#${nth} from latest` },
+            { label: "size", value: `${formatNumber(reply.length)} chars · ${lines} ${lines === 1 ? "line" : "lines"}` },
+          ],
+        });
+      },
+    },
+    {
+      name: "/diff",
+      description: "Review the file changes of the last turn (/diff all = whole session)",
+      run(args, ctx) {
+        if (args && args !== "all") {
+          ctx.emit({ kind: "error", text: "usage: /diff [all]" });
+          return;
+        }
+        const scope = args === "all" ? "session" : "turn";
+        const diffs = ctx.state.diffs[scope];
+        const when = scope === "turn" ? "in the last turn" : "in this session";
+        if (diffs.length === 0) {
+          ctx.emit({
+            kind: "notice",
+            tone: "info",
+            text: `No file changes ${when} (changes made by shell commands aren't tracked).`,
+          });
+          return;
+        }
+        const files = new Set(diffs.map((d) => d.path)).size;
+        const added = diffs.reduce((n, d) => n + d.additions, 0);
+        const removed = diffs.reduce((n, d) => n + d.deletions, 0);
+        ctx.emit({
+          kind: "diff",
+          title: `Changes ${when} · ${files} ${files === 1 ? "file" : "files"} · +${added} −${removed}`,
+          diffs,
         });
       },
     },

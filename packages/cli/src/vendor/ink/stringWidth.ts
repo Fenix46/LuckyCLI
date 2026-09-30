@@ -113,6 +113,17 @@ function getEmojiWidth(grapheme: string): number {
   }
 
   // Incomplete keycap: digit/symbol + VS16 without U+20E3
+  // A lone code point with no VS16 is a text-presentation symbol (✖ ⚠ ☘ …):
+  // terminals draw those at their East Asian Width — 1 column unless the
+  // character is itself wide (✅ 🍀 ✨). Counting them as 2 desynced the frame
+  // model from the real cursor: every later cell on the row landed one column
+  // off, and diffing then skipped cells that actually differed (a redrawn row
+  // came out as "Faileo ex-c nfde" for "Failed exec node").
+  const firstChar = String.fromCodePoint(first)
+  if (grapheme === firstChar) {
+    return eastAsianWidth(first, { ambiguousAsWide: false })
+  }
+
   if (grapheme.length === 2) {
     const second = grapheme.codePointAt(1)
     if (

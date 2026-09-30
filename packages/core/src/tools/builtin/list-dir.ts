@@ -12,6 +12,7 @@ export const listDirTool = defineTool({
     "List files and directories in a given path relative to the working directory. " +
     "Returns a sorted list of entry names with their types (file, dir or other).",
   readonly: true,
+  concurrencySafe: true,
   schema: z.object({
     path: z
       .string()

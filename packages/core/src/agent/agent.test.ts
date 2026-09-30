@@ -1273,3 +1273,261 @@ describe("turn enrichment", () => {
     expect(parts).toHaveLength(1);
   });
 });
+
+describe("parallel tool execution", () => {
+  function slowTool(name: string, opts: { concurrencySafe?: boolean; readonly?: boolean }, log: string[]) {
+    return defineTool({
+      name,
+      description: "Slow tool.",
+      schema: z.object({ value: z.string() }),
+      ...(opts.readonly !== undefined ? { readonly: opts.readonly } : {}),
+      ...(opts.concurrencySafe !== undefined ? { concurrencySafe: opts.concurrencySafe } : {}),
+      async execute({ value }) {
+        log.push(`start:${value}`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        log.push(`end:${value}`);
+        return { content: `${name}:${value}` };
+      },
+    });
+  }
+
+  function calls(name: string, ids: string[]): StreamChunk[] {
+    return [
+      ...ids.map((id) => ({
+        toolCall: { type: "tool_call" as const, id, name, arguments: { value: id } },
+      })),
+      { finishReason: "tool_calls" as const },
+    ];
+  }
+
+  it("runs concurrency-safe calls together but reports them in call order", async () => {
+    const log: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([calls("peek", ["a", "b", "c"]), [{ finishReason: "stop" }]]),
+      model: "mock",
+      tools: new ToolRegistry().register(slowTool("peek", { readonly: true, concurrencySafe: true }, log)),
+    });
+
+    const events = await collect(agent.send("go"));
+    // All three started before the first one finished.
+    expect(log.slice(0, 3)).toEqual(["start:a", "start:b", "start:c"]);
+    const lifecycle = events
+      .filter((e) => e.type === "tool_start" || e.type === "tool_end")
+      .map((e) => `${e.type}:${(e as { id: string }).id}`);
+    expect(lifecycle).toEqual([
+      "tool_start:a", "tool_end:a",
+      "tool_start:b", "tool_end:b",
+      "tool_start:c", "tool_end:c",
+    ]);
+    const results = agent.messages.find((m) => m.role === "tool")?.content.map((part) =>
+      part.type === "tool_result" ? part.content : "",
+    );
+    expect(results).toEqual(["peek:a", "peek:b", "peek:c"]);
+  });
+
+  it("keeps tools without the flag sequential", async () => {
+    const log: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([calls("plain", ["a", "b"]), [{ finishReason: "stop" }]]),
+      model: "mock",
+      tools: new ToolRegistry().register(slowTool("plain", { readonly: true }, log)),
+    });
+    await collect(agent.send("go"));
+    expect(log).toEqual(["start:a", "end:a", "start:b", "end:b"]);
+  });
+
+  it("never pre-runs a call that needs approval", async () => {
+    const log: string[] = [];
+    const approvals: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([calls("guarded", ["a", "b"]), [{ finishReason: "stop" }]]),
+      model: "mock",
+      tools: new ToolRegistry().register(slowTool("guarded", { readonly: false, concurrencySafe: true }, log)),
+      approveTool: (_name, input) => {
+        approvals.push((input as { value: string }).value);
+        return (input as { value: string }).value === "a" ? "allow" : "deny";
+      },
+    });
+    await collect(agent.send("go"));
+    expect(approvals).toEqual(["a", "b"]);
+    expect(log).toEqual(["start:a", "end:a"]);
+  });
+});
+
+describe("live tool output", () => {
+  it("relays output between tool_start and tool_end while the tool runs", async () => {
+    const chatty = defineTool({
+      name: "chatty",
+      description: "Streams output.",
+      schema: z.object({ value: z.string() }),
+      async execute(_input, ctx) {
+        for (const part of ["one\n", "two\n", "three\n"]) {
+          ctx.onOutput?.(part);
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        return { content: "one\ntwo\nthree" };
+      },
+    });
+    const agent = new Agent({
+      provider: new ScriptedProvider([
+        [
+          { toolCall: { type: "tool_call", id: "c1", name: "chatty", arguments: { value: "x" } } },
+          { finishReason: "tool_calls" },
+        ],
+        [{ finishReason: "stop" }],
+      ]),
+      model: "mock",
+      tools: new ToolRegistry().register(chatty),
+    });
+
+    const events = await collect(agent.send("go"));
+    const kinds = events.map((e) => e.type).filter((t) => t.startsWith("tool_"));
+    expect(kinds[0]).toBe("tool_start");
+    expect(kinds.at(-1)).toBe("tool_end");
+    const outputs = events.filter((e) => e.type === "tool_output") as Array<{ chunk: string; id: string }>;
+    expect(outputs.length).toBeGreaterThanOrEqual(2);
+    expect(outputs.every((e) => e.id === "c1")).toBe(true);
+    expect("one\ntwo\nthree\n".startsWith(outputs.map((e) => e.chunk).join(""))).toBe(true);
+  });
+});
+
+describe("end-of-turn verification", () => {
+  function editTool() {
+    return defineTool({
+      name: "fake_edit",
+      description: "pretend edit",
+      schema: z.object({}),
+      readonly: true,
+      async execute() {
+        return {
+          content: "edited",
+          metadata: { diff: [{ path: "src/a.ts", additions: 1, deletions: 0, hunks: [] }] },
+        };
+      },
+    });
+  }
+  const edit: StreamChunk[] = [
+    { toolCall: { type: "tool_call", id: "e1", name: "fake_edit", arguments: {} } },
+    { finishReason: "tool_calls" },
+  ];
+  const done = (text: string): StreamChunk[] => [{ textDelta: text }, { finishReason: "stop" }];
+
+  async function project(typecheck: string): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "lucky-autocheck-"));
+    await writeFile(join(root, "package.json"), JSON.stringify({ scripts: { typecheck } }));
+    await writeFile(join(root, "package-lock.json"), "{}");
+    return root;
+  }
+
+  it("hands a failing check back to the model, at most twice per turn", async () => {
+    const cwd = await project("node -e \"console.log('TS2322: bad type'); process.exit(2)\"");
+    const agent = new Agent({
+      provider: new ScriptedProvider([edit, done("done"), done("fixed"), done("really fixed")]),
+      model: "mock",
+      cwd,
+      tools: new ToolRegistry().register(editTool()),
+      verificationMode: "end-of-turn",
+    });
+    const events = await collect(agent.send("change it"));
+    const checks = events.filter((e) => e.type === "tool_end" && e.name === "verify") as Array<{ isError: boolean; content: string }>;
+    expect(checks).toHaveLength(2);
+    expect(checks.every((c) => c.isError)).toBe(true);
+    expect(checks[0]?.content).toContain("TS2322: bad type");
+    const handedBack = agent.messages.filter(
+      (m) => m.role === "user" && m.content.some((p) => p.type === "text" && p.text.startsWith("[automatic check]")),
+    );
+    expect(handedBack).toHaveLength(2);
+    expect(events.at(-1)?.type).toBe("turn_end");
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  it("finishes normally when the check passes, and stays off in manual mode", async () => {
+    const cwd = await project("node -e \"process.exit(0)\"");
+    const auto = new Agent({
+      provider: new ScriptedProvider([edit, done("done")]),
+      model: "mock",
+      cwd,
+      tools: new ToolRegistry().register(editTool()),
+      verificationMode: "end-of-turn",
+    });
+    const autoEvents = await collect(auto.send("change it"));
+    expect(autoEvents.filter((e) => e.type === "tool_end" && e.name === "verify")).toHaveLength(1);
+    expect(autoEvents.at(-1)?.type).toBe("turn_end");
+
+    const manual = new Agent({
+      provider: new ScriptedProvider([edit, done("done")]),
+      model: "mock",
+      cwd,
+      tools: new ToolRegistry().register(editTool()),
+    });
+    const manualEvents = await collect(manual.send("change it"));
+    expect(manualEvents.some((e) => e.type === "tool_start" && e.name === "verify")).toBe(false);
+    await rm(cwd, { recursive: true, force: true });
+  });
+});
+
+describe("parallel claimed calls", () => {
+  function worker(log: string[]) {
+    return defineTool({
+      name: "worker",
+      description: "Claims files and works for a while.",
+      schema: z.object({ id: z.string(), files: z.array(z.string()).optional() }),
+      conflictKeys: (input) => (input as { files?: string[] }).files,
+      async execute({ id }) {
+        log.push(`start:${id}`);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        log.push(`end:${id}`);
+        return { content: `done ${id}` };
+      },
+    });
+  }
+  const step = (calls: Array<{ id: string; files?: string[] }>): StreamChunk[] => [
+    ...calls.map((c) => ({
+      toolCall: { type: "tool_call" as const, id: c.id, name: "worker", arguments: c },
+    })),
+    { finishReason: "tool_calls" as const },
+  ];
+
+  it("approves in order, then runs disjoint claims side by side", async () => {
+    const log: string[] = [];
+    const approvals: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([
+        step([{ id: "a", files: ["src/api"] }, { id: "b", files: ["docs/**"] }]),
+        [{ finishReason: "stop" }],
+      ]),
+      model: "mock",
+      tools: new ToolRegistry().register(worker(log)),
+      approveTool: (_name, input) => {
+        approvals.push(`${(input as { id: string }).id}@${log.length}`);
+        return "allow";
+      },
+    });
+    const events = await collect(agent.send("go"));
+    expect(approvals).toEqual(["a@0", "b@0"]); // both approved before anything ran
+    expect(log.slice(0, 2)).toEqual(["start:a", "start:b"]);
+    const order = events.filter((e) => e.type === "tool_start" || e.type === "tool_end").map((e) => `${e.type}:${(e as { id: string }).id}`);
+    expect(order).toEqual(["tool_start:a", "tool_start:b", "tool_end:a", "tool_end:b"]);
+  });
+
+  it("keeps overlapping or unclaimed calls sequential, and never runs a denied one", async () => {
+    const log: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([
+        step([{ id: "a", files: ["src"] }, { id: "b", files: ["src/api"] }]),
+        step([{ id: "c", files: ["x"] }, { id: "d" }]),
+        step([{ id: "e", files: ["x"] }, { id: "f", files: ["y"] }]),
+        [{ finishReason: "stop" }],
+      ]),
+      model: "mock",
+      tools: new ToolRegistry().register(worker(log)),
+      approveTool: (_name, input) => ((input as { id: string }).id === "f" ? "deny" : "allow"),
+    });
+    await collect(agent.send("go"));
+    expect(log).toEqual([
+      "start:a", "end:a", "start:b", "end:b",
+      "start:c", "end:c", "start:d", "end:d",
+      "start:e", "end:e",
+    ]);
+  });
+});

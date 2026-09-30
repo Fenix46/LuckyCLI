@@ -4,6 +4,7 @@ import {
   McpManager,
   appendProjectMemoryToSystemPrompt,
   buildSystemPromptFromContext,
+  detectProjectFacts,
   defaultToolRegistry,
   ensureProjectMemoryFile,
   getProvider,
@@ -14,6 +15,7 @@ import {
   SkillActivator,
   nonInteractiveMcpOAuthProvider,
   resetProvider,
+  refreshGraph,
   updateGraphForFiles,
   type AskUserRequest,
   type PlanProposal,
@@ -61,6 +63,48 @@ function createGraphMaintainer(cwd: string): (paths: string[]) => void {
     }, 800);
     timer.unref?.();
   };
+}
+
+/**
+ * After a shell command that may have changed files (git checkout, codegen,
+ * sed -i, a build), re-scan the graph shortly after — debounced so a burst of
+ * commands costs one scan — so the model's next graph query mid-turn already
+ * sees the new code instead of waiting for the next turn.
+ */
+function createWorkspaceRefresher(cwd: string): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void refreshGraph(cwd).catch(() => {
+        /* graph upkeep is best-effort; never disturb the session */
+      });
+    }, 300);
+    timer.unref?.();
+  };
+}
+
+// How long a turn waits for the graph refresh; a slower one (huge repo)
+// finishes in the background and the turn starts right away.
+const GRAPH_REFRESH_WAIT_MS = 1_500;
+
+/**
+ * Bring the graph up to date with changes lucky's own tools didn't make —
+ * edits in the user's editor, git pull/checkout, codegen or shell commands —
+ * before the model navigates by it. Free when the project has no graph.
+ */
+async function refreshGraphBeforeTurn(cwd: string): Promise<void> {
+  const refresh = refreshGraph(cwd).catch(() => null);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    refresh,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, GRAPH_REFRESH_WAIT_MS);
+      timer.unref?.();
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
 }
 
 export interface BuildAgentOptions {
@@ -197,6 +241,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
           hasGraph: existsSync(graphFilePath(cwd)),
           hasSubAgents: listProfiles().length > 0,
           hasSkills: hasInstalledSkills(),
+          project: detectProjectFacts(cwd),
           env: process.env,
         })
       : opts.system;
@@ -214,8 +259,12 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.presentPlan ? { presentPlan: opts.presentPlan } : {}),
     ...(opts.runSubAgent ? { runSubAgent: opts.runSubAgent } : {}),
     onFilesChanged: createGraphMaintainer(cwd),
+    onWorkspaceChanged: createWorkspaceRefresher(cwd),
     onSkillLoaded: (id) => skillActivator.markActive(id),
-    enrichTurn: (text) => graphEnricher.enrich(text),
+    enrichTurn: async (text) => {
+      await refreshGraphBeforeTurn(cwd);
+      return graphEnricher.enrich(text);
+    },
     ...(opts.readTextFile ? { readTextFile: opts.readTextFile } : {}),
     ...(opts.writeTextFile ? { writeTextFile: opts.writeTextFile } : {}),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),

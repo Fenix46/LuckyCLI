@@ -31,7 +31,14 @@ import {
   type SkillActivator,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
-import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope } from "../approval.js";
+import {
+  AUTO_ACCEPT_EDIT_TOOLS,
+  approvalScope,
+  loadCommandRules,
+  requiresApprovalInAutoMode,
+  shellCommandVerdict,
+} from "../approval.js";
+import { nextPermissionMode, verificationModeFor } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
@@ -146,10 +153,10 @@ export function Root({
 
   function cyclePermissionMode() {
     // The ref is the source of truth (the agent's captured approveTool reads it);
-    // state just mirrors it for rendering. Only two modes for now, so toggle.
-    const next: PermissionMode =
-      permissionModeRef.current === "normal" ? "acceptEdits" : "normal";
+    // state just mirrors it for rendering. normal → acceptEdits → auto → normal.
+    const next = nextPermissionMode(permissionModeRef.current);
     permissionModeRef.current = next;
+    runtimeRef.current?.agent.setVerificationMode(verificationModeFor(next));
     // Returning to normal also forgets the session's "always" approvals, so the
     // user starts asking again from a clean slate.
     if (next === "normal") sessionApprovedTools.current.clear();
@@ -157,11 +164,23 @@ export function Root({
   }
 
   function approveTool(name: string, input: unknown) {
-    const key = approvalScope(name, input);
+    // Shell commands first go through the per-command policy: the user's deny
+    // and allow rules apply in every mode, and a risky command (push, publish,
+    // deploy, remote script, destructive script) is approved only for itself.
+    const verdict = shellCommandVerdict(name, input, process.cwd(), loadCommandRules());
+    if (verdict?.action === "deny") return "deny" satisfies ToolApproval;
+    if (verdict?.action === "allow" && verdict.byRule) return "allow" satisfies ToolApproval;
+    const risky = verdict?.action === "ask";
+    const key = approvalScope(name, input, risky);
     if (sessionApprovedTools.current.has(key)) return "allow" satisfies ToolApproval;
     // Accept-edits mode auto-approves file edits (writes/edits/patches) without
     // prompting; shell execution still always asks.
     if (permissionModeRef.current === "acceptEdits" && AUTO_ACCEPT_EDIT_TOOLS.has(name)) {
+      return "allow" satisfies ToolApproval;
+    }
+    // Auto mode runs unattended: approve everything except the shell commands
+    // the policy flags, which always need a human yes.
+    if (permissionModeRef.current === "auto" && !requiresApprovalInAutoMode(verdict)) {
       return "allow" satisfies ToolApproval;
     }
 
@@ -169,6 +188,8 @@ export function Root({
       setApprovalRequest({
         name,
         input,
+        ...(risky ? { risky: true } : {}),
+        ...(verdict?.reason ? { reason: verdict.reason } : {}),
         resolve: (decision) => {
           if (decision === "always") {
             sessionApprovedTools.current.add(key);
@@ -193,6 +214,13 @@ export function Root({
   // option (or matching free text) becomes accept/modify/reject; any other free
   // text on "modify" is the revision feedback.
   async function presentPlan(plan: PlanProposal): Promise<PlanDecision> {
+    // Auto mode runs unattended: print the plan so it stays in the scrollback,
+    // then accept it without asking. The request is left set (App prints each
+    // request once, keyed on identity); the next plan replaces it.
+    if (permissionModeRef.current === "auto") {
+      setPlanRequest({ ...plan, title: `${plan.title} · auto-accepted` });
+      return { action: "accept" };
+    }
     const ACCEPT = "Accept and run";
     const MODIFY = "Modify";
     const REJECT = "Reject";
@@ -248,6 +276,7 @@ export function Root({
       {
         profile,
         task: request.task,
+        ...(request.files ? { writableFiles: request.files } : {}),
         cwd: process.cwd(),
         system: config.system,
         resolveCredentials: (provider) =>
@@ -333,6 +362,7 @@ export function Root({
       return;
     }
 
+    built.agent.setVerificationMode(verificationModeFor(permissionModeRef.current));
     setRuntime((current) => {
       void current?.mcpManager?.close();
       return {

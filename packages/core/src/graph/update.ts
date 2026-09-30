@@ -47,6 +47,23 @@ export async function updateGraphForFiles(
   cwd: string,
   paths: string[],
 ): Promise<UpdateSummary | null> {
+  // Updates are read-modify-write on graph.json: run them one at a time per
+  // project so a turn-start refresh and the post-edit maintainer can't
+  // overwrite each other's changes.
+  const key = resolve(cwd);
+  const previous = updateQueue.get(key) ?? Promise.resolve();
+  const run = previous.catch(() => undefined).then(() => updateNow(cwd, paths));
+  const settled = run.catch(() => undefined);
+  updateQueue.set(key, settled);
+  void settled.then(() => {
+    if (updateQueue.get(key) === settled) updateQueue.delete(key);
+  });
+  return run;
+}
+
+const updateQueue = new Map<string, Promise<unknown>>();
+
+async function updateNow(cwd: string, paths: string[]): Promise<UpdateSummary | null> {
   const graph = await tryLoadGraph(cwd);
   if (!graph) return null;
 

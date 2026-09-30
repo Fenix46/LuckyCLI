@@ -20,6 +20,7 @@ export function StatusFooter({
   contextStatus,
   effort,
   thinking,
+  usage,
 }: {
   theme: Theme;
   /** Content width (terminal width minus the root's paddingX). */
@@ -30,6 +31,8 @@ export function StatusFooter({
   contextStatus: ContextStatus | null;
   effort?: string | undefined;
   thinking?: string | undefined;
+  /** Session tokens (and cost, when rates are configured). */
+  usage?: string | undefined;
 }): React.JSX.Element {
   return (
     <Box width={width} marginTop={1} overflow="hidden">
@@ -37,6 +40,13 @@ export function StatusFooter({
         {permissionMode === "acceptEdits" ? (
           <Text color={theme.success} bold>
             ⏵⏵ accept edits on{" "}
+            <Text color={theme.muted} dimColor>
+              (shift+tab to cycle)
+            </Text>
+          </Text>
+        ) : permissionMode === "auto" ? (
+          <Text color={theme.warning} bold>
+            ⏵⏵⏵ auto mode on{" "}
             <Text color={theme.muted} dimColor>
               (shift+tab to cycle)
             </Text>
@@ -49,7 +59,7 @@ export function StatusFooter({
       </Box>
       <Box flexGrow={1} />
       <Box flexDirection="row" gap={1} flexShrink={1}>
-        {showScrollHint ? (
+        {showScrollHint && width >= 130 ? (
           <Text color={theme.muted} dimColor wrap="truncate">
             scroll to view history{"  "}
           </Text>
@@ -58,6 +68,7 @@ export function StatusFooter({
           {formatStatusFooter(contextStatus, {
             ...(effort ? { effort } : {}),
             ...(thinking ? { thinking } : {}),
+            ...(usage ? { usage } : {}),
           })}
         </Text>
       </Box>

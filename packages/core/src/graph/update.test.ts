@@ -170,3 +170,21 @@ func describe(r Rect) float64 {
     expect(validateGraph(after)).toEqual([]);
   });
 });
+
+describe("concurrent graph updates", () => {
+  it("serialize per project so neither update is lost", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lucky-update-race-"));
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "a.ts"), "export function alpha() {}\n");
+    await writeFile(join(root, "src", "b.ts"), "export function beta() {}\n");
+    await buildAndSaveGraph(root);
+    await writeFile(join(root, "src", "a.ts"), "export function alpha2() {}\n");
+    await writeFile(join(root, "src", "b.ts"), "export function beta2() {}\n");
+
+    await Promise.all([updateGraphForFiles(root, ["src/a.ts"]), updateGraphForFiles(root, ["src/b.ts"])]);
+
+    const labels = (await loadGraph(root)).nodes.map((n) => n.label);
+    expect(labels).toEqual(expect.arrayContaining(["alpha2", "beta2"]));
+    await rm(root, { recursive: true, force: true });
+  });
+});

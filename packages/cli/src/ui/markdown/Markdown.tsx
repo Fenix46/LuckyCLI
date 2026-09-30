@@ -29,13 +29,11 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
       {blocks.map((block, blockIdx) => {
         if (block.type === "code" && block.codeLines) {
           return (
-            <Box key={blockIdx} flexDirection="column" width="100%">
-              <Box flexDirection="column" paddingLeft={2} paddingTop={1} paddingBottom={1} backgroundColor={theme.codeLabelBg}>
-                <Text bold color={theme.accent}>
-                  {block.language?.toUpperCase() || "CODE"}
-                </Text>
+            <Box key={blockIdx} flexDirection="column" width="100%" marginY={1}>
+              <Box flexDirection="row" paddingLeft={2} backgroundColor={theme.codeLabelBg}>
+                <Text color={theme.muted}>{block.language?.toLowerCase() || "code"}</Text>
               </Box>
-              <Box flexDirection="column" backgroundColor={theme.codeBlockBg} paddingTop={1} paddingBottom={1}>
+              <Box flexDirection="column" backgroundColor={theme.codeBlockBg}>
                 {block.codeLines.map((line, lineIdx) => (
                   <Text key={lineIdx}>
                     <Text color={theme.muted}>  </Text>

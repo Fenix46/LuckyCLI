@@ -3,7 +3,7 @@ import os from "node:os";
 import React from "react";
 import { PROVIDER_CATALOG, type ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
-import { firstName, prettyCwd } from "../lib/format.js";
+import { firstName, prettyCwd, truncateMiddle } from "../lib/format.js";
 import { APP_VERSION, LOGO, LOGO_WIDTH } from "./constants.js";
 
 /**
@@ -28,9 +28,11 @@ export function IntroBanner({
 }): React.JSX.Element {
   const name = firstName(os.userInfo().username);
   const providerName = PROVIDER_CATALOG[provider].displayName;
-  const cwd = prettyCwd(process.cwd());
   // Border + paddingX consume 6 columns around the content.
   const compact = width !== undefined && width < LOGO_WIDTH + 6;
+  // Keep the directory on one line: the "cwd   " label takes 6 more columns.
+  const cardWidth = width !== undefined ? Math.min(width, 100) : 100;
+  const cwd = truncateMiddle(prettyCwd(process.cwd()), cardWidth - 12);
 
   return (
     <Box
@@ -77,7 +79,7 @@ export function IntroBanner({
 
       <Box marginTop={1}>
         <Text color={theme.muted}>
-          / commands · shift+tab permissions · esc interrupt
+          / commands · shift+tab approval mode · esc interrupt · ↑ history
         </Text>
       </Box>
     </Box>

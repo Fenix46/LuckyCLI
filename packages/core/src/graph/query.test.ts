@@ -3,6 +3,7 @@ import {
   callersOf,
   calleesOf,
   godNodes,
+  blastRadius,
   impactOf,
   neighborsOf,
   resolveNodes,
@@ -142,5 +143,49 @@ describe("graph query helpers", () => {
     expect(o.kindCounts.module).toBe(1); // only the non-external module is counted
     expect(o.externalNodeCount).toBe(1); // the ExoPlayer library node
     expect(o.internalNodeCount).toBe(5);
+  });
+});
+
+describe("blastRadius", () => {
+  function chain(): Graph {
+    const g = emptyGraph("/repo");
+    g.nodes = [
+      { id: "core", label: "core", kind: "function", sourceFile: "core.ts", sourceLocation: "L1" },
+      { id: "svc", label: "svc", kind: "function", sourceFile: "svc.ts", sourceLocation: "L1" },
+      { id: "api", label: "api", kind: "function", sourceFile: "api.ts", sourceLocation: "L1" },
+      { id: "cli", label: "cli", kind: "function", sourceFile: "cli.ts", sourceLocation: "L1" },
+      { id: "far", label: "far", kind: "function", sourceFile: "far.ts", sourceLocation: "L1" },
+      { id: "core_ts", label: "core.ts", kind: "file", sourceFile: "core.ts" },
+      { id: "lib", label: "lodash", kind: "module", sourceFile: "lodash", external: true },
+    ];
+    g.edges = [
+      { source: "svc", target: "core", relation: "calls", confidence: "EXTRACTED" },
+      { source: "api", target: "svc", relation: "calls", confidence: "EXTRACTED" },
+      { source: "cli", target: "api", relation: "calls", confidence: "EXTRACTED" },
+      { source: "far", target: "cli", relation: "calls", confidence: "EXTRACTED" },
+      { source: "core_ts", target: "core", relation: "defines", confidence: "EXTRACTED" },
+      { source: "lib", target: "core", relation: "uses", confidence: "EXTRACTED" },
+      { source: "api", target: "core", relation: "references", confidence: "EXTRACTED" },
+    ];
+    return g;
+  }
+
+  it("walks dependents breadth-first up to the depth limit, skipping containment and externals", () => {
+    const radius = blastRadius(chain(), "core");
+    expect(radius.dependents.map((d) => [d.node.id, d.depth])).toEqual([
+      ["svc", 1],
+      ["api", 1],
+      ["cli", 2],
+      ["far", 3],
+    ]);
+    expect(radius.files).toEqual(["svc.ts", "api.ts", "cli.ts", "far.ts"]);
+    expect(radius.truncated).toBe(false);
+  });
+
+  it("honors the depth and node limits", () => {
+    expect(blastRadius(chain(), "core", { maxDepth: 2 }).dependents.map((d) => d.node.id)).not.toContain("far");
+    const cut = blastRadius(chain(), "core", { limit: 1 });
+    expect(cut.dependents).toHaveLength(1);
+    expect(cut.truncated).toBe(true);
   });
 });

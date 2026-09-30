@@ -66,7 +66,7 @@ import {
 import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
 import type { AskUserRequest } from "@luckycli/core";
-import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope } from "../approval.js";
+import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope, loadCommandRules, shellCommandVerdict } from "../approval.js";
 import { PREVIEWABLE_TOOLS, previewToolDiffs } from "../approval-preview.js";
 import { HIDDEN_TOOLS } from "../hidden-tools.js";
 import {
@@ -86,7 +86,7 @@ import {
 import { CONTEXT_META_KEY, USAGE_META_KEY, contextMeta, hasTokenCounts } from "./meta.js";
 import { isSelectableModel, modelRoster, parseModelId } from "./models.js";
 import { planBodyUpdate, planUpdateFromProposal, planUpdateFromTasks } from "./plan.js";
-import { diffContents, toolCallEnd, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
+import { diffContents, toolCallEnd, toolCallProgress, toolCallStart, toolCallTitle, toolKind } from "./tool-calls.js";
 
 /**
  * How long to gather task-store writes before sending one `plan` update.
@@ -95,6 +95,10 @@ import { diffContents, toolCallEnd, toolCallStart, toolCallTitle, toolKind } fro
  * without making the checklist feel laggy.
  */
 const PLAN_COALESCE_MS = 50;
+// Live tool output: at most one progress update per call every 300ms,
+// carrying the last few thousand characters.
+const LIVE_OUTPUT_MS = 300;
+const LIVE_OUTPUT_KEEP_CHARS = 8_000;
 
 /** Guidance surfaced whenever the stored config can't drive a session. */
 export const AUTH_GUIDANCE =
@@ -534,7 +538,13 @@ export class LuckyAcpAgent implements Agent {
     name: string,
     input: unknown,
   ): Promise<"allow" | "deny"> {
-    const scope = approvalScope(name, input);
+    // Per-command policy for shell calls, as in the TUI: deny rules hold even
+    // in bypass mode, allow rules skip the round trip, and a risky command is
+    // remembered only for itself.
+    const verdict = shellCommandVerdict(name, input, session.cwd, loadCommandRules());
+    if (verdict?.action === "deny") return "deny";
+    if (verdict?.action === "allow" && verdict.byRule) return "allow";
+    const scope = approvalScope(name, input, verdict?.action === "ask");
     if (session.approved.has(scope)) return "allow";
     if (session.mode === "bypass-permissions") return "allow";
     if (session.mode === "accept-edits" && AUTO_ACCEPT_EDIT_TOOLS.has(name)) return "allow";
@@ -756,6 +766,8 @@ export class LuckyAcpAgent implements Agent {
       pendingContext = undefined;
       return { ...notification, update: { ...notification.update, _meta: meta } };
     };
+    // Live output per running call, published at most every LIVE_OUTPUT_MS.
+    const liveOutput = new Map<string, { text: string; sentAt: number }>();
     try {
       for await (const event of session.agent.send(content, abort.signal)) {
         switch (event.type) {
@@ -779,7 +791,20 @@ export class LuckyAcpAgent implements Agent {
               );
             }
             break;
+          case "tool_output": {
+            if (HIDDEN_TOOLS.has(event.name)) break;
+            const entry = liveOutput.get(event.id) ?? { text: "", sentAt: 0 };
+            entry.text = `${entry.text}${event.chunk}`.slice(-LIVE_OUTPUT_KEEP_CHARS);
+            liveOutput.set(event.id, entry);
+            const now = Date.now();
+            if (now - entry.sentAt >= LIVE_OUTPUT_MS) {
+              entry.sentAt = now;
+              await this.conn.sessionUpdate(toolCallProgress(params.sessionId, event.id, entry.text));
+            }
+            break;
+          }
           case "tool_end":
+            liveOutput.delete(event.id);
             if (!HIDDEN_TOOLS.has(event.name)) {
               await this.conn.sessionUpdate(
                 withContextMeta(

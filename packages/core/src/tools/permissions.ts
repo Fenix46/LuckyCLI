@@ -17,6 +17,8 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   graph_query: "allow",
   graph_overview: "allow",
   ask_user: "allow",
+  // Reads/stops only background commands the user already approved starting.
+  process: "allow",
 
   // Side-effecting tools ask by default.
   write_file: "ask",

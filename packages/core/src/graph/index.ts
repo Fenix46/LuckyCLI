@@ -10,3 +10,4 @@ export * from "./enrich.js";
 export { extractorFor } from "./extract/index.js";
 export type { Extractor, ExtractorContext } from "./extract/types.js";
 export type { GraphLanguage } from "./extract/parser.js";
+export * from "./refresh.js";

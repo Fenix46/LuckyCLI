@@ -2,6 +2,10 @@
 import "dotenv/config";
 // Keep this before any React-importing module — see env.ts (dev React leaks
 // PerformanceMeasure entries on every render; production build does not).
+// This file must contain no JSX: tsc hoists the automatic `react/jsx-runtime`
+// import above every other import, which would load React (in dev mode, since
+// NODE_ENV is not set yet) before env.js runs — pairing a development React
+// with the production reconciler, which silently renders nothing.
 import "./env.js";
 import { parseArgs } from "node:util";
 import render from "./vendor/ink/root.js";
@@ -9,6 +13,7 @@ import React from "react";
 import {
   buildAndSaveGraph,
   graphDirPath,
+  blastRadius,
   impactOf,
   latestSession,
   listSessions,
@@ -26,7 +31,7 @@ import { runMcpCommand } from "./mcp-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
 import { runCommand } from "./run-cli.js";
 import { runReviewCommand, runVerifyCommand } from "./workflow-cli.js";
-import { graphImpactLines } from "./graph-cli.js";
+import { blastRadiusLines, graphImpactLines } from "./graph-cli.js";
 import { applyStagedUpdateIfAny } from "@luckycli/core";
 
 const HELP = `lucky — a multi-provider terminal agent
@@ -50,7 +55,8 @@ Commands:
   graph build [path]    build the project knowledge graph into .lucky/graph
   graph rebuild [path]  rebuild it from scratch
   graph view [path]     render the graph as interactive HTML to explore
-  graph impact <query>  show immediate graph dependencies
+  graph impact <query>  show a symbol's graph dependencies and what transitively
+                        depends on it (--depth N, default 3)
   mcp list              list configured MCP servers
   mcp status            connect to each MCP server and report status
   mcp inspect <name>    show prompts and resources exposed by a server
@@ -102,10 +108,13 @@ async function runGraphView(target: string): Promise<void> {
 async function runGraphCommand(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   if (sub === "impact") {
-    const query = rest[0];
-    const target = rest[1] ?? ".";
-    if (!query) {
-      process.stderr.write("Usage: lucky graph impact <query> [path]\n");
+    const depthAt = rest.indexOf("--depth");
+    const depth = depthAt >= 0 ? Number(rest[depthAt + 1]) : 3;
+    const positional = depthAt >= 0 ? rest.filter((_, i) => i !== depthAt && i !== depthAt + 1) : rest;
+    const query = positional[0];
+    const target = positional[1] ?? ".";
+    if (!query || !Number.isInteger(depth) || depth < 1 || depth > 10) {
+      process.stderr.write("Usage: lucky graph impact <query> [path] [--depth 1-10]\n");
       process.exit(1);
       return;
     }
@@ -117,7 +126,11 @@ async function runGraphCommand(args: string[]): Promise<void> {
       process.exit(1);
       return;
     }
-    const lines = graphImpactLines(query, impactOf(graph, query));
+    const impacts = impactOf(graph, query);
+    const lines = graphImpactLines(query, impacts);
+    for (const impact of impacts) {
+      lines.push("", ...blastRadiusLines(impact.node.label, blastRadius(graph, impact.node.id, { maxDepth: depth }), depth));
+    }
     lines.forEach((line) => process.stdout.write(`${line}\n`));
     if (lines.length === 1 && lines[0]?.startsWith("No graph nodes matched")) {
       process.exit(1);
@@ -306,12 +319,12 @@ function main(): void {
   // freely — no ScrollBox, no height constraint, no mouse tracking needed since
   // the terminal owns scrolling.
   void render(
-    <Root
-      config={config}
-      forceSetup={values.setup === true}
-      {...(resume ? { resume } : {})}
-      {...(pickResume ? { pickResume: true } : {})}
-    />,
+    React.createElement(Root, {
+      config,
+      forceSetup: values.setup === true,
+      ...(resume ? { resume } : {}),
+      ...(pickResume ? { pickResume: true } : {}),
+    }),
   );
 }
 

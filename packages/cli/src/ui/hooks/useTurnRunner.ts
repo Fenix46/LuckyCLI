@@ -9,7 +9,7 @@ import type {
   ToolResultMetadata,
 } from "@luckycli/core";
 import type { Item } from "../lib/items.js";
-import { formatNumber } from "../lib/format.js";
+import { formatNumber, formatTurnSummary } from "../lib/format.js";
 import { humanizeError } from "../lib/errors.js";
 import { handleEvent } from "../lib/turn-events.js";
 
@@ -25,10 +25,19 @@ interface TurnRunnerDeps {
   agent: Agent;
   /** Append items to the transcript. */
   appendItems: (next: Item[]) => void;
-  /** Replace the last matching running tool with its output. */
-  patchTool: (name: string, output: string, error: boolean, metadata?: ToolResultMetadata) => void;
+  /** Attach a finished call's output to its running tool row (matched by call id). */
+  patchTool: (
+    name: string,
+    output: string,
+    error: boolean,
+    metadata: ToolResultMetadata | undefined,
+    id: string,
+    finishedAt: number,
+  ) => void;
   onContext: (status: ContextStatus) => void;
   onUsage: (usage: TokenUsage) => void;
+  /** Stream a running tool's output into its row (called at most every ~200ms). */
+  onToolOutput: (id: string, chunk: string) => void;
   /** Persist the session once the turn settles. */
   persist: () => void;
   /**
@@ -45,6 +54,18 @@ interface TurnRunnerDeps {
   graphEnricher?: GraphContextEnricher;
 }
 
+/** How a turn settled, so callers can decide what to do next (e.g. queued prompts). */
+export interface TurnOutcome {
+  /** The user interrupted the turn (Esc, Ctrl+C, or a denied approval). */
+  aborted: boolean;
+  /** The turn ended on an error instead of a normal completion. */
+  failed: boolean;
+}
+
+// Short, tool-less exchanges don't get a recap line — it would just be noise
+// under a one-sentence answer.
+const TURN_SUMMARY_MIN_MS = 10_000;
+
 export interface TurnRunner {
   /** Whether a turn is currently in progress. */
   busy: boolean;
@@ -57,7 +78,7 @@ export interface TurnRunner {
   /** Abort the active turn, if any. */
   abort: () => void;
   /** Run one agent turn for the given user input (text, or multimodal parts). */
-  runTurn: (input: string | ContentPart[]) => Promise<void>;
+  runTurn: (input: string | ContentPart[]) => Promise<TurnOutcome>;
 }
 
 /**
@@ -72,6 +93,7 @@ export function useTurnRunner({
   patchTool,
   onContext,
   onUsage,
+  onToolOutput,
   persist,
   skills,
   graphEnricher,
@@ -95,9 +117,16 @@ export function useTurnRunner({
   }, []);
 
   const runTurn = useCallback(
-    async (input: string | ContentPart[]) => {
+    async (input: string | ContentPart[]): Promise<TurnOutcome> => {
+      const turnStartedAt = Date.now();
       setBusy(true);
-      setStartedAt(Date.now());
+      setStartedAt(turnStartedAt);
+      const usageBefore = agent.totalTokenUsage;
+      let toolCount = 0;
+      let failedTools = 0;
+      let aborted = false;
+      let failed = false;
+      let completed = false;
 
       // The current narration streams as a SINGLE growing assistant message:
       // it lives in `streaming` state (one "lucky" header) and is committed to
@@ -139,6 +168,19 @@ export function useTurnRunner({
       // reach the model only on demand — see the /skill command and skill_load.
       const payload: string | ContentPart[] = input;
 
+      // Live tool output is coalesced per call and flushed on a timer, so a
+      // chatty command doesn't re-render the transcript on every chunk.
+      const liveBuffers = new Map<string, string>();
+      let liveTimer: ReturnType<typeof setTimeout> | null = null;
+      const flushLive = () => {
+        if (liveTimer) {
+          clearTimeout(liveTimer);
+          liveTimer = null;
+        }
+        for (const [id, chunk] of liveBuffers) onToolOutput(id, chunk);
+        liveBuffers.clear();
+      };
+
       const controller = new AbortController();
       abortRef.current = controller;
       try {
@@ -150,19 +192,27 @@ export function useTurnRunner({
               scheduleStreaming();
             },
             onReasoning: () => setReasoning(true),
-            onToolStart: (name, rawInput) => {
+            onToolStart: (name, rawInput, id) => {
               // A tool call ends the current narration block — commit any text
               // the model wrote before the tool (and clear the live preview).
               setReasoning(false);
               flushAssistant();
               if (HIDDEN_TOOLS.has(name)) return;
-              appendItems([{ kind: "tool", name, input: rawInput }]);
+              toolCount += 1;
+              appendItems([{ kind: "tool", id, name, input: rawInput, startedAt: Date.now() }]);
             },
-            onToolEnd: (name, output, error, metadata) => {
+            onToolOutput: (id, chunk) => {
+              liveBuffers.set(id, (liveBuffers.get(id) ?? "") + chunk);
+              liveTimer ??= setTimeout(flushLive, 200);
+            },
+            onToolEnd: (name, output, error, metadata, id) => {
+              liveBuffers.delete(id);
               if (HIDDEN_TOOLS.has(name)) return;
-              patchTool(name, output, error, metadata);
+              if (error) failedTools += 1;
+              patchTool(name, output, error, metadata, id, Date.now());
             },
             onError: (message) => {
+              failed = true;
               flushAssistant();
               appendItems([{ kind: "error", text: humanizeError(message) }]);
             },
@@ -205,28 +255,48 @@ export function useTurnRunner({
               ]);
             },
             onTurnEnd: (usage) => {
+              completed = true;
               if (usage) onUsage(usage);
             },
             onAborted: () => {
+              aborted = true;
               flushAssistant();
-              appendItems([{ kind: "error", text: "Interrupted by user." }]);
+              appendItems([{ kind: "notice", text: "Interrupted · tell lucky what to do instead" }]);
             },
           });
         }
       } finally {
+        flushLive();
         publishStreaming();
         if (abortRef.current === controller) {
           abortRef.current = null;
         }
         flushAssistant();
+        const elapsedMs = Date.now() - turnStartedAt;
+        if (completed && !aborted && !failed && (toolCount > 0 || elapsedMs >= TURN_SUMMARY_MIN_MS)) {
+          const usageAfter = agent.totalTokenUsage;
+          appendItems([
+            {
+              kind: "turnSummary",
+              text: formatTurnSummary({
+                elapsedMs,
+                tools: toolCount,
+                failedTools,
+                inputTokens: usageAfter.inputTokens - usageBefore.inputTokens,
+                outputTokens: usageAfter.outputTokens - usageBefore.outputTokens,
+              }),
+            },
+          ]);
+        }
         setStreaming("");
         setReasoning(false);
         setBusy(false);
         setStartedAt(null);
         persist();
       }
+      return { aborted, failed };
     },
-    [agent, appendItems, patchTool, onContext, onUsage, persist, skills, graphEnricher],
+    [agent, appendItems, patchTool, onContext, onUsage, onToolOutput, persist, skills, graphEnricher],
   );
 
   return { busy, startedAt, streaming, reasoning, abort, runTurn };

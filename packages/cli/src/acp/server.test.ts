@@ -573,6 +573,47 @@ describe("acp server prompt streaming", () => {
     expect((end.content as unknown[])[1]).toMatchObject({ type: "content" });
   });
 
+  it("streams a running tool's output as in-progress tool_call_update content", async () => {
+    const { defineTool } = await import("@luckycli/core");
+    const { z } = await import("zod");
+    const tools = new ToolRegistry();
+    tools.register(
+      defineTool({
+        name: "slow_cmd",
+        description: "prints over time",
+        schema: z.object({}),
+        readonly: true,
+        async execute(_input, ctx) {
+          ctx.onOutput?.("step 1\n");
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          ctx.onOutput?.("step 2\n");
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          return { content: "step 1\nstep 2" };
+        },
+      }),
+    );
+    const agent = engineAgent(
+      [
+        [{ toolCall: { type: "tool_call", id: "run-1", name: "slow_cmd", arguments: {} }, finishReason: "tool_calls" }],
+        [{ finishReason: "stop" }],
+      ],
+      { tools },
+    );
+    const { editor, updates, sessionId } = await editorWithSession(agent);
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "run" }] });
+
+    const toolUpdates = updates
+      .map((u) => (u as { update: Record<string, unknown> }).update)
+      .filter((u) => u.toolCallId === "run-1");
+    const progress = toolUpdates.filter((u) => u.sessionUpdate === "tool_call_update" && u.status === "in_progress");
+    expect(progress.length).toBeGreaterThanOrEqual(2);
+    expect(progress[0]).toMatchObject({ content: [{ type: "content", content: { type: "text", text: "step 1\n" } }] });
+    expect(progress.at(-1)).toMatchObject({
+      content: [{ type: "content", content: { type: "text", text: "step 1\nstep 2\n" } }],
+    });
+    expect(toolUpdates.at(-1)).toMatchObject({ status: "completed" });
+  });
+
   it("hides task_* and ask_user tool calls from the editor", async () => {
     const { defineTool } = await import("@luckycli/core");
     const { z } = await import("zod");

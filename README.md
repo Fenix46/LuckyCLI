@@ -37,7 +37,9 @@ model mid-session without losing your conversation.
 - **A project knowledge graph.** Opt-in on first open, LuckyCLI maps your code's
   files, symbols, imports and calls into `.lucky/graph` so the agent navigates by
   querying instead of re-reading files, renders to interactive HTML, and keeps
-  itself current automatically as the agent edits. Early real-LLM results in
+  itself current automatically — after the agent's edits and, at the start of each
+  turn, after changes made elsewhere (your editor, `git pull`, codegen). `graph_query
+  impact` and `lucky graph impact` show everything a change could break. Early real-LLM results in
   [How much does it help?](#how-much-does-it-help-).
 - **Skills on a second graph.** Reusable instructions (cutting a release, your
   commit conventions, …) live as `skill.md` files indexed in their own keyword
@@ -49,6 +51,17 @@ model mid-session without losing your conversation.
   directory, and `http_fetch` blocks private/SSRF targets.
 - **Remembered approvals.** Approve "always" once and LuckyCLI stops re-asking —
   per command for the shell, per tool for file writes — for the rest of the session.
+- **Self-checking in auto mode.** Before finishing a turn that edited files, the
+  agent runs the project's quickest check (typecheck, else build, else tests) and
+  fixes what it breaks — up to two attempts (`LUCKY_AUTO_VERIFY=off` disables it).
+- **Parallel sub-agents.** Delegations that each declare the files they own (and
+  don't overlap) run side by side; each sub-agent can only write its own files.
+- **Parallel reads.** When the model asks for several reads, searches, listings,
+  graph queries or fetches at once, they run concurrently — a step that opens five
+  files costs one file's latency. Anything that needs approval stays sequential.
+- **Shell built for real work.** Commands get 2 minutes by default (up to 10 on
+  request), noisy output is never fatal, and oversized output keeps both the start
+  and the end — where test failures and compiler errors live.
 - **Automatic context compaction.** Older turns are summarized as you approach the
   model's usable context, so long sessions don't fall over.
 - **Persistent sessions.** Every turn is saved; resume the latest or pick from a list.
@@ -221,7 +234,22 @@ Defaults in **bold**. Use `/model` in the REPL or `-m` on the CLI to switch.
 
 Type a message and press Enter. The agent streams its reasoning and tool calls
 inline, asks for approval on side-effecting tools, and saves the session after
-each turn.
+each turn. Shell commands show how long they took and the last few lines of
+their output; a turn that ran tools (or took over 10s) ends with a one-line
+recap — time, tool count, tokens.
+
+The terminal title tells you what lucky is doing even from another tab (working,
+waiting for approval, idle), terminals that support it show a progress indicator,
+and after 30s+ of unattended work the bell rings when the turn finishes or stops
+to ask you something (`LUCKY_NOTIFY=off` silences it).
+
+The footer shows the session's tokens, and the estimated cost when token rates are
+configured for the model.
+
+You can keep typing while the agent works: prompts sent mid-turn are **queued**
+(listed above the input) and run in order as soon as the current turn ends.
+Interrupting with `Esc` puts the queued text back into the input instead of
+running it.
 
 ### Keys
 
@@ -229,7 +257,8 @@ each turn.
 |-----|--------|
 | `Enter` | Send the message |
 | `Option/Alt + Enter` (macOS) · `Ctrl + Enter` (Win/Linux) | Insert a newline (multiline input) |
-| `Esc` | Interrupt the running turn |
+| `Esc` | Interrupt the running turn (queued prompts return to the input) |
+| `Shift + Tab` | Cycle approval mode: normal → accept edits → auto |
 | `Ctrl + C` | Cancel a running turn, or quit when idle |
 | `↑` / `↓` | Navigate menus and pickers |
 | `Tab` | Complete the highlighted slash command |
@@ -242,6 +271,9 @@ each turn.
 | `/provider` | Switch provider and authenticate |
 | `/status` | Show provider auth, account, quota and context status |
 | `/compact` | Summarize older chat history now |
+| `/copy [n]` | Copy the latest reply (or the n-th from the end) to the clipboard |
+| `/diff [all]` | Review the file changes of the last turn (or the whole session) |
+| `/rules` | View or edit which shell commands are allowed, need approval, or are blocked |
 | `/resume` | Pick a saved session to resume |
 | `/theme` | Choose terminal UI colors |
 | `/graph` | Build or refresh the project knowledge graph |
@@ -265,7 +297,7 @@ side-effecting ones prompt for approval.
 | `http_fetch` | allow | Fetch the text content of a public URL |
 | `task_*` | allow | Create/list/get/update tasks — a structured todo list for multi-step work |
 | `present_plan` | allow | Show a step-by-step plan for the work before doing it |
-| `spawn_agent` | allow | Delegate a sub-task to a configured sub-agent |
+| `spawn_agent` | allow | Delegate a sub-task to a configured sub-agent; with `files`, several run in parallel on disjoint files |
 | `project_memory` | allow | Read/write durable per-project notes the agent recalls later |
 | `graph_query` | allow | Query the knowledge graph: find a symbol, its callers/callees, neighbors, or a file's symbols |
 | `graph_overview` | allow | Summarize the graph: counts, most-connected symbols, most-imported modules |
@@ -275,7 +307,8 @@ side-effecting ones prompt for approval.
 | `write_file` | ask | Write UTF-8 text to a file |
 | `edit_file` | ask | Replace an exact snippet in a file (fuzzy snippet matching) |
 | `apply_patch` | ask | Apply a unified-diff patch to text files |
-| `exec` | ask | Run a shell command and return its combined output |
+| `exec` | ask | Run a shell command and return its combined output; `background: true` keeps servers/watchers running |
+| `process` | allow | List, read the new output of, or stop the background commands this session started |
 | `powershell` | ask | Run a PowerShell command (Windows) and return its output |
 
 ### Safety model
@@ -283,6 +316,21 @@ side-effecting ones prompt for approval.
 - **Approval prompts.** Tools resolved to `ask` pause for `Allow once` / `Allow
   always` / `Reject`. Choosing **always** is remembered for the session — per
   exact command for `exec`, per tool for file writes — so you aren't re-prompted.
+- **Approval modes** (`Shift+Tab`). *Normal* asks for every side-effecting
+  tool; *accept edits* auto-approves file edits but still asks for shell
+  commands; *auto* approves everything (and accepts presented plans) so the agent can work unattended —
+  except risky shell commands, which always ask: pushes, publishes, deploys,
+  downloaded or inline scripts (`curl … | sh`, `bash -c`), destructive commands,
+  and `npm run`/`make` scripts whose body does any of that (`npm run clean` →
+  `rm -rf dist`). "Allow always" on a risky command covers only that exact
+  command. Tools denied by policy stay denied in every mode.
+- **Command rules.** `/rules allow|ask|deny <pattern>` (or `LUCKY_COMMAND_RULES`,
+  e.g. `allow=npm test;deny=git push --force*`) decides per command, in every
+  mode: `allow` never asks, `ask` always asks, `deny` never runs. Patterns match a
+  command and its longer forms by whole words (`git push` covers
+  `git push origin main`), or as globs with `*`; each part of a `&&`/`;`/`|`
+  chain is checked on its own. Rules apply while `exec` is approval-gated (the
+  default).
 - **Filesystem sandbox.** File tools reject absolute paths and anything that
   escapes the working directory.
 - **Destructive-command guard.** `exec` classifies commands and refuses clearly

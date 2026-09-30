@@ -29,7 +29,7 @@ The graph separates the project's own code from external libraries. Library node
 Operational rules:
 - Start broad analysis with graph_overview when the area is unclear; it lists the project's most connected symbols and its most-used external libraries separately.
 - Use graph_query find to locate a symbol or file-level target.
-- Use graph_query callers before changing behavior that may be depended on elsewhere.
+- Use graph_query impact before changing a shared function, type or module: it lists everything that transitively depends on it and the files to review. Use callers for just the direct call sites.
 - Use graph_query callees or neighbors when you need to understand local flow or adjacent abstractions.
 - After the graph identifies the likely target, read the exact file and relevant lines to confirm.
 - Treat the graph as a fast index, not ground truth: confirm in source before editing.
@@ -53,14 +53,14 @@ Operational rules:
 
 ## For feature work or refactors
 1. Find the target symbols/files with graph_query.
-2. Inspect callers, callees, and neighbors before editing shared abstractions.
+2. Run graph_query impact on shared abstractions before editing them; inspect callers, callees, and neighbors for local flow.
 3. Read interfaces, implementations, and affected entrypoints.
 4. Keep edits scoped to the requested behavior.
 5. Verify the changed flow, not just the edited file.`;
 
 const GRAPH_LIFECYCLE = `# Graph lifecycle
 
-- The graph updates itself after file edits; you do not need to rebuild it after normal changes.
+- The graph updates itself after your file edits, and picks up changes made outside your tools (the user's editor, git pull, codegen) at the start of each turn; you do not need to rebuild it.
 - A user turn may end with an auto-generated <graph-context> block: graph matches for symbols or files the message mentions (location, callers, callees). Treat it as a head start — go straight to the cited locations instead of re-running graph_query find for the same names. It is navigation metadata, not file contents: still read the source before editing.`;
 
 const NO_GRAPH_GUIDANCE = `# Navigation
@@ -69,7 +69,7 @@ This project has no knowledge graph. Locate code with grep and glob: grep for sy
 
 const COMMON_GUIDANCE = `# Working with tools
 
-- Run independent tool calls together when they can run in parallel; run dependent calls in sequence.
+- Run independent tool calls together when they can run in parallel; run dependent calls in sequence. Reads, searches, directory listings, graph queries and fetches issued in the same response execute concurrently, so gather everything you need to look at in one batch instead of one call per step.
 - Read before editing so you change the exact current text.
 
 # File reading discipline

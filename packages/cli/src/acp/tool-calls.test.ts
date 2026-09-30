@@ -3,6 +3,7 @@ import { fileDiff, type FileDiff } from "@luckycli/core";
 import {
   diffContents,
   toolCallEnd,
+  toolCallProgress,
   toolCallStart,
   toolCallTitle,
   toolKind,
@@ -242,5 +243,20 @@ describe("diffContents", () => {
     };
     expect(u.content).toHaveLength(2); // text + diff
     expect(u.locations).toEqual([{ path: "/repo/src/a.ts" }]);
+  });
+});
+
+describe("toolCallProgress", () => {
+  it("sends the output tail as in-progress content", () => {
+    const update = toolCallProgress("s1", "c1", "hello\n").update;
+    expect(update).toEqual({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "c1",
+      status: "in_progress",
+      content: [{ type: "content", content: { type: "text", text: "hello\n" } }],
+    });
+    const long = toolCallProgress("s1", "c1", "x".repeat(10_000)).update as { content: Array<{ content: { text: string } }> };
+    expect(long.content[0]?.content.text.length).toBeLessThanOrEqual(4_001);
+    expect(long.content[0]?.content.text.startsWith("…")).toBe(true);
   });
 });

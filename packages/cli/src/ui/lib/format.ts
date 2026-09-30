@@ -1,4 +1,5 @@
 import os from "node:os";
+import stripAnsi from "strip-ansi";
 
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
@@ -26,6 +27,62 @@ export function formatElapsed(seconds: number): string {
     return `${hours}h ${mm}m ${ss}s`;
   }
   return `${minutes}m ${ss}s`;
+}
+
+/**
+ * Compact duration for tool rows and turn recaps: sub-second calls read in
+ * milliseconds, short ones with one decimal ("1.4s"), longer ones reuse the
+ * elapsed format ("2m 05s").
+ */
+export function formatDuration(ms: number): string {
+  const safe = Math.max(0, Math.round(ms));
+  if (safe < 1000) return `${safe}ms`;
+  if (safe < 10_000) return `${(safe / 1000).toFixed(1)}s`;
+  return formatElapsed(safe / 1000);
+}
+
+/** Token counts in the short form used by the turn recap ("12.3k"). */
+export function formatCompactNumber(value: number): string {
+  const safe = Math.max(0, Math.round(value));
+  if (safe < 1000) return String(safe);
+  if (safe < 1_000_000) return `${(safe / 1000).toFixed(safe < 10_000 ? 1 : 0)}k`;
+  return `${(safe / 1_000_000).toFixed(1)}M`;
+}
+
+export interface TurnSummaryInput {
+  elapsedMs: number;
+  tools: number;
+  failedTools: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** One-line recap printed after a turn: "✓ done in 12s · 4 tools · ↑8.1k ↓420 tokens". */
+export function formatTurnSummary(summary: TurnSummaryInput): string {
+  const parts = [`✓ done in ${formatDuration(summary.elapsedMs)}`];
+  if (summary.tools > 0) {
+    const noun = summary.tools === 1 ? "tool" : "tools";
+    const failed = summary.failedTools > 0 ? ` (${summary.failedTools} failed)` : "";
+    parts.push(`${summary.tools} ${noun}${failed}`);
+  }
+  if (summary.inputTokens > 0 || summary.outputTokens > 0) {
+    parts.push(
+      `↑${formatCompactNumber(summary.inputTokens)} ↓${formatCompactNumber(summary.outputTokens)} tokens`,
+    );
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Shorten a path to `max` columns by eliding its middle, keeping the start
+ * (where it lives) and the end (which folder it is): "~/code/…/api/server".
+ */
+export function truncateMiddle(value: string, max: number): string {
+  const safeMax = Math.max(8, max);
+  if (value.length <= safeMax) return value;
+  const tail = Math.ceil((safeMax - 1) * 0.6);
+  const head = safeMax - 1 - tail;
+  return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
 export function preview(value: unknown, max = 120): string {
@@ -80,6 +137,14 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
       case "exec":
       case "PowerShell":
         return ["Run", "Ran"];
+      case "process":
+        return ["Check process", "Checked process"];
+      case "present_plan":
+        return ["Present plan", "Presented plan"];
+      case "verify":
+        return ["Check", "Checked"];
+      case "spawn_agent":
+        return ["Delegate to", "Delegated to"];
       case "read_file":
         return ["Read", "Read"];
       case "write_file":
@@ -121,7 +186,16 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
 
 export function toolTarget(name: string, input: unknown): string {
   const command = inputString(input, "command");
-  if ((name === "exec" || name === "PowerShell") && command) return command;
+  if ((name === "exec" || name === "PowerShell") && command) {
+    const background = (input as { background?: unknown }).background === true;
+    return background ? `${command} (background)` : command;
+  }
+
+  if (name === "process") {
+    const action = inputString(input, "action") ?? "";
+    const id = inputString(input, "id");
+    return id ? `${action} ${id}` : action;
+  }
 
   const path = inputString(input, "path");
   if (["read_file", "write_file", "edit_file", "list_dir"].includes(name) && path) {
@@ -166,6 +240,24 @@ export function toolTarget(name: string, input: unknown): string {
     return patch ? patchTargets(patch).join(", ") : "";
   }
 
+  if (name === "spawn_agent") {
+    const agent = inputString(input, "agent") ?? "sub-agent";
+    const task = inputString(input, "task");
+    const files = (input as { files?: unknown } | null)?.files;
+    const owned = Array.isArray(files) && files.length > 0 ? ` [${files.join(", ")}]` : "";
+    return `${agent}${owned}${task ? ` — ${task}` : ""}`;
+  }
+
+  if (name === "verify") {
+    const command = inputString(input, "command");
+    const automatic = (input as { automatic?: unknown } | null)?.automatic === true;
+    return command ? `${command}${automatic ? " (automatic)" : ""}` : "project";
+  }
+
+  if (name === "present_plan") {
+    return inputString(input, "title") ?? "";
+  }
+
   if (name === "task_create") {
     return inputString(input, "subject") ?? "";
   }
@@ -202,11 +294,11 @@ export function formatToolResultSummary(name: string, output: string, error?: bo
     case "read_file":
       return summarizeReadOutput(lines);
     case "list_dir":
-      return `${lines.length} entries`;
+      return plural(lines.length, "entry", "entries");
     case "glob":
-      return lines[0]?.startsWith("[no files") ? "no matches" : `${lines.length} files`;
+      return lines[0]?.startsWith("[no files") ? "no matches" : plural(lines.length, "file");
     case "grep":
-      return lines[0]?.startsWith("[no matches") ? "no matches" : `${lines.length} matches`;
+      return lines[0]?.startsWith("[no matches") ? "no matches" : plural(lines.length, "match", "matches");
     case "write_file":
     case "edit_file":
     case "apply_patch":
@@ -232,6 +324,11 @@ const RESULT_PREVIEW_LINES: Record<string, number> = {
   list_dir: 3,
 };
 
+// Shell commands show the TAIL of their output under the summary line: the
+// end of a build/test run (the verdict, the error) is what matters, and the
+// first line is already the summary.
+const COMMAND_PREVIEW_LINES = 4;
+
 /**
  * The first few actual result lines for tools where they aid scanning.
  * Pure rendering: the full output already went to the model, so this costs
@@ -242,6 +339,7 @@ export function toolResultPreviewLines(
   output: string,
   error?: boolean,
 ): string[] {
+  if (name === "exec" || name === "PowerShell") return commandPreviewLines(output);
   if (error) return [];
   const limit = RESULT_PREVIEW_LINES[name];
   if (!limit) return [];
@@ -252,12 +350,46 @@ export function toolResultPreviewLines(
   return lines.slice(0, limit);
 }
 
+/**
+ * The last few output lines of a shell command, excluding the line already
+ * shown as the summary. Failures included: the tail is usually the error.
+ */
+export function commandPreviewLines(output: string): string[] {
+  const lines = output
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() && !line.trim().startsWith("[command failed:"));
+  const rest = lines.slice(1);
+  if (rest.length <= COMMAND_PREVIEW_LINES) return rest;
+  const hidden = rest.length - COMMAND_PREVIEW_LINES;
+  return [`… ${hidden} more ${hidden === 1 ? "line" : "lines"}`, ...rest.slice(-COMMAND_PREVIEW_LINES)];
+}
+
+/**
+ * The last `count` non-empty lines of a running command's live output, as a
+ * terminal would show them: colors stripped and carriage-return progress
+ * bars collapsed to their latest state.
+ */
+export function liveTailLines(live: string, count = 3): string[] {
+  return stripAnsi(live)
+    .split("\n")
+    .map((line) => (line.includes("\r") ? line.slice(line.lastIndexOf("\r", line.length - 2) + 1) : line))
+    .map((line) => line.replace(/\r/g, "").trimEnd())
+    .filter((line) => line.trim())
+    .slice(-count);
+}
+
 export function summarizeReadOutput(lines: string[]): string {
   const rangeLine = lines.find((line) => /^\[showing \d+ of \d+ lines\]$/.test(line));
   if (rangeLine) return rangeLine.replace(/^\[|\]$/g, "");
   const noLines = lines.find((line) => line.startsWith("[no lines"));
   if (noLines) return noLines.replace(/^\[|\]$/g, "");
-  return `${lines.length} lines`;
+  return plural(lines.length, "line");
+}
+
+/** "1 line" / "3 lines". */
+export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
 export function firstUsefulLine(lines: string[]): string {

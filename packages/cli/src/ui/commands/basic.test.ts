@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Task } from "@luckycli/core";
+import type { Message, Task } from "@luckycli/core";
 import { basicCommands, type BasicCommandDeps } from "./basic.js";
 import type { Command, CommandContext } from "./types.js";
 import type { Item } from "../lib/items.js";
@@ -17,6 +17,7 @@ function harness(overrides: {
   meta?: CommandContext["meta"];
   deps?: Partial<BasicCommandDeps>;
   registry?: Command[];
+  messages?: Message[];
 } = {}): Harness {
   const emitted: Item[] = [];
   const ui = { applyTheme: vi.fn(), exit: vi.fn() };
@@ -25,10 +26,11 @@ function harness(overrides: {
     listTasks: vi.fn(() => []),
     resetTaskList: vi.fn(),
     loadConfig: vi.fn(() => ({})),
+    copyToClipboard: vi.fn(async () => {}),
     ...overrides.deps,
   } as BasicCommandDeps;
   const ctx = {
-    agent: {},
+    agent: { messages: overrides.messages ?? [] },
     meta: overrides.meta ?? { provider: "claude", model: "claude-sonnet-4-6" },
     registry: overrides.registry ?? [],
     emit: (...items: Item[]) => emitted.push(...items),
@@ -38,6 +40,7 @@ function harness(overrides: {
       sessionId: null,
       taskListId: "list-1",
       contextStatus: null,
+      diffs: { turn: [], session: [] },
       ...overrides.state,
     },
     ui,
@@ -199,5 +202,66 @@ describe("/config", () => {
     expect(labels).toContain("thinking");
     expect(item.rows.find((r) => r.label === "context")?.value).toBe("200,000 tokens");
     expect(item.rows.find((r) => r.label === "model")?.value).toBe("claude-sonnet-4-6");
+  });
+});
+
+describe("/copy", () => {
+  const messages: Message[] = [
+    { role: "user", content: [{ type: "text", text: "hi" }] },
+    { role: "assistant", content: [{ type: "text", text: "first reply" }] },
+    {
+      role: "assistant",
+      content: [
+        { type: "text", text: "checking" },
+        { type: "tool_call", id: "1", name: "exec", arguments: { command: "ls" } },
+      ],
+    },
+    { role: "tool", content: [{ type: "tool_result", toolCallId: "1", name: "exec", content: "a" }] },
+    { role: "assistant", content: [{ type: "text", text: "line one\nline two" }] },
+  ];
+
+  it("copies the latest reply", async () => {
+    const h = harness({ messages });
+    await h.run("/copy");
+    expect(h.deps.copyToClipboard).toHaveBeenCalledWith("line one\nline two");
+    expect(h.emitted[0]).toMatchObject({ kind: "command", title: "Copied" });
+  });
+
+  it("counts back with an argument", async () => {
+    const h = harness({ messages });
+    await h.run("/copy", "3");
+    expect(h.deps.copyToClipboard).toHaveBeenCalledWith("first reply");
+  });
+
+  it("reports when there is nothing to copy or the argument is bad", async () => {
+    const empty = harness();
+    await empty.run("/copy");
+    expect(empty.emitted[0]).toEqual({ kind: "error", text: "no reply to copy yet" });
+    expect(empty.deps.copyToClipboard).not.toHaveBeenCalled();
+
+    const bad = harness({ messages });
+    await bad.run("/copy", "zero");
+    expect(bad.emitted[0]).toMatchObject({ kind: "error" });
+    expect(bad.deps.copyToClipboard).not.toHaveBeenCalled();
+  });
+});
+
+describe("/diff", () => {
+  const diff = (path: string, additions: number, deletions: number) => ({ path, additions, deletions, hunks: [] });
+
+  it("shows the last turn's changes with totals", () => {
+    const h = harness({ state: { diffs: { turn: [diff("a.ts", 3, 1), diff("a.ts", 1, 0), diff("b.ts", 2, 2)], session: [] } } });
+    h.run("/diff");
+    expect(h.emitted[0]).toMatchObject({ kind: "diff", title: "Changes in the last turn · 2 files · +6 −3" });
+  });
+
+  it("covers the whole session with `all` and says when there is nothing", () => {
+    const h = harness({ state: { diffs: { turn: [], session: [diff("a.ts", 1, 0)] } } });
+    h.run("/diff");
+    expect(h.emitted[0]).toMatchObject({ kind: "notice" });
+    h.run("/diff", "all");
+    expect(h.emitted[1]).toMatchObject({ kind: "diff", title: "Changes in this session · 1 file · +1 −0" });
+    h.run("/diff", "everything");
+    expect(h.emitted[2]).toMatchObject({ kind: "error" });
   });
 });
