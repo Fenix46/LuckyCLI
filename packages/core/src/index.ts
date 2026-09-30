@@ -237,6 +237,7 @@ export type { Extractor, ExtractorContext } from "./graph/extract/types.js";
 export { buildAndSaveGraph, buildGraph } from "./graph/build.js";
 export type { BuildOptions, BuildProgress, GraphBuildSummary } from "./graph/build.js";
 export { updateGraphForFiles } from "./graph/update.js";
+export { findStaleGraphFiles, refreshGraph } from "./graph/refresh.js";
 export type { UpdateSummary } from "./graph/update.js";
 export {
   diffSnapshots,
