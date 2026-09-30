@@ -276,6 +276,7 @@ export function Root({
       {
         profile,
         task: request.task,
+        ...(request.files ? { writableFiles: request.files } : {}),
         cwd: process.cwd(),
         system: config.system,
         resolveCredentials: (provider) =>

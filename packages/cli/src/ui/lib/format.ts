@@ -143,6 +143,8 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
         return ["Present plan", "Presented plan"];
       case "verify":
         return ["Check", "Checked"];
+      case "spawn_agent":
+        return ["Delegate to", "Delegated to"];
       case "read_file":
         return ["Read", "Read"];
       case "write_file":
@@ -236,6 +238,14 @@ export function toolTarget(name: string, input: unknown): string {
   if (name === "apply_patch") {
     const patch = inputString(input, "patch");
     return patch ? patchTargets(patch).join(", ") : "";
+  }
+
+  if (name === "spawn_agent") {
+    const agent = inputString(input, "agent") ?? "sub-agent";
+    const task = inputString(input, "task");
+    const files = (input as { files?: unknown } | null)?.files;
+    const owned = Array.isArray(files) && files.length > 0 ? ` [${files.join(", ")}]` : "";
+    return `${agent}${owned}${task ? ` — ${task}` : ""}`;
   }
 
   if (name === "verify") {

@@ -145,3 +145,14 @@ describe("verification rows", () => {
     expect(formatToolAction("verify", {}, false)).toBe("Checked project");
   });
 });
+
+describe("delegation rows", () => {
+  it("name the profile, its files and the task", () => {
+    expect(
+      formatToolAction("spawn_agent", { agent: "docs", task: "Document the API", files: ["docs/**"] }, true),
+    ).toBe("Delegate to docs [docs/**] — Document the API");
+    expect(formatToolAction("spawn_agent", { agent: "backend", task: "Add endpoint" }, false)).toBe(
+      "Delegated to backend — Add endpoint",
+    );
+  });
+});
