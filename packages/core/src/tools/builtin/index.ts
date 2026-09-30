@@ -3,6 +3,7 @@ import { applyPatchTool } from "./apply-patch.js";
 import { askUserTool } from "./ask-user.js";
 import { editFileTool } from "./edit-file.js";
 import { execTool } from "./exec.js";
+import { processTool } from "./background.js";
 import { globTool } from "./glob.js";
 import { graphOverviewTool, graphQueryTool } from "./graph.js";
 import { grepTool } from "./grep.js";
@@ -31,6 +32,7 @@ export function defaultToolRegistry(): ToolRegistry {
     .register(editFileTool)
     .register(applyPatchTool)
     .register(execTool)
+    .register(processTool)
     .register(powerShellTool)
     .register(listDirTool)
     .register(globTool)
@@ -55,6 +57,7 @@ export { previewPatch } from "./apply-patch.js";
 export { replace as replaceSnippet } from "./edit-replace.js";
 export {
   execTool,
+  processTool,
   powerShellTool,
   readFileTool,
   writeFileTool,

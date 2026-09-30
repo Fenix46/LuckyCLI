@@ -54,7 +54,8 @@ const GROUPS: ToolGroup[] = [
     intro:
       "Prefer the dedicated tools above over shell commands when one fits — they let the user review your work and are safer. Reserve the shell for genuine system commands (running tests, git, build steps). Don't use it to read, edit, or search files when a dedicated tool exists.",
     tools: [
-      { name: "exec", text: "run a non-interactive shell command. Use absolute paths when ambiguity matters." },
+      { name: "exec", text: "run a non-interactive shell command (2-minute default timeout; pass timeoutMs for longer builds). Never run a dev server, watcher or other never-ending command in the foreground: pass background: true instead." },
+      { name: "process", text: "list, read the new output of, or stop commands started with background: true — e.g. wait for a dev server to report it is ready, then test against it, then stop it when done." },
       { name: "PowerShell", text: "on Windows, prefer this for commands, file writes, quoting, paths, and redirection." },
     ],
   },

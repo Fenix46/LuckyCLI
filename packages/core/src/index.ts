@@ -43,6 +43,7 @@ export type { DiffHunk, DiffLine, FileDiff } from "./diff.js";
 export {
   defaultToolRegistry,
   execTool,
+  processTool,
   readFileTool,
   writeFileTool,
   editFileTool,

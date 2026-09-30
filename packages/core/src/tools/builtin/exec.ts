@@ -2,6 +2,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { defineTool } from "../types.js";
+import { formatStarted, startBackgroundProcess } from "./background.js";
 
 const execAsync = promisify(exec);
 // Output is captured generously (a noisy build must not be killed for
@@ -25,7 +26,10 @@ export const execTool = defineTool({
   description:
     "Run a shell command in the working directory and return its combined " +
     "stdout/stderr. Use for build, test, git and other local operations. " +
-    "Commands that look destructive are rejected unless allowDangerous is true.",
+    "Commands that look destructive are rejected unless allowDangerous is true. " +
+    "Set background: true for commands that keep running (dev servers, watchers, " +
+    "long builds): it returns after a few seconds with the startup output and an id " +
+    "for the process tool, while the command keeps running.",
   schema: z.object({
     command: z.string().describe("The shell command to execute."),
     timeoutMs: z
@@ -39,8 +43,12 @@ export const execTool = defineTool({
       .boolean()
       .optional()
       .describe("Set true only when the user explicitly approved a destructive command."),
+    background: z
+      .boolean()
+      .optional()
+      .describe("Keep the command running in the background (servers, watchers); timeoutMs does not apply."),
   }),
-  async execute({ command, timeoutMs, allowDangerous }, ctx) {
+  async execute({ command, timeoutMs, allowDangerous, background }, ctx) {
     const semantics = classifyCommandSemantics(command);
     if (semantics.category === "destructive" && !allowDangerous) {
       return {
@@ -49,6 +57,16 @@ export const execTool = defineTool({
           "Ask the user for explicit approval, then retry with allowDangerous=true if appropriate.",
         isError: true,
       };
+    }
+
+    if (background) {
+      try {
+        const proc = await startBackgroundProcess(command, ctx.cwd);
+        const failedFast = proc.exitCode !== null && proc.exitCode !== 0;
+        return { content: truncateOutput(formatStarted(proc)), ...(failedFast ? { isError: true } : {}) };
+      } catch (err) {
+        return { content: err instanceof Error ? err.message : String(err), isError: true };
+      }
     }
 
     try {
