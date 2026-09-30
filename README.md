@@ -51,6 +51,11 @@ model mid-session without losing your conversation.
   directory, and `http_fetch` blocks private/SSRF targets.
 - **Remembered approvals.** Approve "always" once and LuckyCLI stops re-asking —
   per command for the shell, per tool for file writes — for the rest of the session.
+- **Self-checking in auto mode.** Before finishing a turn that edited files, the
+  agent runs the project's quickest check (typecheck, else build, else tests) and
+  fixes what it breaks — up to two attempts (`LUCKY_AUTO_VERIFY=off` disables it).
+- **Parallel sub-agents.** Delegations that each declare the files they own (and
+  don't overlap) run side by side; each sub-agent can only write its own files.
 - **Parallel reads.** When the model asks for several reads, searches, listings,
   graph queries or fetches at once, they run concurrently — a step that opens five
   files costs one file's latency. Anything that needs approval stays sequential.
@@ -238,6 +243,9 @@ waiting for approval, idle), terminals that support it show a progress indicator
 and after 30s+ of unattended work the bell rings when the turn finishes or stops
 to ask you something (`LUCKY_NOTIFY=off` silences it).
 
+The footer shows the session's tokens, and the estimated cost when token rates are
+configured for the model.
+
 You can keep typing while the agent works: prompts sent mid-turn are **queued**
 (listed above the input) and run in order as soon as the current turn ends.
 Interrupting with `Esc` puts the queued text back into the input instead of
@@ -264,6 +272,7 @@ running it.
 | `/status` | Show provider auth, account, quota and context status |
 | `/compact` | Summarize older chat history now |
 | `/copy [n]` | Copy the latest reply (or the n-th from the end) to the clipboard |
+| `/diff [all]` | Review the file changes of the last turn (or the whole session) |
 | `/rules` | View or edit which shell commands are allowed, need approval, or are blocked |
 | `/resume` | Pick a saved session to resume |
 | `/theme` | Choose terminal UI colors |
@@ -288,7 +297,7 @@ side-effecting ones prompt for approval.
 | `http_fetch` | allow | Fetch the text content of a public URL |
 | `task_*` | allow | Create/list/get/update tasks — a structured todo list for multi-step work |
 | `present_plan` | allow | Show a step-by-step plan for the work before doing it |
-| `spawn_agent` | allow | Delegate a sub-task to a configured sub-agent |
+| `spawn_agent` | allow | Delegate a sub-task to a configured sub-agent; with `files`, several run in parallel on disjoint files |
 | `project_memory` | allow | Read/write durable per-project notes the agent recalls later |
 | `graph_query` | allow | Query the knowledge graph: find a symbol, its callers/callees, neighbors, or a file's symbols |
 | `graph_overview` | allow | Summarize the graph: counts, most-connected symbols, most-imported modules |
