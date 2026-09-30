@@ -62,6 +62,13 @@ export interface ToolContext {
    */
   onFilesChanged?: (paths: string[]) => void;
   /**
+   * Notify the host that files may have changed in ways the tool can't
+   * enumerate — a shell command that isn't read-only (git checkout, codegen,
+   * sed -i, a build). The host re-scans what it tracks (e.g. the graph).
+   * Fire-and-forget; never throws.
+   */
+  onWorkspaceChanged?: () => void;
+  /**
    * Notify the host that a skill was explicitly loaded by the model (via
    * skill_load), so the host can mark it active for the session and the
    * automatic matcher won't re-inject it. Fire-and-forget; never throws.

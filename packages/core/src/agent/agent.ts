@@ -79,6 +79,8 @@ export interface AgentConfig {
   ) => Promise<SpawnAgentResult>;
   /** Optional hook fired after a tool reports changed files (for graph upkeep). */
   onFilesChanged?: (paths: string[]) => void;
+  /** Optional hook fired when a tool may have changed unknown files (shell commands). */
+  onWorkspaceChanged?: () => void;
   /** Run trusted project checks after a successful approved file edit. */
   verificationMode?: "manual" | "after-edit";
   /** Session id included in automatic verification results. */
@@ -148,6 +150,7 @@ export class Agent {
   private readonly presentPlan: ((plan: PlanProposal) => Promise<PlanDecision>) | undefined;
   private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
+  private readonly onWorkspaceChanged: (() => void) | undefined;
   private readonly verificationMode: "manual" | "after-edit";
   private readonly verificationSessionId: string | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
@@ -190,6 +193,7 @@ export class Agent {
     this.presentPlan = cfg.presentPlan;
     this.runSubAgent = cfg.runSubAgent;
     this.onFilesChanged = cfg.onFilesChanged;
+    this.onWorkspaceChanged = cfg.onWorkspaceChanged;
     this.verificationMode = cfg.verificationMode ?? "manual";
     this.verificationSessionId = cfg.verificationSessionId;
     this.onSkillLoaded = cfg.onSkillLoaded;
@@ -666,6 +670,7 @@ export class Agent {
       ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
       ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
       ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
+      ...(this.onWorkspaceChanged ? { onWorkspaceChanged: this.onWorkspaceChanged } : {}),
       ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
       ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
       ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),

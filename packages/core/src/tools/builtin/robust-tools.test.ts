@@ -301,6 +301,18 @@ describe("robust built-in tools", () => {
     expect(chunks.join("")).toBe("a\nb\n");
   });
 
+  it("signals a possible workspace change only after non-read-only commands", async () => {
+    const registry = new ToolRegistry().register(execTool);
+    let changes = 0;
+    const ctx = { cwd: root, onWorkspaceChanged: () => changes++ };
+    await registry.execute("exec", { command: "ls" }, ctx);
+    expect(changes).toBe(0);
+    await registry.execute("exec", { command: "touch generated.ts" }, ctx);
+    expect(changes).toBe(1);
+    await registry.execute("exec", { command: "mkdir -p x && false" }, ctx);
+    expect(changes).toBe(2);
+  });
+
   it("explains a timeout", async () => {
     const registry = new ToolRegistry().register(execTool);
     const result = await registry.execute("exec", { command: "sleep 5", timeoutMs: 200 }, { cwd: root });

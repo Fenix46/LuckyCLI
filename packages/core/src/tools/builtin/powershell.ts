@@ -79,6 +79,8 @@ export const powerShellTool = defineTool({
         content: truncateOutput([prefix, out || "PowerShell command failed"].filter(Boolean).join("\n")),
         isError: true,
       };
+    } finally {
+      if (semantics.category !== "read_only") ctx.onWorkspaceChanged?.();
     }
   },
 });

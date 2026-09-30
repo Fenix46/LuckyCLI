@@ -90,6 +90,9 @@ export const execTool = defineTool({
       const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n").trim();
       const prefix = formatFailurePrefix(e, timeoutMs ?? DEFAULT_TIMEOUT_MS);
       return { content: truncateOutput([prefix, out || "command failed"].filter(Boolean).join("\n")), isError: true };
+    } finally {
+      // Even a failed command may have written files part-way.
+      if (semantics.category !== "read_only") ctx.onWorkspaceChanged?.();
     }
   },
 });
