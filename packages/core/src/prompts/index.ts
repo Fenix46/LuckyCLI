@@ -27,6 +27,7 @@ import { toolUseSection } from "./tool-use.js";
 import { skillsSection } from "./skills.js";
 import { outputStyleSection } from "./output-style.js";
 import { environmentSection, type EnvironmentInfo } from "./environment.js";
+import { projectSection } from "./project.js";
 import { resolveSections, type PromptContext, type PromptSection } from "./section.js";
 import { SUMMARIZATION_PROMPT } from "./summarization.js";
 
@@ -50,6 +51,7 @@ export const SYSTEM_PROMPT_SECTIONS: PromptSection[] = [
   skillsSection,
   outputStyleSection,
   environmentSection,
+  projectSection,
 ];
 
 /** Default runtime info, used when the caller doesn't supply one. */

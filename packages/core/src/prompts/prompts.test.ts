@@ -119,6 +119,7 @@ describe("section architecture", () => {
       "skills",
       "output-style",
       "environment",
+      "project",
     ]);
   });
 

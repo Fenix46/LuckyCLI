@@ -7,6 +7,8 @@
 
 // Package version (single source of truth: core's package.json).
 export { CORE_VERSION } from "./version.js";
+export { detectProjectFacts, renderProjectFacts } from "./project-facts.js";
+export type { ProjectFacts } from "./project-facts.js";
 
 // Provider layer (also triggers built-in provider registration on import).
 export * from "./providers/index.js";
