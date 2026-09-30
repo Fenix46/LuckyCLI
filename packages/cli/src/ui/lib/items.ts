@@ -26,6 +26,8 @@ export type Item =
   | { kind: "error"; text: string }
   /** One-line recap printed when a turn settles (time, tools, tokens). */
   | { kind: "turnSummary"; text: string }
+  /** A neutral status line (e.g. the user interrupted the turn) — not an error. */
+  | { kind: "notice"; text: string }
   // Transient items — built per-render, never persisted. They ride INSIDE the
   // virtualized list (like Claude Code's streaming reply) so the ScrollBox
   // content stays a flat [spacer, items, spacer] and stickyScroll follows them

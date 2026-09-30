@@ -6,6 +6,8 @@ import {
   formatElapsed,
   formatToolResultSummary,
   formatTurnSummary,
+  truncateMiddle,
+  plural,
   toolResultPreviewLines,
 } from "./format.js";
 
@@ -84,5 +86,25 @@ describe("command output preview", () => {
 
   it("adds nothing for single-line output", () => {
     expect(toolResultPreviewLines("exec", "(no output)")).toEqual([]);
+  });
+});
+
+describe("truncateMiddle", () => {
+  it("keeps short values and elides the middle of long ones", () => {
+    expect(truncateMiddle("~/code/app", 20)).toBe("~/code/app");
+    const out = truncateMiddle("/tmp/very/long/path/to/the/project/folder", 20);
+    expect(out).toHaveLength(20);
+    expect(out.startsWith("/tmp/")).toBe(true);
+    expect(out.endsWith("folder")).toBe(true);
+    expect(out).toContain("…");
+  });
+});
+
+describe("plural", () => {
+  it("picks the singular for one", () => {
+    expect(plural(1, "line")).toBe("1 line");
+    expect(plural(3, "line")).toBe("3 lines");
+    expect(plural(1, "entry", "entries")).toBe("1 entry");
+    expect(formatToolResultSummary("list_dir", "only.txt")).toBe("1 entry");
   });
 });

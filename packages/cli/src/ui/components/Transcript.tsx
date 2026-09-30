@@ -50,7 +50,7 @@ export function TranscriptList({
     <Box flexDirection="column" width="100%">
       {items.map((item, index) => (
         <TranscriptItem
-          key={`${index}:${item.kind}`}
+          key={`${index}:${item.kind === "streaming" ? "assistant" : item.kind}`}
           item={item}
           previous={index > 0 ? items[index - 1] : undefined}
           theme={theme}
@@ -100,6 +100,7 @@ function TranscriptItemInner({
         provider={provider}
         model={model}
         activityFrame={activityFrame}
+        continuation={continuesReply(previous)}
       />
     </Box>
   );
@@ -111,12 +112,23 @@ function TranscriptItemInner({
  */
 export const TranscriptItem = React.memo(TranscriptItemInner);
 
+/**
+ * A reply block that follows the agent's own tool rows or narration belongs
+ * to the same reply: it drops the "lucky" header so a turn reads as one
+ * continuous answer instead of a stack of repeated headers.
+ */
+function continuesReply(previous?: Item): boolean {
+  return previous?.kind === "tool" || previous?.kind === "assistant" || previous?.kind === "streaming";
+}
+
 function spacingBefore(item: Item, previous?: Item): number {
   if (!previous) return 1;
-  if (item.kind === "turnSummary") return 1;
-  if (item.kind === "tool" && previous.kind === "tool") return 0;
-  if (item.kind === "tool" && previous.kind === "assistant") return 0;
-  return item.kind !== previous.kind || item.kind === "user" ? 2 : 1;
+  // A new user turn gets the most air; everything inside a reply stays tight.
+  if (item.kind === "user") return 2;
+  if (item.kind === "tool" && (previous.kind === "tool" || previous.kind === "assistant" || previous.kind === "streaming")) {
+    return 0;
+  }
+  return 1;
 }
 
 export function ItemView({
@@ -126,6 +138,7 @@ export function ItemView({
   provider,
   model,
   activityFrame = 0,
+  continuation = false,
 }: {
   item: Item;
   theme: Theme;
@@ -133,6 +146,8 @@ export function ItemView({
   provider?: ProviderId;
   model?: string;
   activityFrame?: number;
+  /** This reply block continues the previous one: skip the header. */
+  continuation?: boolean;
 }): React.JSX.Element {
   switch (item.kind) {
     case "intro":
@@ -155,10 +170,7 @@ export function ItemView({
     case "assistant":
       return (
         <Box flexDirection="column">
-          <Box flexDirection="row">
-            <Text bold color={theme.success}>● lucky</Text>
-            <Text color={theme.muted}> › </Text>
-          </Box>
+          {continuation ? null : <ReplyHeader theme={theme} />}
           <Box paddingLeft={2}>
             <Markdown text={item.text} theme={theme} />
           </Box>
@@ -200,7 +212,6 @@ export function ItemView({
             <Text bold wrap="truncate-end">
               {truncateSingleLine(action, Math.max(24, width - 8 - (duration ? duration.length + 1 : 0)))}
             </Text>
-            {isRunning ? <Text color={theme.accent}>…</Text> : null}
             {duration ? <Text color={theme.muted} dimColor>{duration}</Text> : null}
           </Box>
           {!isRunning && item.metadata?.diff?.length ? (
@@ -241,10 +252,7 @@ export function ItemView({
       // and the text is committed to a real assistant item.
       return (
         <Box flexDirection="column">
-          <Box flexDirection="row">
-            <Text bold color={theme.success}>● lucky</Text>
-            <Text color={theme.muted}> › </Text>
-          </Box>
+          {continuation ? null : <ReplyHeader theme={theme} />}
           <Box paddingLeft={2}>
             <StreamingMarkdown text={item.text} theme={theme} />
           </Box>
@@ -255,6 +263,15 @@ export function ItemView({
         <Box paddingLeft={2}>
           <Text color={theme.muted} dimColor wrap="truncate-end">
             {truncateSingleLine(item.text, Math.max(16, width - 4))}
+          </Text>
+        </Box>
+      );
+    case "notice":
+      return (
+        <Box paddingLeft={2}>
+          <Text color={theme.warning}>✕ </Text>
+          <Text color={theme.muted} wrap="truncate-end">
+            {truncateSingleLine(item.text, Math.max(16, width - 6))}
           </Text>
         </Box>
       );
@@ -297,4 +314,13 @@ export function ItemView({
         </Box>
       );
   }
+}
+
+function ReplyHeader({ theme }: { theme: Theme }): React.JSX.Element {
+  return (
+    <Box flexDirection="row">
+      <Text bold color={theme.success}>● lucky</Text>
+      <Text color={theme.muted}> › </Text>
+    </Box>
+  );
 }

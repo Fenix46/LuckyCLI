@@ -919,6 +919,17 @@ export function App({
   // deltas) don't make the "lucky thinking" header flicker or appear to stall.
   const { phase: activityPhase } = useStableActivity(busy, streamingPreview.length > 0);
   const messageWidth = Math.max(32, terminalSize.width - 4);
+  // The tool call in flight, for the activity line ("working · Run npm test").
+  const runningToolAction = useMemo(() => {
+    if (!busy) return undefined;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item?.kind === "tool" && item.output === undefined) {
+        return formatToolAction(item.name, item.input, true);
+      }
+    }
+    return undefined;
+  }, [busy, items]);
   // Content width inside the bordered input frame: the frame consumes 4 more
   // columns (left/right border + paddingX) on top of the root's paddingX.
   // Sizing the inner content to messageWidth instead pushes the right border
@@ -1108,12 +1119,16 @@ export function App({
           elapsedSeconds={elapsedSeconds}
           frame={activityFrame}
           phase={
-            activityPhase === "streaming"
-              ? "responding"
-              : reasoning
-                ? "reasoning"
-                : "thinking"
+            runningToolAction
+              ? "working"
+              : activityPhase === "streaming"
+                ? "responding"
+                : reasoning
+                  ? "reasoning"
+                  : "thinking"
           }
+          {...(runningToolAction && !compacting ? { detail: runningToolAction } : {})}
+          width={messageWidth}
           {...(compacting ? { label: "compacting" } : {})}
         />
       ) : null}
@@ -1131,7 +1146,15 @@ export function App({
         width={terminalSize.width - 2}
         marginTop={1}
         borderStyle="round"
-        borderColor={busy || compacting ? activeTheme.accent : activeTheme.muted}
+        borderColor={
+          approvalRequest
+            ? activeTheme.warning
+            : userQuestionRequest
+              ? activeTheme.primary
+              : busy || compacting
+                ? activeTheme.accent
+                : activeTheme.muted
+        }
         paddingX={1}
       >
         {approvalRequest ? (

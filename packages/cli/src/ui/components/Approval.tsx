@@ -7,6 +7,7 @@ import type { Theme } from "../themes.js";
 import type { ApprovalRequest } from "../lib/requests.js";
 import { inputString, truncateSingleLine, wrapText } from "../lib/format.js";
 import { previewToolDiffs, PREVIEWABLE_TOOLS } from "../../approval-preview.js";
+import { describeAlwaysScope } from "../../approval.js";
 import { DiffView } from "./DiffView.js";
 
 export function ApprovalRequestView({
@@ -25,18 +26,11 @@ export function ApprovalRequestView({
   const detail = approvalDisplay(request, width);
   const diff = usePreviewDiffs(request);
   const panelWidth = Math.max(48, Math.min(width, 104));
+  // The input frame around this view turns the warning color while it is
+  // open, so the panel itself carries no extra border.
+  const alwaysDescription = describeAlwaysScope(request.name, request.input);
   return (
-    <Box
-      flexDirection="column"
-      marginTop={1}
-      width={panelWidth}
-      borderStyle="single"
-      borderColor={theme.warning}
-      borderTop={false}
-      borderRight={false}
-      borderBottom={false}
-      paddingLeft={2}
-    >
+    <Box flexDirection="column" width={panelWidth}>
       <Box flexDirection="row">
         <Text bold color={theme.warning}>Permission required</Text>
         <Text color={theme.muted}> · {request.name}</Text>
@@ -76,13 +70,14 @@ export function ApprovalRequestView({
             key={option}
             option={option}
             selected={index === selectedIndex}
+            alwaysDescription={alwaysDescription}
             theme={theme}
           />
         ))}
       </Box>
 
       <Box marginTop={1}>
-        <Text color={theme.muted} dimColor>↑↓ / jk move · enter approve · esc reject</Text>
+        <Text color={theme.muted} dimColor>↑↓ move · enter select · esc reject</Text>
       </Box>
     </Box>
   );
@@ -91,20 +86,22 @@ export function ApprovalRequestView({
 function ApprovalOptionView({
   option,
   selected,
+  alwaysDescription,
   theme,
 }: {
   option: "allow" | "always" | "deny";
   selected: boolean;
+  alwaysDescription: string;
   theme: Theme;
 }): React.JSX.Element {
   const label =
     option === "allow" ? "Allow once" : option === "always" ? "Allow always" : "Reject";
   const description =
     option === "allow"
-      ? "Run this tool call"
+      ? "Run it this time"
       : option === "always"
-        ? "Remember this exact request for this session"
-        : "Block it and continue";
+        ? alwaysDescription
+        : "Don't run it and stop the turn";
   const color = option === "deny" ? theme.error : option === "always" ? theme.accent : theme.success;
   return (
     <Box flexDirection="row">

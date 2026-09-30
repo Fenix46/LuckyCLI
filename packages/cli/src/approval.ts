@@ -55,3 +55,19 @@ export function approvalScope(name: string, input: unknown): string {
   }
   return name;
 }
+
+/**
+ * What choosing "always" will remember, in the words shown on the approval
+ * prompt — so the user knows how far the approval reaches.
+ */
+export function describeAlwaysScope(name: string, input: unknown): string {
+  const scope = approvalScope(name, input);
+  if (name === "exec" && scope.startsWith("exec:")) {
+    const command = (input as { command?: unknown } | null)?.command;
+    const remembered = scope.slice("exec:".length);
+    return typeof command === "string" && remembered === command.trim()
+      ? "Don't ask again for this exact command this session"
+      : `Don't ask again for \`${remembered}\` commands this session`;
+  }
+  return `Don't ask again for ${name} this session`;
+}

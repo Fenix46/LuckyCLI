@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requiresApprovalInAutoMode } from "./approval.js";
+import { describeAlwaysScope, requiresApprovalInAutoMode } from "./approval.js";
 import { nextPermissionMode } from "./ui/lib/requests.js";
 
 describe("requiresApprovalInAutoMode", () => {
@@ -25,5 +25,19 @@ describe("nextPermissionMode", () => {
     expect(nextPermissionMode("normal")).toBe("acceptEdits");
     expect(nextPermissionMode("acceptEdits")).toBe("auto");
     expect(nextPermissionMode("auto")).toBe("normal");
+  });
+});
+
+describe("describeAlwaysScope", () => {
+  it("names the remembered command prefix, the exact command, or the tool", () => {
+    expect(describeAlwaysScope("exec", { command: "git status --short" })).toBe(
+      "Don't ask again for `git status` commands this session",
+    );
+    expect(describeAlwaysScope("exec", { command: "ls -la" })).toBe(
+      "Don't ask again for this exact command this session",
+    );
+    expect(describeAlwaysScope("write_file", { path: "a.ts" })).toBe(
+      "Don't ask again for write_file this session",
+    );
   });
 });

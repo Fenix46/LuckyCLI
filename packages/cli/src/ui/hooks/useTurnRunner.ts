@@ -240,7 +240,7 @@ export function useTurnRunner({
             onAborted: () => {
               aborted = true;
               flushAssistant();
-              appendItems([{ kind: "error", text: "Interrupted by user." }]);
+              appendItems([{ kind: "notice", text: "Interrupted · tell lucky what to do instead" }]);
             },
           });
         }

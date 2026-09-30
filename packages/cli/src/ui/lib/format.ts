@@ -72,6 +72,18 @@ export function formatTurnSummary(summary: TurnSummaryInput): string {
   return parts.join(" · ");
 }
 
+/**
+ * Shorten a path to `max` columns by eliding its middle, keeping the start
+ * (where it lives) and the end (which folder it is): "~/code/…/api/server".
+ */
+export function truncateMiddle(value: string, max: number): string {
+  const safeMax = Math.max(8, max);
+  if (value.length <= safeMax) return value;
+  const tail = Math.ceil((safeMax - 1) * 0.6);
+  const head = safeMax - 1 - tail;
+  return `${value.slice(0, head)}…${value.slice(-tail)}`;
+}
+
 export function preview(value: unknown, max = 120): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
   const flat = s.replace(/\s+/g, " ").trim();
@@ -246,11 +258,11 @@ export function formatToolResultSummary(name: string, output: string, error?: bo
     case "read_file":
       return summarizeReadOutput(lines);
     case "list_dir":
-      return `${lines.length} entries`;
+      return plural(lines.length, "entry", "entries");
     case "glob":
-      return lines[0]?.startsWith("[no files") ? "no matches" : `${lines.length} files`;
+      return lines[0]?.startsWith("[no files") ? "no matches" : plural(lines.length, "file");
     case "grep":
-      return lines[0]?.startsWith("[no matches") ? "no matches" : `${lines.length} matches`;
+      return lines[0]?.startsWith("[no matches") ? "no matches" : plural(lines.length, "match", "matches");
     case "write_file":
     case "edit_file":
     case "apply_patch":
@@ -322,7 +334,12 @@ export function summarizeReadOutput(lines: string[]): string {
   if (rangeLine) return rangeLine.replace(/^\[|\]$/g, "");
   const noLines = lines.find((line) => line.startsWith("[no lines"));
   if (noLines) return noLines.replace(/^\[|\]$/g, "");
-  return `${lines.length} lines`;
+  return plural(lines.length, "line");
+}
+
+/** "1 line" / "3 lines". */
+export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
 export function firstUsefulLine(lines: string[]): string {
