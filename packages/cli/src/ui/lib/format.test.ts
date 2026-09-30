@@ -128,3 +128,11 @@ describe("liveTailLines", () => {
     expect(liveTailLines("a\nb\nc\nd", 2)).toEqual(["c", "d"]);
   });
 });
+
+describe("plan rows", () => {
+  it("name the plan instead of dumping its JSON", () => {
+    expect(formatToolAction("present_plan", { title: "Add a lint step", plan: "…", tasks: [] }, false)).toBe(
+      "Presented plan Add a lint step",
+    );
+  });
+});

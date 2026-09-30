@@ -139,6 +139,8 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
         return ["Run", "Ran"];
       case "process":
         return ["Check process", "Checked process"];
+      case "present_plan":
+        return ["Present plan", "Presented plan"];
       case "read_file":
         return ["Read", "Read"];
       case "write_file":
@@ -232,6 +234,10 @@ export function toolTarget(name: string, input: unknown): string {
   if (name === "apply_patch") {
     const patch = inputString(input, "patch");
     return patch ? patchTargets(patch).join(", ") : "";
+  }
+
+  if (name === "present_plan") {
+    return inputString(input, "title") ?? "";
   }
 
   if (name === "task_create") {
