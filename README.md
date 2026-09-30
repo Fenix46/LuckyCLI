@@ -49,6 +49,12 @@ model mid-session without losing your conversation.
   directory, and `http_fetch` blocks private/SSRF targets.
 - **Remembered approvals.** Approve "always" once and LuckyCLI stops re-asking —
   per command for the shell, per tool for file writes — for the rest of the session.
+- **Parallel reads.** When the model asks for several reads, searches, listings,
+  graph queries or fetches at once, they run concurrently — a step that opens five
+  files costs one file's latency. Anything that needs approval stays sequential.
+- **Shell built for real work.** Commands get 2 minutes by default (up to 10 on
+  request), noisy output is never fatal, and oversized output keeps both the start
+  and the end — where test failures and compiler errors live.
 - **Automatic context compaction.** Older turns are summarized as you approach the
   model's usable context, so long sessions don't fall over.
 - **Persistent sessions.** Every turn is saved; resume the latest or pick from a list.
@@ -224,6 +230,11 @@ inline, asks for approval on side-effecting tools, and saves the session after
 each turn. Shell commands show how long they took and the last few lines of
 their output; a turn that ran tools (or took over 10s) ends with a one-line
 recap — time, tool count, tokens.
+
+The terminal title tells you what lucky is doing even from another tab (working,
+waiting for approval, idle), terminals that support it show a progress indicator,
+and after 30s+ of unattended work the bell rings when the turn finishes or stops
+to ask you something (`LUCKY_NOTIFY=off` silences it).
 
 You can keep typing while the agent works: prompts sent mid-turn are **queued**
 (listed above the input) and run in order as soon as the current turn ends.
