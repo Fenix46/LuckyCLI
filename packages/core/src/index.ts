@@ -28,6 +28,13 @@ export {
   resolveToolPermission,
 } from "./tools/permissions.js";
 export type { ToolPermission, ToolPermissionPolicy } from "./tools/permissions.js";
+export {
+  evaluateCommand,
+  matchesCommandPattern,
+  mergeCommandRules,
+  parseCommandRulesEnv,
+} from "./tools/command-policy.js";
+export type { CommandAction, CommandRules, CommandVerdict } from "./tools/command-policy.js";
 export { defineTool } from "./tools/types.js";
 export type {
   AskUserRequest,

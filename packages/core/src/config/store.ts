@@ -19,6 +19,7 @@ import { join } from "node:path";
 import type { McpServerConfig } from "../mcp/types.js";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import type { ToolPermissionPolicy } from "../tools/permissions.js";
+import type { CommandRules } from "../tools/command-policy.js";
 
 export interface StoredConfig {
   provider?: ProviderId;
@@ -44,6 +45,8 @@ export interface StoredConfig {
   };
   /** Tool permission policy. Keys can be tool names or wildcard patterns; values are allow/ask/deny. */
   permissions?: ToolPermissionPolicy;
+  /** Per-command rules for the shell tools (see tools/command-policy.ts). */
+  commandRules?: CommandRules;
   /** Saved credentials per provider, so switching doesn't re-prompt. */
   credentials?: Partial<Record<ProviderId, ProviderCredentials>>;
   /** Configured MCP servers, keyed by logical server name. */
