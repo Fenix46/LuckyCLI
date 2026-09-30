@@ -4,6 +4,7 @@ import {
   McpManager,
   appendProjectMemoryToSystemPrompt,
   buildSystemPromptFromContext,
+  detectProjectFacts,
   defaultToolRegistry,
   ensureProjectMemoryFile,
   getProvider,
@@ -197,6 +198,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
           hasGraph: existsSync(graphFilePath(cwd)),
           hasSubAgents: listProfiles().length > 0,
           hasSkills: hasInstalledSkills(),
+          project: detectProjectFacts(cwd),
           env: process.env,
         })
       : opts.system;
