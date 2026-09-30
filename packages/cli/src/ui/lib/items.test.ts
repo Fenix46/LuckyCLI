@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendLiveOutput, messagesToItems, patchLastTool, restartRunningTool, type Item } from "./items.js";
+import { appendLiveOutput, collectDiffs, messagesToItems, patchLastTool, restartRunningTool, type Item } from "./items.js";
 
 describe("patchLastTool", () => {
   it("attaches results by call id when the same tool runs twice", () => {
@@ -64,5 +64,21 @@ describe("appendLiveOutput", () => {
     const twice = appendLiveOutput(once, "a", "y\n");
     expect(twice[0]).toMatchObject({ live: "x\ny\n" });
     expect(appendLiveOutput(items, "b", "late")).toBe(items);
+  });
+});
+
+describe("collectDiffs", () => {
+  it("gathers successful tool diffs since the last user message, or for the session", () => {
+    const d = (path: string) => ({ path, additions: 1, deletions: 0, hunks: [] });
+    const items: Item[] = [
+      { kind: "user", text: "one" },
+      { kind: "tool", name: "edit_file", input: {}, output: "ok", metadata: { diff: [d("old.ts")] } },
+      { kind: "user", text: "two" },
+      { kind: "tool", name: "edit_file", input: {}, output: "ok", metadata: { diff: [d("a.ts")] } },
+      { kind: "tool", name: "edit_file", input: {}, output: "fail", error: true, metadata: { diff: [d("bad.ts")] } },
+      { kind: "tool", name: "apply_patch", input: {}, output: "ok", metadata: { diff: [d("b.ts"), d("c.ts")] } },
+    ];
+    expect(collectDiffs(items, "turn").map((x) => x.path)).toEqual(["a.ts", "b.ts", "c.ts"]);
+    expect(collectDiffs(items, "session").map((x) => x.path)).toEqual(["old.ts", "a.ts", "b.ts", "c.ts"]);
   });
 });

@@ -40,6 +40,7 @@ function harness(overrides: {
       sessionId: null,
       taskListId: "list-1",
       contextStatus: null,
+      diffs: { turn: [], session: [] },
       ...overrides.state,
     },
     ui,
@@ -242,5 +243,25 @@ describe("/copy", () => {
     await bad.run("/copy", "zero");
     expect(bad.emitted[0]).toMatchObject({ kind: "error" });
     expect(bad.deps.copyToClipboard).not.toHaveBeenCalled();
+  });
+});
+
+describe("/diff", () => {
+  const diff = (path: string, additions: number, deletions: number) => ({ path, additions, deletions, hunks: [] });
+
+  it("shows the last turn's changes with totals", () => {
+    const h = harness({ state: { diffs: { turn: [diff("a.ts", 3, 1), diff("a.ts", 1, 0), diff("b.ts", 2, 2)], session: [] } } });
+    h.run("/diff");
+    expect(h.emitted[0]).toMatchObject({ kind: "diff", title: "Changes in the last turn · 2 files · +6 −3" });
+  });
+
+  it("covers the whole session with `all` and says when there is nothing", () => {
+    const h = harness({ state: { diffs: { turn: [], session: [diff("a.ts", 1, 0)] } } });
+    h.run("/diff");
+    expect(h.emitted[0]).toMatchObject({ kind: "notice" });
+    h.run("/diff", "all");
+    expect(h.emitted[1]).toMatchObject({ kind: "diff", title: "Changes in this session · 1 file · +1 −0" });
+    h.run("/diff", "everything");
+    expect(h.emitted[2]).toMatchObject({ kind: "error" });
   });
 });

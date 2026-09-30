@@ -203,6 +203,31 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
       },
     },
     {
+      name: "/diff",
+      description: "Review the file changes of the last turn (/diff all = whole session)",
+      run(args, ctx) {
+        if (args && args !== "all") {
+          ctx.emit({ kind: "error", text: "usage: /diff [all]" });
+          return;
+        }
+        const scope = args === "all" ? "session" : "turn";
+        const diffs = ctx.state.diffs[scope];
+        const when = scope === "turn" ? "in the last turn" : "in this session";
+        if (diffs.length === 0) {
+          ctx.emit({ kind: "notice", text: `No file changes ${when} (changes made by shell commands aren't tracked).` });
+          return;
+        }
+        const files = new Set(diffs.map((d) => d.path)).size;
+        const added = diffs.reduce((n, d) => n + d.additions, 0);
+        const removed = diffs.reduce((n, d) => n + d.deletions, 0);
+        ctx.emit({
+          kind: "diff",
+          title: `Changes ${when} · ${files} ${files === 1 ? "file" : "files"} · +${added} −${removed}`,
+          diffs,
+        });
+      },
+    },
+    {
       name: "/help",
       description: "List available commands",
       hidden: true,

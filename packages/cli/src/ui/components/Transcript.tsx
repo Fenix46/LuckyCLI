@@ -276,6 +276,15 @@ export function ItemView({
           </Text>
         </Box>
       );
+    case "diff":
+      return (
+        <Box flexDirection="column" paddingLeft={2}>
+          <Text bold color={theme.accent}>▌ {item.title}</Text>
+          <Box marginTop={1} paddingLeft={2}>
+            <DiffView diffs={item.diffs} theme={theme} width={Math.max(24, width - 4)} />
+          </Box>
+        </Box>
+      );
     case "notice":
       return (
         <Box paddingLeft={2}>

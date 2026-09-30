@@ -1,4 +1,4 @@
-import type { ContextStatus, Message, ProviderStatus, TokenCostRates, ToolResultMetadata } from "@luckycli/core";
+import type { ContextStatus, FileDiff, Message, ProviderStatus, TokenCostRates, ToolResultMetadata } from "@luckycli/core";
 
 /** A line in the scrollback transcript. */
 export type Item =
@@ -30,6 +30,8 @@ export type Item =
   | { kind: "turnSummary"; text: string }
   /** A neutral status line (e.g. the user interrupted the turn) — not an error. */
   | { kind: "notice"; text: string }
+  /** File changes gathered for review (/diff). */
+  | { kind: "diff"; title: string; diffs: FileDiff[] }
   // Transient items — built per-render, never persisted. They ride INSIDE the
   // virtualized list (like Claude Code's streaming reply) so the ScrollBox
   // content stays a flat [spacer, items, spacer] and stickyScroll follows them
@@ -152,4 +154,26 @@ export function messagesToItems(messages: Message[]): Item[] {
   }
 
   return items;
+}
+
+/**
+ * The file changes the agent's tools made, in order: since the latest user
+ * message ("turn") or over the whole transcript ("session"). Shell commands
+ * don't report diffs, so their changes aren't included.
+ */
+export function collectDiffs(items: readonly Item[], scope: "turn" | "session"): FileDiff[] {
+  let start = 0;
+  if (scope === "turn") {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i]?.kind === "user") {
+        start = i + 1;
+        break;
+      }
+    }
+  }
+  const diffs: FileDiff[] = [];
+  for (const item of items.slice(start)) {
+    if (item.kind === "tool" && !item.error && item.metadata?.diff) diffs.push(...item.metadata.diff);
+  }
+  return diffs;
 }

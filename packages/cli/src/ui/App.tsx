@@ -35,7 +35,7 @@ import {
 } from "@luckycli/core";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
-import { appendLiveOutput, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
+import { appendLiveOutput, collectDiffs, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
 import { formatToolAction } from "./lib/format.js";
 import { formatUsageFooter } from "./lib/status.js";
 import {
@@ -864,6 +864,7 @@ export function App({
             sessionId: sessionIdRef.current,
             taskListId,
             contextStatus,
+            diffs: { turn: collectDiffs(items, "turn"), session: collectDiffs(items, "session") },
           },
           ui: {
             tokenCosts,
@@ -930,7 +931,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

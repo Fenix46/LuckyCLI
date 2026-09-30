@@ -1,4 +1,4 @@
-import type { Agent, ContextStatus, McpServerConfig, ProviderId, TokenCostRates } from "@luckycli/core";
+import type { Agent, ContextStatus, FileDiff, McpServerConfig, ProviderId, TokenCostRates } from "@luckycli/core";
 import type { Item } from "../lib/items.js";
 import type { McpPanelTab } from "../components/McpPanel.js";
 import type { SkillPanelTab } from "../components/SkillPanel.js";
@@ -22,6 +22,8 @@ export interface CommandContext {
     sessionId: string | null;
     taskListId: string;
     contextStatus: ContextStatus | null;
+    /** File changes made by the agent's tools, for /diff. */
+    diffs: { turn: FileDiff[]; session: FileDiff[] };
   };
   /** Imperative surface into App: open panels/pickers, change model, exit… */
   ui: {

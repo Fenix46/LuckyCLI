@@ -21,6 +21,7 @@ const MENU_ORDER = [
   "/update",
   "/compact",
   "/copy",
+  "/diff",
   "/resume",
   "/provider",
   "/theme",

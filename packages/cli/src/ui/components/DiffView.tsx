@@ -22,8 +22,8 @@ export function DiffView({
 }): React.JSX.Element {
   return (
     <Box flexDirection="column">
-      {diffs.map((diff) => (
-        <FileDiffView key={diff.path} diff={diff} theme={theme} width={width} />
+      {diffs.map((diff, index) => (
+        <FileDiffView key={`${index}:${diff.path}`} diff={diff} theme={theme} width={width} />
       ))}
     </Box>
   );
