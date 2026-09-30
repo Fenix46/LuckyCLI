@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { formatElapsed } from "./format.js";
+import {
+  commandPreviewLines,
+  formatCompactNumber,
+  formatDuration,
+  formatElapsed,
+  formatToolResultSummary,
+  formatTurnSummary,
+  toolResultPreviewLines,
+} from "./format.js";
 
 describe("formatElapsed", () => {
   it("stays in plain seconds under a minute", () => {
@@ -25,5 +33,56 @@ describe("formatElapsed", () => {
   it("floors fractional seconds and clamps negatives", () => {
     expect(formatElapsed(42.9)).toBe("42s");
     expect(formatElapsed(-5)).toBe("0s");
+  });
+});
+
+describe("formatDuration", () => {
+  it("uses ms under a second, one decimal under ten, elapsed format beyond", () => {
+    expect(formatDuration(0)).toBe("0ms");
+    expect(formatDuration(850)).toBe("850ms");
+    expect(formatDuration(1400)).toBe("1.4s");
+    expect(formatDuration(42_000)).toBe("42s");
+    expect(formatDuration(125_000)).toBe("2m 05s");
+  });
+});
+
+describe("formatCompactNumber", () => {
+  it("abbreviates thousands and millions", () => {
+    expect(formatCompactNumber(420)).toBe("420");
+    expect(formatCompactNumber(8123)).toBe("8.1k");
+    expect(formatCompactNumber(45_600)).toBe("46k");
+    expect(formatCompactNumber(2_300_000)).toBe("2.3M");
+  });
+});
+
+describe("formatTurnSummary", () => {
+  it("reports time, tools with failures, and tokens", () => {
+    expect(
+      formatTurnSummary({ elapsedMs: 12_000, tools: 4, failedTools: 1, inputTokens: 8123, outputTokens: 420 }),
+    ).toBe("✓ done in 12s · 4 tools (1 failed) · ↑8.1k ↓420 tokens");
+  });
+
+  it("omits empty sections", () => {
+    expect(formatTurnSummary({ elapsedMs: 900, tools: 1, failedTools: 0, inputTokens: 0, outputTokens: 0 })).toBe(
+      "✓ done in 900ms · 1 tool",
+    );
+  });
+});
+
+describe("command output preview", () => {
+  it("shows the tail of the output after the summary line", () => {
+    const output = ["> build", "step 1", "step 2", "step 3", "step 4", "step 5", "done"].join("\n");
+    expect(formatToolResultSummary("exec", output)).toBe("> build");
+    expect(toolResultPreviewLines("exec", output)).toEqual(["… 2 more lines", "step 3", "step 4", "step 5", "done"]);
+  });
+
+  it("keeps short output whole and skips the failure prefix", () => {
+    const output = "[command failed: exit=1]\nError: boom\n  at main.ts:3";
+    expect(formatToolResultSummary("exec", output, true)).toBe("Error: boom");
+    expect(commandPreviewLines(output)).toEqual(["  at main.ts:3"]);
+  });
+
+  it("adds nothing for single-line output", () => {
+    expect(toolResultPreviewLines("exec", "(no output)")).toEqual([]);
   });
 });

@@ -28,6 +28,50 @@ export function formatElapsed(seconds: number): string {
   return `${minutes}m ${ss}s`;
 }
 
+/**
+ * Compact duration for tool rows and turn recaps: sub-second calls read in
+ * milliseconds, short ones with one decimal ("1.4s"), longer ones reuse the
+ * elapsed format ("2m 05s").
+ */
+export function formatDuration(ms: number): string {
+  const safe = Math.max(0, Math.round(ms));
+  if (safe < 1000) return `${safe}ms`;
+  if (safe < 10_000) return `${(safe / 1000).toFixed(1)}s`;
+  return formatElapsed(safe / 1000);
+}
+
+/** Token counts in the short form used by the turn recap ("12.3k"). */
+export function formatCompactNumber(value: number): string {
+  const safe = Math.max(0, Math.round(value));
+  if (safe < 1000) return String(safe);
+  if (safe < 1_000_000) return `${(safe / 1000).toFixed(safe < 10_000 ? 1 : 0)}k`;
+  return `${(safe / 1_000_000).toFixed(1)}M`;
+}
+
+export interface TurnSummaryInput {
+  elapsedMs: number;
+  tools: number;
+  failedTools: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** One-line recap printed after a turn: "✓ done in 12s · 4 tools · ↑8.1k ↓420 tokens". */
+export function formatTurnSummary(summary: TurnSummaryInput): string {
+  const parts = [`✓ done in ${formatDuration(summary.elapsedMs)}`];
+  if (summary.tools > 0) {
+    const noun = summary.tools === 1 ? "tool" : "tools";
+    const failed = summary.failedTools > 0 ? ` (${summary.failedTools} failed)` : "";
+    parts.push(`${summary.tools} ${noun}${failed}`);
+  }
+  if (summary.inputTokens > 0 || summary.outputTokens > 0) {
+    parts.push(
+      `↑${formatCompactNumber(summary.inputTokens)} ↓${formatCompactNumber(summary.outputTokens)} tokens`,
+    );
+  }
+  return parts.join(" · ");
+}
+
 export function preview(value: unknown, max = 120): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
   const flat = s.replace(/\s+/g, " ").trim();
@@ -232,6 +276,11 @@ const RESULT_PREVIEW_LINES: Record<string, number> = {
   list_dir: 3,
 };
 
+// Shell commands show the TAIL of their output under the summary line: the
+// end of a build/test run (the verdict, the error) is what matters, and the
+// first line is already the summary.
+const COMMAND_PREVIEW_LINES = 4;
+
 /**
  * The first few actual result lines for tools where they aid scanning.
  * Pure rendering: the full output already went to the model, so this costs
@@ -242,6 +291,7 @@ export function toolResultPreviewLines(
   output: string,
   error?: boolean,
 ): string[] {
+  if (name === "exec" || name === "PowerShell") return commandPreviewLines(output);
   if (error) return [];
   const limit = RESULT_PREVIEW_LINES[name];
   if (!limit) return [];
@@ -250,6 +300,21 @@ export function toolResultPreviewLines(
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("[") && !/^no matches/i.test(line));
   return lines.slice(0, limit);
+}
+
+/**
+ * The last few output lines of a shell command, excluding the line already
+ * shown as the summary. Failures included: the tail is usually the error.
+ */
+export function commandPreviewLines(output: string): string[] {
+  const lines = output
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() && !line.trim().startsWith("[command failed:"));
+  const rest = lines.slice(1);
+  if (rest.length <= COMMAND_PREVIEW_LINES) return rest;
+  const hidden = rest.length - COMMAND_PREVIEW_LINES;
+  return [`… ${hidden} more ${hidden === 1 ? "line" : "lines"}`, ...rest.slice(-COMMAND_PREVIEW_LINES)];
 }
 
 export function summarizeReadOutput(lines: string[]): string {

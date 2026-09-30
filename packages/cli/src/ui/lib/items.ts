@@ -7,17 +7,25 @@ export type Item =
   | { kind: "assistant"; text: string }
   | {
       kind: "tool";
+      /** Provider tool-call id; pairs the row with its result. */
+      id?: string;
       name: string;
       input: unknown;
       output?: string;
       error?: boolean;
       /** Structured tool details (diffs etc.) for rich rendering. */
       metadata?: ToolResultMetadata;
+      /** Epoch ms the call started (live turns only). */
+      startedAt?: number;
+      /** Wall-clock duration once finished (live turns only). */
+      durationMs?: number;
     }
   | { kind: "command"; title: string; rows: CommandRow[] }
   | { kind: "plan"; title: string; markdown: string }
   | { kind: "status"; provider: ProviderStatus; context: ContextStatus; costRates?: TokenCostRates }
   | { kind: "error"; text: string }
+  /** One-line recap printed when a turn settles (time, tools, tokens). */
+  | { kind: "turnSummary"; text: string }
   // Transient items — built per-render, never persisted. They ride INSIDE the
   // virtualized list (like Claude Code's streaming reply) so the ScrollBox
   // content stays a flat [spacer, items, spacer] and stickyScroll follows them
@@ -32,21 +40,37 @@ export interface CommandRow {
   link?: string;
 }
 
-/** Attach output to the most recent matching tool item. */
+/**
+ * Attach output to the running tool item for this call. Matching by call id
+ * keeps results on the right row when several calls of the same tool are in
+ * flight; without an id it falls back to the most recent unfinished row of
+ * that name.
+ */
 export function patchLastTool(
   items: Item[],
   name: string,
   output: string,
   error: boolean,
   metadata?: ToolResultMetadata,
+  id?: string,
+  finishedAt?: number,
 ): Item[] {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
-    if (item && item.kind === "tool" && item.name === name && item.output === undefined) {
-      const next = [...items];
-      next[i] = { ...item, output, error, ...(metadata ? { metadata } : {}) };
-      return next;
-    }
+    if (!item || item.kind !== "tool" || item.output !== undefined) continue;
+    const matches = id !== undefined && item.id !== undefined ? item.id === id : item.name === name;
+    if (!matches) continue;
+    const next = [...items];
+    next[i] = {
+      ...item,
+      output,
+      error,
+      ...(metadata ? { metadata } : {}),
+      ...(item.startedAt !== undefined && finishedAt !== undefined
+        ? { durationMs: Math.max(0, finishedAt - item.startedAt) }
+        : {}),
+    };
+    return next;
   }
   return items;
 }
@@ -78,7 +102,7 @@ export function messagesToItems(messages: Message[]): Item[] {
         // shown live (and the result below has nothing to attach to).
         if (part.name.startsWith("task_") || part.name === "ask_user") continue;
         toolIndexById.set(part.id, items.length);
-        items.push({ kind: "tool", name: part.name, input: part.arguments });
+        items.push({ kind: "tool", id: part.id, name: part.name, input: part.arguments });
       } else if (part.type === "tool_result") {
         const index = toolIndexById.get(part.toolCallId);
         const target = index !== undefined ? items[index] : undefined;

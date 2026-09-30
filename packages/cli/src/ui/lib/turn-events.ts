@@ -3,8 +3,8 @@ import type { AgentEvent, ContextStatus, TokenUsage, ToolResultMetadata } from "
 export interface EventHandlers {
   onText: (delta: string) => void;
   onReasoning: () => void;
-  onToolStart: (name: string, rawInput: unknown) => void;
-  onToolEnd: (name: string, output: string, error: boolean, metadata?: ToolResultMetadata) => void;
+  onToolStart: (name: string, rawInput: unknown, id: string) => void;
+  onToolEnd: (name: string, output: string, error: boolean, metadata: ToolResultMetadata | undefined, id: string) => void;
   onError: (message: string) => void;
   onContext: (status: ContextStatus) => void;
   onCompacted: (result: { beforeTokens?: number; afterTokens?: number; removedMessages: number; keptMessages: number }) => void;
@@ -23,10 +23,10 @@ export function handleEvent(event: AgentEvent, h: EventHandlers): void {
       h.onReasoning();
       break;
     case "tool_start":
-      h.onToolStart(event.name, event.input);
+      h.onToolStart(event.name, event.input, event.id);
       break;
     case "tool_end":
-      h.onToolEnd(event.name, event.content, event.isError, event.metadata);
+      h.onToolEnd(event.name, event.content, event.isError, event.metadata, event.id);
       break;
     case "error":
       h.onError(event.message);

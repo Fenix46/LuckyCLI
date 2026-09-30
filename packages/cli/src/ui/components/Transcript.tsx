@@ -4,6 +4,7 @@ import type { ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import type { Item } from "../lib/items.js";
 import {
+  formatDuration,
   formatToolAction,
   formatToolResultSummary,
   toolResultPreviewLines,
@@ -56,14 +57,21 @@ export function TranscriptList({
           width={width}
           provider={provider}
           model={model}
-          activityFrame={activityFrame}
+          // Only a running tool row animates. Every other row gets a constant
+          // frame so the memoized item skips the 120ms spinner re-render —
+          // otherwise the whole transcript reconciles on every tick.
+          activityFrame={isRunningTool(item) ? activityFrame : 0}
         />
       ))}
     </Box>
   );
 }
 
-export function TranscriptItem({
+function isRunningTool(item: Item): boolean {
+  return item.kind === "tool" && item.output === undefined;
+}
+
+function TranscriptItemInner({
   item,
   previous,
   theme,
@@ -97,8 +105,15 @@ export function TranscriptItem({
   );
 }
 
+/**
+ * Memoized on its props: committed items are immutable, so a row only
+ * re-renders when its own item, neighbor, theme, size or frame changes.
+ */
+export const TranscriptItem = React.memo(TranscriptItemInner);
+
 function spacingBefore(item: Item, previous?: Item): number {
   if (!previous) return 1;
+  if (item.kind === "turnSummary") return 1;
   if (item.kind === "tool" && previous.kind === "tool") return 0;
   if (item.kind === "tool" && previous.kind === "assistant") return 0;
   return item.kind !== previous.kind || item.kind === "user" ? 2 : 1;
@@ -176,13 +191,17 @@ export function ItemView({
           ? SPINNER_FRAMES[activityFrame % SPINNER_FRAMES.length] ?? "●"
           : "●";
       const action = formatToolAction(item.name, item.input, isRunning, item.error);
+      const duration = item.durationMs !== undefined ? formatDuration(item.durationMs) : "";
       const result = item.output ? formatToolResultSummary(item.name, item.output, item.error) : "";
       return (
         <Box flexDirection="column" paddingLeft={2}>
           <Box flexDirection="row" gap={1}>
             <Text bold color={toolColor}>{statusSymbol}</Text>
-            <Text bold wrap="truncate-end">{truncateSingleLine(action, Math.max(24, width - 8))}</Text>
+            <Text bold wrap="truncate-end">
+              {truncateSingleLine(action, Math.max(24, width - 8 - (duration ? duration.length + 1 : 0)))}
+            </Text>
             {isRunning ? <Text color={theme.accent}>…</Text> : null}
+            {duration ? <Text color={theme.muted} dimColor>{duration}</Text> : null}
           </Box>
           {!isRunning && item.metadata?.diff?.length ? (
             <Box paddingLeft={2}>
@@ -229,6 +248,14 @@ export function ItemView({
           <Box paddingLeft={2}>
             <StreamingMarkdown text={item.text} theme={theme} />
           </Box>
+        </Box>
+      );
+    case "turnSummary":
+      return (
+        <Box paddingLeft={2}>
+          <Text color={theme.muted} dimColor wrap="truncate-end">
+            {truncateSingleLine(item.text, Math.max(16, width - 4))}
+          </Text>
         </Box>
       );
     case "hint":
