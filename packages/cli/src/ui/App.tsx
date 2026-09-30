@@ -66,6 +66,7 @@ import { useMcpPanel } from "./hooks/useMcpPanel.js";
 import { useSkillPanel } from "./hooks/useSkillPanel.js";
 import { useModalRouter, type ModalHandler } from "./hooks/useModalRouter.js";
 import { useTurnRunner, type TurnOutcome } from "./hooks/useTurnRunner.js";
+import { useTerminalStatus } from "./hooks/useTerminalStatus.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { EffortPickerView, ModelPickerView, ThemePickerView } from "./components/Pickers.js";
 import { SlashMenu } from "./components/SlashMenu.js";
@@ -351,6 +352,18 @@ export function App({
   const { elapsedSeconds, activityFrame } = useElapsedTimer(
     busy || compacting,
     busy ? startedAt : compactStartedAt,
+  );
+
+  // Title, progress indicator and bell reflect whether lucky is working or
+  // waiting on the user, so the tab says so even while it's in the background.
+  useTerminalStatus(
+    approvalRequest
+      ? "approval"
+      : userQuestionRequest
+        ? "question"
+        : busy || compacting
+          ? "working"
+          : "idle",
   );
 
   // Terminal dimensions, re-rendering on resize (Ink's official hook).
