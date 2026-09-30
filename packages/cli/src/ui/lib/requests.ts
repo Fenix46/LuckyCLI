@@ -9,6 +9,10 @@ import type {
 export interface ApprovalRequest {
   name: string;
   input: unknown;
+  /** Why the command policy wants a human yes (e.g. "pushes to a remote repository"). */
+  reason?: string;
+  /** Flagged by the command policy: "always" then covers only this exact command. */
+  risky?: boolean;
   resolve: (decision: ToolApproval) => void;
 }
 

@@ -66,7 +66,7 @@ import {
 import { buildAgentRuntime, type BuiltAgentRuntime } from "../runtime.js";
 import { APP_VERSION } from "../ui/components/constants.js";
 import type { AskUserRequest } from "@luckycli/core";
-import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope } from "../approval.js";
+import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope, loadCommandRules, shellCommandVerdict } from "../approval.js";
 import { PREVIEWABLE_TOOLS, previewToolDiffs } from "../approval-preview.js";
 import { HIDDEN_TOOLS } from "../hidden-tools.js";
 import {
@@ -538,7 +538,13 @@ export class LuckyAcpAgent implements Agent {
     name: string,
     input: unknown,
   ): Promise<"allow" | "deny"> {
-    const scope = approvalScope(name, input);
+    // Per-command policy for shell calls, as in the TUI: deny rules hold even
+    // in bypass mode, allow rules skip the round trip, and a risky command is
+    // remembered only for itself.
+    const verdict = shellCommandVerdict(name, input, session.cwd, loadCommandRules());
+    if (verdict?.action === "deny") return "deny";
+    if (verdict?.action === "allow" && verdict.byRule) return "allow";
+    const scope = approvalScope(name, input, verdict?.action === "ask");
     if (session.approved.has(scope)) return "allow";
     if (session.mode === "bypass-permissions") return "allow";
     if (session.mode === "accept-edits" && AUTO_ACCEPT_EDIT_TOOLS.has(name)) return "allow";

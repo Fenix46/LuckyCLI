@@ -31,7 +31,13 @@ import {
   type SkillActivator,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
-import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope, requiresApprovalInAutoMode } from "../approval.js";
+import {
+  AUTO_ACCEPT_EDIT_TOOLS,
+  approvalScope,
+  loadCommandRules,
+  requiresApprovalInAutoMode,
+  shellCommandVerdict,
+} from "../approval.js";
 import { nextPermissionMode } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
@@ -157,16 +163,23 @@ export function Root({
   }
 
   function approveTool(name: string, input: unknown) {
-    const key = approvalScope(name, input);
+    // Shell commands first go through the per-command policy: the user's deny
+    // and allow rules apply in every mode, and a risky command (push, publish,
+    // deploy, remote script, destructive script) is approved only for itself.
+    const verdict = shellCommandVerdict(name, input, process.cwd(), loadCommandRules());
+    if (verdict?.action === "deny") return "deny" satisfies ToolApproval;
+    if (verdict?.action === "allow" && verdict.byRule) return "allow" satisfies ToolApproval;
+    const risky = verdict?.action === "ask";
+    const key = approvalScope(name, input, risky);
     if (sessionApprovedTools.current.has(key)) return "allow" satisfies ToolApproval;
     // Accept-edits mode auto-approves file edits (writes/edits/patches) without
     // prompting; shell execution still always asks.
     if (permissionModeRef.current === "acceptEdits" && AUTO_ACCEPT_EDIT_TOOLS.has(name)) {
       return "allow" satisfies ToolApproval;
     }
-    // Auto mode runs unattended: approve everything except shell calls that
-    // opt into destructive commands, which always need a human yes.
-    if (permissionModeRef.current === "auto" && !requiresApprovalInAutoMode(name, input)) {
+    // Auto mode runs unattended: approve everything except the shell commands
+    // the policy flags, which always need a human yes.
+    if (permissionModeRef.current === "auto" && !requiresApprovalInAutoMode(verdict)) {
       return "allow" satisfies ToolApproval;
     }
 
@@ -174,6 +187,8 @@ export function Root({
       setApprovalRequest({
         name,
         input,
+        ...(risky ? { risky: true } : {}),
+        ...(verdict?.reason ? { reason: verdict.reason } : {}),
         resolve: (decision) => {
           if (decision === "always") {
             sessionApprovedTools.current.add(key);

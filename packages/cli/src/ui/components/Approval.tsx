@@ -28,7 +28,7 @@ export function ApprovalRequestView({
   const panelWidth = Math.max(48, Math.min(width, 104));
   // The input frame around this view turns the warning color while it is
   // open, so the panel itself carries no extra border.
-  const alwaysDescription = describeAlwaysScope(request.name, request.input);
+  const alwaysDescription = describeAlwaysScope(request.name, request.input, request.risky === true);
   return (
     <Box flexDirection="column" width={panelWidth}>
       <Box flexDirection="row">
@@ -39,6 +39,12 @@ export function ApprovalRequestView({
       <Box marginTop={1}>
         <Text bold color="white">{detail.question}</Text>
       </Box>
+
+      {request.reason ? (
+        <Box flexDirection="row">
+          <Text color={theme.warning}>This command {request.reason}.</Text>
+        </Box>
+      ) : null}
 
       {detail.target ? (
         <Box marginTop={1} flexDirection="row">
