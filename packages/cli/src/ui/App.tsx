@@ -35,7 +35,8 @@ import {
 } from "@luckycli/core";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
-import { messagesToItems, patchLastTool } from "./lib/items.js";
+import { messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
+import { formatToolAction } from "./lib/format.js";
 import {
   getModelPickerState,
   getThemePickerState,
@@ -497,6 +498,8 @@ export function App({
           const decision = approvalOptions[selectedApprovalIndex] ?? "deny";
           approvalRequest.resolve(decision);
           setApprovalRequest(null);
+          const decidedName = approvalRequest.name;
+          setItems((prev) => restartRunningTool(prev, decidedName, Date.now()));
           // Refusing a tool stops the whole turn, like Esc — the model does
           // not get to react to the denial and keep working.
           if (decision === "deny") abort();
@@ -505,6 +508,8 @@ export function App({
         if (key.escape) {
           approvalRequest.resolve("deny");
           setApprovalRequest(null);
+          const deniedName = approvalRequest.name;
+          setItems((prev) => restartRunningTool(prev, deniedName, Date.now()));
           abort();
         }
         return true; // swallow everything else while the approval is open

@@ -76,6 +76,23 @@ export function patchLastTool(
 }
 
 /**
+ * Restart the clock of the latest running row of this tool. Called when the
+ * user approves it, so the row's duration measures the work, not the time
+ * the prompt sat waiting for an answer.
+ */
+export function restartRunningTool(items: Item[], name: string, now: number): Item[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item?.kind !== "tool" || item.output !== undefined || item.name !== name) continue;
+    if (item.startedAt === undefined) return items;
+    const next = [...items];
+    next[i] = { ...item, startedAt: now };
+    return next;
+  }
+  return items;
+}
+
+/**
  * Rebuild the scrollback transcript from a resumed session's canonical
  * messages. Tool calls and their results are stitched back together by id.
  */
