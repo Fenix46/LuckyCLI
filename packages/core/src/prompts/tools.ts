@@ -74,7 +74,7 @@ const GROUPS: ToolGroup[] = [
   {
     heading: "## Delegation",
     intro:
-      "When large work splits cleanly into parts that benefit from different models, delegate. Delegation is sequential: run one sub-agent to completion, read its report, then delegate the next part. The sub-agent can't see this conversation, so put everything it needs in the task. Prefer low-cost profiles for simple parts (e.g. docs). If a profile is on a provider the user isn't logged into, spawn_agent errors — tell the user to fix it in /agents.",
+      "When large work splits cleanly into parts that benefit from different models, delegate. Independent parts run in parallel when you issue several spawn_agent calls at once, each with the files it will write and no overlap between them; otherwise delegation is sequential: run one sub-agent, read its report, then delegate the next part. The sub-agent can't see this conversation, so put everything it needs in the task. Prefer low-cost profiles for simple parts (e.g. docs). If a profile is on a provider the user isn't logged into, spawn_agent errors — tell the user to fix it in /agents.",
     // Only worth explaining when at least one sub-agent profile exists.
     requires: (ctx) => ctx.hasSubAgents === true,
     tools: [

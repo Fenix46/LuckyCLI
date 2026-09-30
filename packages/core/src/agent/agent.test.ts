@@ -1465,3 +1465,69 @@ describe("end-of-turn verification", () => {
     await rm(cwd, { recursive: true, force: true });
   });
 });
+
+describe("parallel claimed calls", () => {
+  function worker(log: string[]) {
+    return defineTool({
+      name: "worker",
+      description: "Claims files and works for a while.",
+      schema: z.object({ id: z.string(), files: z.array(z.string()).optional() }),
+      conflictKeys: (input) => (input as { files?: string[] }).files,
+      async execute({ id }) {
+        log.push(`start:${id}`);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        log.push(`end:${id}`);
+        return { content: `done ${id}` };
+      },
+    });
+  }
+  const step = (calls: Array<{ id: string; files?: string[] }>): StreamChunk[] => [
+    ...calls.map((c) => ({
+      toolCall: { type: "tool_call" as const, id: c.id, name: "worker", arguments: c },
+    })),
+    { finishReason: "tool_calls" as const },
+  ];
+
+  it("approves in order, then runs disjoint claims side by side", async () => {
+    const log: string[] = [];
+    const approvals: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([
+        step([{ id: "a", files: ["src/api"] }, { id: "b", files: ["docs/**"] }]),
+        [{ finishReason: "stop" }],
+      ]),
+      model: "mock",
+      tools: new ToolRegistry().register(worker(log)),
+      approveTool: (_name, input) => {
+        approvals.push(`${(input as { id: string }).id}@${log.length}`);
+        return "allow";
+      },
+    });
+    const events = await collect(agent.send("go"));
+    expect(approvals).toEqual(["a@0", "b@0"]); // both approved before anything ran
+    expect(log.slice(0, 2)).toEqual(["start:a", "start:b"]);
+    const order = events.filter((e) => e.type === "tool_start" || e.type === "tool_end").map((e) => `${e.type}:${(e as { id: string }).id}`);
+    expect(order).toEqual(["tool_start:a", "tool_start:b", "tool_end:a", "tool_end:b"]);
+  });
+
+  it("keeps overlapping or unclaimed calls sequential, and never runs a denied one", async () => {
+    const log: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([
+        step([{ id: "a", files: ["src"] }, { id: "b", files: ["src/api"] }]),
+        step([{ id: "c", files: ["x"] }, { id: "d" }]),
+        step([{ id: "e", files: ["x"] }, { id: "f", files: ["y"] }]),
+        [{ finishReason: "stop" }],
+      ]),
+      model: "mock",
+      tools: new ToolRegistry().register(worker(log)),
+      approveTool: (_name, input) => ((input as { id: string }).id === "f" ? "deny" : "allow"),
+    });
+    await collect(agent.send("go"));
+    expect(log).toEqual([
+      "start:a", "end:a", "start:b", "end:b",
+      "start:c", "end:c", "start:d", "end:d",
+      "start:e", "end:e",
+    ]);
+  });
+});

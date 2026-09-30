@@ -31,6 +31,7 @@ import {
 } from "../workflow/verify.js";
 import type { VerificationResult } from "../workflow/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
+import { ownershipOverlaps } from "../agents/ownership.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
 // Compaction summaries are a mechanical, low-stakes task: run them on the
@@ -522,31 +523,43 @@ export class Agent {
         }
       }
 
+      // Calls that declare what they will touch (e.g. sub-agents with the
+      // files they own) run side by side when the declarations don't overlap:
+      // each is announced and approved in order first, then all approved ones
+      // start together. Otherwise they run one after another as usual.
+      const decided = new Map<ToolCallPart, { permission: ToolPermission; approved: boolean }>();
+      const claims = toolCalls
+        .map((call) => ({ call, keys: this.tools.get(call.name)?.conflictKeys?.(call.arguments) }))
+        .filter((entry): entry is { call: ToolCallPart; keys: string[] } => entry.keys !== undefined);
+      if (claims.length > 1 && claims.every((a, i) => claims.every((b, j) => i === j || !ownershipOverlaps(a.keys, b.keys)))) {
+        for (const { call } of claims) {
+          yield { type: "tool_start", id: call.id, name: call.name, input: call.arguments };
+          // A rejection that interrupted the turn must not keep prompting for
+          // the rest of the group.
+          const decision = signal?.aborted
+            ? { permission: this.permissionFor(call.name), approved: false }
+            : await this.decide(call);
+          decided.set(call, decision);
+        }
+        for (const { call } of claims) {
+          const decision = decided.get(call);
+          if (decision?.approved && decision.permission !== "deny") prefetched.set(call, this.runTool(call, signal));
+        }
+      }
+
       // Execute every requested tool, feeding results back as one user turn.
       const resultBlocks: ContentPart[] = [];
       for (const call of toolCalls) {
-        yield {
-          type: "tool_start",
-          id: call.id,
-          name: call.name,
-          input: call.arguments,
-        };
-
-        const hasExplicitPolicy = this.permissions !== undefined;
-        const permission = this.permissionFor(call.name);
-
-        // Backward compatibility: without an explicit policy, an ask-level tool
-        // is allowed when no approval bridge exists, matching the original
-        // Agent behavior. With an explicit policy, ask requires approval.
-        let approved = permission === "allow" || (!hasExplicitPolicy && permission === "ask" && !this.approveTool);
-        if (permission === "ask" && this.approveTool) {
-          try {
-            const decision = await this.approveTool(call.name, call.arguments);
-            approved = decision === true || decision === "allow" || decision === "always";
-          } catch {
-            approved = false;
-          }
+        const early = decided.get(call);
+        if (!early) {
+          yield {
+            type: "tool_start",
+            id: call.id,
+            name: call.name,
+            input: call.arguments,
+          };
         }
+        const { permission, approved } = early ?? (await this.decide(call));
 
         let result;
         if (permission === "deny") {
@@ -720,6 +733,25 @@ export class Agent {
       `[automatic check] \`${label}\` failed after your edits:\n\n${tail}\n\n` +
       "Fix the cause, then finish. If the failure is unrelated to your change, say so instead of working around it."
     );
+  }
+
+  /** Resolve a call's permission and, when it asks, the user's decision. */
+  private async decide(call: ToolCallPart): Promise<{ permission: ToolPermission; approved: boolean }> {
+    const hasExplicitPolicy = this.permissions !== undefined;
+    const permission = this.permissionFor(call.name);
+    // Backward compatibility: without an explicit policy, an ask-level tool
+    // is allowed when no approval bridge exists, matching the original
+    // Agent behavior. With an explicit policy, ask requires approval.
+    let approved = permission === "allow" || (!hasExplicitPolicy && permission === "ask" && !this.approveTool);
+    if (permission === "ask" && this.approveTool) {
+      try {
+        const decision = await this.approveTool(call.name, call.arguments);
+        approved = decision === true || decision === "allow" || decision === "always";
+      } catch {
+        approved = false;
+      }
+    }
+    return { permission, approved };
   }
 
   /** The effective permission for a tool, honoring an explicit policy. */

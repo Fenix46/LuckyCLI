@@ -18,6 +18,12 @@ export interface SpawnAgentRequest {
   agent: string;
   /** The task instructions for the sub-agent. */
   task: string;
+  /**
+   * Files the sub-agent may write (paths, directories or globs). When set,
+   * its file tools refuse anything else, and calls with disjoint lists can
+   * run in parallel.
+   */
+  files?: string[];
 }
 
 /** What the spawn_agent bridge returns once the sub-agent finishes. */
@@ -132,6 +138,13 @@ export interface Tool<Schema extends z.ZodType = z.ZodType> {
    * runs them in parallel. Results are still reported in call order.
    */
   concurrencySafe?: boolean;
+  /**
+   * What a call will write (paths, directories or globs), or undefined when
+   * it can't say. Several calls that all declare disjoint claims run in
+   * parallel after each is approved; any overlap, or a call without claims,
+   * keeps them sequential.
+   */
+  conflictKeys?: (input: unknown) => string[] | undefined;
   execute(input: z.infer<Schema>, ctx: ToolContext): Promise<ToolResult>;
 }
 
