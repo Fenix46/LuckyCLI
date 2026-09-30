@@ -37,7 +37,9 @@ model mid-session without losing your conversation.
 - **A project knowledge graph.** Opt-in on first open, LuckyCLI maps your code's
   files, symbols, imports and calls into `.lucky/graph` so the agent navigates by
   querying instead of re-reading files, renders to interactive HTML, and keeps
-  itself current automatically as the agent edits. Early real-LLM results in
+  itself current automatically — after the agent's edits and, at the start of each
+  turn, after changes made elsewhere (your editor, `git pull`, codegen). `graph_query
+  impact` and `lucky graph impact` show everything a change could break. Early real-LLM results in
   [How much does it help?](#how-much-does-it-help-).
 - **Skills on a second graph.** Reusable instructions (cutting a release, your
   commit conventions, …) live as `skill.md` files indexed in their own keyword
@@ -306,7 +308,7 @@ side-effecting ones prompt for approval.
   exact command for `exec`, per tool for file writes — so you aren't re-prompted.
 - **Approval modes** (`Shift+Tab`). *Normal* asks for every side-effecting
   tool; *accept edits* auto-approves file edits but still asks for shell
-  commands; *auto* approves everything so the agent can work unattended —
+  commands; *auto* approves everything (and accepts presented plans) so the agent can work unattended —
   except shell calls that opt into a destructive command (`allowDangerous`),
   which always ask. Tools denied by policy stay denied in every mode.
 - **Filesystem sandbox.** File tools reject absolute paths and anything that
