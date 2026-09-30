@@ -198,6 +198,13 @@ export function Root({
   // option (or matching free text) becomes accept/modify/reject; any other free
   // text on "modify" is the revision feedback.
   async function presentPlan(plan: PlanProposal): Promise<PlanDecision> {
+    // Auto mode runs unattended: print the plan so it stays in the scrollback,
+    // then accept it without asking. The request is left set (App prints each
+    // request once, keyed on identity); the next plan replaces it.
+    if (permissionModeRef.current === "auto") {
+      setPlanRequest({ ...plan, title: `${plan.title} · auto-accepted` });
+      return { action: "accept" };
+    }
     const ACCEPT = "Accept and run";
     const MODIFY = "Modify";
     const REJECT = "Reject";
