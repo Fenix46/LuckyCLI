@@ -2,6 +2,10 @@
 import "dotenv/config";
 // Keep this before any React-importing module — see env.ts (dev React leaks
 // PerformanceMeasure entries on every render; production build does not).
+// This file must contain no JSX: tsc hoists the automatic `react/jsx-runtime`
+// import above every other import, which would load React (in dev mode, since
+// NODE_ENV is not set yet) before env.js runs — pairing a development React
+// with the production reconciler, which silently renders nothing.
 import "./env.js";
 import { parseArgs } from "node:util";
 import render from "./vendor/ink/root.js";
@@ -306,12 +310,12 @@ function main(): void {
   // freely — no ScrollBox, no height constraint, no mouse tracking needed since
   // the terminal owns scrolling.
   void render(
-    <Root
-      config={config}
-      forceSetup={values.setup === true}
-      {...(resume ? { resume } : {})}
-      {...(pickResume ? { pickResume: true } : {})}
-    />,
+    React.createElement(Root, {
+      config,
+      forceSetup: values.setup === true,
+      ...(resume ? { resume } : {}),
+      ...(pickResume ? { pickResume: true } : {}),
+    }),
   );
 }
 
