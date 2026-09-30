@@ -1,4 +1,4 @@
-import type { GraphImpact } from "@luckycli/core";
+import type { BlastRadius, GraphImpact } from "@luckycli/core";
 
 /** Format graph impact results for humans and shell logs. */
 export function graphImpactLines(query: string, impacts: GraphImpact[]): string[] {
@@ -20,4 +20,24 @@ export function graphImpactLines(query: string, impacts: GraphImpact[]): string[
     }
   }
   return lines;
+}
+
+/** Transitive dependents of one node, grouped as "what could break". */
+export function blastRadiusLines(label: string, radius: BlastRadius, maxDepth: number): string[] {
+  if (radius.dependents.length === 0) {
+    return [`Transitive impact of ${label}: nothing in the project depends on it.`];
+  }
+  const lines = [
+    `Transitive impact of ${label} (up to ${maxDepth} hops): ${count(radius.dependents.length, "dependent")} in ${count(radius.files.length, "file")}${radius.truncated ? " (truncated)" : ""}`,
+  ];
+  for (const { node, depth, relation } of radius.dependents) {
+    const location = node.sourceLocation ? `${node.sourceFile}:${node.sourceLocation}` : node.sourceFile;
+    lines.push(`  ${depth === 1 ? "direct" : `${depth} hops`}  ${relation}  ${node.label} [${node.kind}]  ${location}`);
+  }
+  lines.push("Files to review:", ...radius.files.map((file) => `  ${file}`));
+  return lines;
+}
+
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
