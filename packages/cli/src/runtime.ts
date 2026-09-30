@@ -15,6 +15,7 @@ import {
   SkillActivator,
   nonInteractiveMcpOAuthProvider,
   resetProvider,
+  refreshGraph,
   updateGraphForFiles,
   type AskUserRequest,
   type PlanProposal,
@@ -62,6 +63,28 @@ function createGraphMaintainer(cwd: string): (paths: string[]) => void {
     }, 800);
     timer.unref?.();
   };
+}
+
+// How long a turn waits for the graph refresh; a slower one (huge repo)
+// finishes in the background and the turn starts right away.
+const GRAPH_REFRESH_WAIT_MS = 1_500;
+
+/**
+ * Bring the graph up to date with changes lucky's own tools didn't make —
+ * edits in the user's editor, git pull/checkout, codegen or shell commands —
+ * before the model navigates by it. Free when the project has no graph.
+ */
+async function refreshGraphBeforeTurn(cwd: string): Promise<void> {
+  const refresh = refreshGraph(cwd).catch(() => null);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    refresh,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, GRAPH_REFRESH_WAIT_MS);
+      timer.unref?.();
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
 }
 
 export interface BuildAgentOptions {
@@ -217,7 +240,10 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.runSubAgent ? { runSubAgent: opts.runSubAgent } : {}),
     onFilesChanged: createGraphMaintainer(cwd),
     onSkillLoaded: (id) => skillActivator.markActive(id),
-    enrichTurn: (text) => graphEnricher.enrich(text),
+    enrichTurn: async (text) => {
+      await refreshGraphBeforeTurn(cwd);
+      return graphEnricher.enrich(text);
+    },
     ...(opts.readTextFile ? { readTextFile: opts.readTextFile } : {}),
     ...(opts.writeTextFile ? { writeTextFile: opts.writeTextFile } : {}),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
