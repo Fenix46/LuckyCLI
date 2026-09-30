@@ -41,6 +41,13 @@ export function StatusFooter({
               (shift+tab to cycle)
             </Text>
           </Text>
+        ) : permissionMode === "auto" ? (
+          <Text color={theme.warning} bold>
+            ⏵⏵⏵ auto mode on{" "}
+            <Text color={theme.muted} dimColor>
+              (shift+tab to cycle)
+            </Text>
+          </Text>
         ) : (
           <Text color={theme.muted} dimColor>
             shift+tab: accept edits

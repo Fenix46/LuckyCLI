@@ -23,8 +23,22 @@ export interface UserQuestionRequest extends AskUserRequest {
  */
 export type PlanRequest = PlanProposal;
 
-/** Session-wide tool-approval mode, cycled from the prompt with Shift+Tab. */
-export type PermissionMode = "normal" | "acceptEdits";
+/**
+ * Session-wide tool-approval mode, cycled from the prompt with Shift+Tab:
+ *  - normal: every side-effecting tool asks.
+ *  - acceptEdits: file edits are auto-approved; shell commands still ask.
+ *  - auto: everything is auto-approved except shell calls that opt into
+ *    destructive commands (see requiresApprovalInAutoMode).
+ */
+export type PermissionMode = "normal" | "acceptEdits" | "auto";
+
+const PERMISSION_MODE_CYCLE: readonly PermissionMode[] = ["normal", "acceptEdits", "auto"];
+
+/** The mode Shift+Tab switches to from `current`. */
+export function nextPermissionMode(current: PermissionMode): PermissionMode {
+  const index = PERMISSION_MODE_CYCLE.indexOf(current);
+  return PERMISSION_MODE_CYCLE[(index + 1) % PERMISSION_MODE_CYCLE.length] ?? "normal";
+}
 
 /** Live token consumption of one running/finished sub-agent. */
 export interface AgentUsageEntry {

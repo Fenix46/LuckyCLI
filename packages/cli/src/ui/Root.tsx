@@ -31,7 +31,8 @@ import {
   type SkillActivator,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
-import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope } from "../approval.js";
+import { AUTO_ACCEPT_EDIT_TOOLS, approvalScope, requiresApprovalInAutoMode } from "../approval.js";
+import { nextPermissionMode } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
@@ -146,9 +147,8 @@ export function Root({
 
   function cyclePermissionMode() {
     // The ref is the source of truth (the agent's captured approveTool reads it);
-    // state just mirrors it for rendering. Only two modes for now, so toggle.
-    const next: PermissionMode =
-      permissionModeRef.current === "normal" ? "acceptEdits" : "normal";
+    // state just mirrors it for rendering. normal → acceptEdits → auto → normal.
+    const next = nextPermissionMode(permissionModeRef.current);
     permissionModeRef.current = next;
     // Returning to normal also forgets the session's "always" approvals, so the
     // user starts asking again from a clean slate.
@@ -162,6 +162,11 @@ export function Root({
     // Accept-edits mode auto-approves file edits (writes/edits/patches) without
     // prompting; shell execution still always asks.
     if (permissionModeRef.current === "acceptEdits" && AUTO_ACCEPT_EDIT_TOOLS.has(name)) {
+      return "allow" satisfies ToolApproval;
+    }
+    // Auto mode runs unattended: approve everything except shell calls that
+    // opt into destructive commands, which always need a human yes.
+    if (permissionModeRef.current === "auto" && !requiresApprovalInAutoMode(name, input)) {
       return "allow" satisfies ToolApproval;
     }
 

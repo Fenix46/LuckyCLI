@@ -11,6 +11,24 @@ export const AUTO_ACCEPT_EDIT_TOOLS: ReadonlySet<string> = new Set([
   "apply_patch",
 ]);
 
+/** Shell tools whose destructive calls stay gated even in auto mode. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set(["exec", "PowerShell"]);
+
+/**
+ * Whether a call must still ask the user while the session is in "auto" mode.
+ *
+ * Auto mode approves every ask-level tool so the agent can work unattended.
+ * The one exception is a shell call that opts into `allowDangerous`: the shell
+ * tools refuse destructive commands (rm, git reset --hard, force push, …)
+ * unless that flag is set, and the flag is meant to follow an explicit human
+ * yes — so auto mode never grants it on the user's behalf. Tools the policy
+ * denies never reach the approval bridge at all.
+ */
+export function requiresApprovalInAutoMode(name: string, input: unknown): boolean {
+  if (!SHELL_TOOLS.has(name)) return false;
+  return (input as { allowDangerous?: unknown } | null)?.allowDangerous === true;
+}
+
 /**
  * The scope at which an "always" approval is remembered for the session.
  *

@@ -97,6 +97,20 @@ describe("StatusFooter", () => {
     expect(scanPositions(screen, "accept edits on").length).toBeGreaterThan(0);
   });
 
+  it("shows the auto-mode banner when the mode is on", () => {
+    const { screen } = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={80}
+        permissionMode="auto"
+        showScrollHint={false}
+        contextStatus={null}
+      />,
+      80,
+    );
+    expect(scanPositions(screen, "auto mode on").length).toBeGreaterThan(0);
+  });
+
   it("shows the cycle hint and the scroll hint otherwise", () => {
     const { screen } = renderToScreen(
       <StatusFooter
