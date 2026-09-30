@@ -19,6 +19,7 @@ const MENU_ORDER = [
   "/status",
   "/update",
   "/compact",
+  "/copy",
   "/resume",
   "/provider",
   "/theme",
