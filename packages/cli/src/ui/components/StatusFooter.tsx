@@ -20,6 +20,7 @@ export function StatusFooter({
   contextStatus,
   effort,
   thinking,
+  usage,
 }: {
   theme: Theme;
   /** Content width (terminal width minus the root's paddingX). */
@@ -30,6 +31,8 @@ export function StatusFooter({
   contextStatus: ContextStatus | null;
   effort?: string | undefined;
   thinking?: string | undefined;
+  /** Session tokens (and cost, when rates are configured). */
+  usage?: string | undefined;
 }): React.JSX.Element {
   return (
     <Box width={width} marginTop={1} overflow="hidden">
@@ -65,6 +68,7 @@ export function StatusFooter({
           {formatStatusFooter(contextStatus, {
             ...(effort ? { effort } : {}),
             ...(thinking ? { thinking } : {}),
+            ...(usage ? { usage } : {}),
           })}
         </Text>
       </Box>

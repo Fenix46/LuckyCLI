@@ -37,6 +37,7 @@ import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { appendLiveOutput, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
 import { formatToolAction } from "./lib/format.js";
+import { formatUsageFooter } from "./lib/status.js";
 import {
   getModelPickerState,
   getThemePickerState,
@@ -1219,6 +1220,7 @@ export function App({
         contextStatus={contextStatus}
         effort={footerEffort}
         thinking={footerThinking}
+        usage={formatUsageFooter(agent.totalTokenUsage, tokenCosts?.[`${meta.provider}/${meta.model}`])}
       />
       </Box>
     </Box>
