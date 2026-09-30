@@ -19,6 +19,8 @@ export type Item =
       startedAt?: number;
       /** Wall-clock duration once finished (live turns only). */
       durationMs?: number;
+      /** Tail of the output streamed while the call runs (display only). */
+      live?: string;
     }
   | { kind: "command"; title: string; rows: CommandRow[] }
   | { kind: "plan"; title: string; markdown: string }
@@ -72,6 +74,22 @@ export function patchLastTool(
         ? { durationMs: Math.max(0, finishedAt - item.startedAt) }
         : {}),
     };
+    return next;
+  }
+  return items;
+}
+
+// Enough tail to fill a few preview lines; older live output is dropped.
+const LIVE_TAIL_CHARS = 2_000;
+
+/** Append streamed output to the running row for this call id. */
+export function appendLiveOutput(items: Item[], id: string, chunk: string): Item[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item?.kind !== "tool" || item.id !== id) continue;
+    if (item.output !== undefined) return items;
+    const next = [...items];
+    next[i] = { ...item, live: `${item.live ?? ""}${chunk}`.slice(-LIVE_TAIL_CHARS) };
     return next;
   }
   return items;

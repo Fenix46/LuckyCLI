@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatToolAction,
   formatToolResultSummary,
+  liveTailLines,
   toolResultPreviewLines,
   truncateSingleLine,
 } from "../lib/format.js";
@@ -214,6 +215,15 @@ export function ItemView({
             </Text>
             {duration ? <Text color={theme.muted} dimColor>{duration}</Text> : null}
           </Box>
+          {isRunning && item.live ? (
+            <Box flexDirection="column" paddingLeft={2}>
+              {liveTailLines(item.live).map((line, i) => (
+                <Text key={i} color={theme.muted} dimColor wrap="truncate-end">
+                  {"  "}{truncateSingleLine(line, Math.max(16, width - 12))}
+                </Text>
+              ))}
+            </Box>
+          ) : null}
           {!isRunning && item.metadata?.diff?.length ? (
             <Box paddingLeft={2}>
               <DiffView diffs={item.metadata.diff} theme={theme} width={Math.max(24, width - 4)} />

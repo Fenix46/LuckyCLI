@@ -36,6 +36,8 @@ interface TurnRunnerDeps {
   ) => void;
   onContext: (status: ContextStatus) => void;
   onUsage: (usage: TokenUsage) => void;
+  /** Stream a running tool's output into its row (called at most every ~200ms). */
+  onToolOutput: (id: string, chunk: string) => void;
   /** Persist the session once the turn settles. */
   persist: () => void;
   /**
@@ -91,6 +93,7 @@ export function useTurnRunner({
   patchTool,
   onContext,
   onUsage,
+  onToolOutput,
   persist,
   skills,
   graphEnricher,
@@ -165,6 +168,19 @@ export function useTurnRunner({
       // reach the model only on demand — see the /skill command and skill_load.
       const payload: string | ContentPart[] = input;
 
+      // Live tool output is coalesced per call and flushed on a timer, so a
+      // chatty command doesn't re-render the transcript on every chunk.
+      const liveBuffers = new Map<string, string>();
+      let liveTimer: ReturnType<typeof setTimeout> | null = null;
+      const flushLive = () => {
+        if (liveTimer) {
+          clearTimeout(liveTimer);
+          liveTimer = null;
+        }
+        for (const [id, chunk] of liveBuffers) onToolOutput(id, chunk);
+        liveBuffers.clear();
+      };
+
       const controller = new AbortController();
       abortRef.current = controller;
       try {
@@ -185,7 +201,12 @@ export function useTurnRunner({
               toolCount += 1;
               appendItems([{ kind: "tool", id, name, input: rawInput, startedAt: Date.now() }]);
             },
+            onToolOutput: (id, chunk) => {
+              liveBuffers.set(id, (liveBuffers.get(id) ?? "") + chunk);
+              liveTimer ??= setTimeout(flushLive, 200);
+            },
             onToolEnd: (name, output, error, metadata, id) => {
+              liveBuffers.delete(id);
               if (HIDDEN_TOOLS.has(name)) return;
               if (error) failedTools += 1;
               patchTool(name, output, error, metadata, id, Date.now());
@@ -245,6 +266,7 @@ export function useTurnRunner({
           });
         }
       } finally {
+        flushLive();
         publishStreaming();
         if (abortRef.current === controller) {
           abortRef.current = null;
@@ -274,7 +296,7 @@ export function useTurnRunner({
       }
       return { aborted, failed };
     },
-    [agent, appendItems, patchTool, onContext, onUsage, persist, skills, graphEnricher],
+    [agent, appendItems, patchTool, onContext, onUsage, onToolOutput, persist, skills, graphEnricher],
   );
 
   return { busy, startedAt, streaming, reasoning, abort, runTurn };

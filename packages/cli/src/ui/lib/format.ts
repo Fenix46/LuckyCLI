@@ -1,4 +1,5 @@
 import os from "node:os";
+import stripAnsi from "strip-ansi";
 
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
@@ -338,6 +339,20 @@ export function commandPreviewLines(output: string): string[] {
   if (rest.length <= COMMAND_PREVIEW_LINES) return rest;
   const hidden = rest.length - COMMAND_PREVIEW_LINES;
   return [`… ${hidden} more ${hidden === 1 ? "line" : "lines"}`, ...rest.slice(-COMMAND_PREVIEW_LINES)];
+}
+
+/**
+ * The last `count` non-empty lines of a running command's live output, as a
+ * terminal would show them: colors stripped and carriage-return progress
+ * bars collapsed to their latest state.
+ */
+export function liveTailLines(live: string, count = 3): string[] {
+  return stripAnsi(live)
+    .split("\n")
+    .map((line) => (line.includes("\r") ? line.slice(line.lastIndexOf("\r", line.length - 2) + 1) : line))
+    .map((line) => line.replace(/\r/g, "").trimEnd())
+    .filter((line) => line.trim())
+    .slice(-count);
 }
 
 export function summarizeReadOutput(lines: string[]): string {

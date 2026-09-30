@@ -35,7 +35,7 @@ import {
 } from "@luckycli/core";
 import { THEMES, themeById, type Theme } from "./themes.js";
 import type { Item, CommandRow } from "./lib/items.js";
-import { messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
+import { appendLiveOutput, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
 import { formatToolAction } from "./lib/format.js";
 import {
   getModelPickerState,
@@ -292,12 +292,17 @@ export function App({
     [],
   );
   const onUsage = useCallback((_usage: TokenUsage) => {}, []);
+  const onToolOutput = useCallback(
+    (id: string, chunk: string) => setItems((prev) => appendLiveOutput(prev, id, chunk)),
+    [],
+  );
   const { busy, startedAt, streaming, reasoning, abort, runTurn } = useTurnRunner({
     agent,
     appendItems,
     patchTool,
     onContext: setContextStatus,
     onUsage,
+    onToolOutput,
     persist: persistSession,
     skills: skillActivator,
     graphEnricher,

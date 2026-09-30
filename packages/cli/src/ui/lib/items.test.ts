@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { messagesToItems, patchLastTool, restartRunningTool, type Item } from "./items.js";
+import { appendLiveOutput, messagesToItems, patchLastTool, restartRunningTool, type Item } from "./items.js";
 
 describe("patchLastTool", () => {
   it("attaches results by call id when the same tool runs twice", () => {
@@ -51,5 +51,18 @@ describe("restartRunningTool", () => {
     expect(next[0]).toMatchObject({ startedAt: 1 });
     expect(next[1]).toMatchObject({ startedAt: 500 });
     expect(next[2]).toMatchObject({ startedAt: 1 });
+  });
+});
+
+describe("appendLiveOutput", () => {
+  it("appends to the running row for the call and ignores finished rows", () => {
+    const items: Item[] = [
+      { kind: "tool", id: "a", name: "exec", input: {} },
+      { kind: "tool", id: "b", name: "exec", input: {}, output: "done" },
+    ];
+    const once = appendLiveOutput(items, "a", "x\n");
+    const twice = appendLiveOutput(once, "a", "y\n");
+    expect(twice[0]).toMatchObject({ live: "x\ny\n" });
+    expect(appendLiveOutput(items, "b", "late")).toBe(items);
   });
 });

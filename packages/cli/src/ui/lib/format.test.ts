@@ -6,6 +6,7 @@ import {
   formatElapsed,
   formatToolResultSummary,
   formatTurnSummary,
+  liveTailLines,
   formatToolAction,
   truncateMiddle,
   plural,
@@ -117,5 +118,13 @@ describe("background process rows", () => {
     );
     expect(formatToolAction("process", { action: "output", id: "bg1" }, false)).toBe("Checked process output bg1");
     expect(formatToolAction("process", { action: "list" }, false)).toBe("Checked process list");
+  });
+});
+
+describe("liveTailLines", () => {
+  it("keeps the last lines, strips colors and collapses progress bars", () => {
+    const live = "one\n\u001b[32mtwo\u001b[39m\n10%\r50%\r100%\nfour\n\n";
+    expect(liveTailLines(live)).toEqual(["two", "100%", "four"]);
+    expect(liveTailLines("a\nb\nc\nd", 2)).toEqual(["c", "d"]);
   });
 });
