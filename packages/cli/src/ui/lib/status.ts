@@ -192,8 +192,8 @@ export function formatContextFooter(status: ContextStatus | null): string {
   if (status.usedTokens !== undefined && status.usableTokens) {
     const used = status.usedPercentage ?? Math.round((status.ratio ?? 0) * 100);
     const remaining = status.remainingPercentage ?? Math.max(0, 100 - used);
-    return `${formatNumber(status.usedTokens)}/${formatNumber(status.usableTokens)} · ${remaining}% free`;
+    return `${formatCompactNumber(status.usedTokens)}/${formatCompactNumber(status.usableTokens)} · ${remaining}% free`;
   }
-  if (status.contextWindow) return `${formatNumber(status.contextWindow)} window`;
+  if (status.contextWindow) return `${formatCompactNumber(status.contextWindow)} window`;
   return "syncing…";
 }

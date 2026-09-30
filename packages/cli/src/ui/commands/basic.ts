@@ -214,7 +214,11 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
         const diffs = ctx.state.diffs[scope];
         const when = scope === "turn" ? "in the last turn" : "in this session";
         if (diffs.length === 0) {
-          ctx.emit({ kind: "notice", text: `No file changes ${when} (changes made by shell commands aren't tracked).` });
+          ctx.emit({
+            kind: "notice",
+            tone: "info",
+            text: `No file changes ${when} (changes made by shell commands aren't tracked).`,
+          });
           return;
         }
         const files = new Set(diffs.map((d) => d.path)).size;

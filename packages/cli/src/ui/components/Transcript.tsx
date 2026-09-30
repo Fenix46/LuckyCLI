@@ -288,7 +288,11 @@ export function ItemView({
     case "notice":
       return (
         <Box paddingLeft={2}>
-          <Text color={theme.warning}>✕ </Text>
+          {item.tone === "info" ? (
+            <Text color={theme.muted}>› </Text>
+          ) : (
+            <Text color={theme.warning}>✕ </Text>
+          )}
           <Text color={theme.muted} wrap="truncate-end">
             {truncateSingleLine(item.text, Math.max(16, width - 6))}
           </Text>

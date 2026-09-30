@@ -59,7 +59,7 @@ export function StatusFooter({
       </Box>
       <Box flexGrow={1} />
       <Box flexDirection="row" gap={1} flexShrink={1}>
-        {showScrollHint ? (
+        {showScrollHint && width >= 130 ? (
           <Text color={theme.muted} dimColor wrap="truncate">
             scroll to view history{"  "}
           </Text>

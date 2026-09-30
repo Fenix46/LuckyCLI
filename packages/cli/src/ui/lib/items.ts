@@ -29,7 +29,7 @@ export type Item =
   /** One-line recap printed when a turn settles (time, tools, tokens). */
   | { kind: "turnSummary"; text: string }
   /** A neutral status line (e.g. the user interrupted the turn) — not an error. */
-  | { kind: "notice"; text: string }
+  | { kind: "notice"; text: string; tone?: "info" | "warning" }
   /** File changes gathered for review (/diff). */
   | { kind: "diff"; title: string; diffs: FileDiff[] }
   // Transient items — built per-render, never persisted. They ride INSIDE the

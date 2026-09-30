@@ -111,18 +111,32 @@ describe("StatusFooter", () => {
     expect(scanPositions(screen, "auto mode on").length).toBeGreaterThan(0);
   });
 
-  it("shows the cycle hint and the scroll hint otherwise", () => {
-    const { screen } = renderToScreen(
+  it("shows the cycle hint, and the scroll hint only when there is room", () => {
+    const wide = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={140}
+        permissionMode="default"
+        showScrollHint={true}
+        contextStatus={null}
+      />,
+      140,
+    ).screen;
+    expect(scanPositions(wide, "shift+tab: accept edits").length).toBeGreaterThan(0);
+    expect(scanPositions(wide, "scroll to view history").length).toBeGreaterThan(0);
+
+    const narrow = renderToScreen(
       <StatusFooter
         theme={theme}
         width={80}
         permissionMode="default"
         showScrollHint={true}
         contextStatus={null}
+        usage="↑15k ↓540"
       />,
       80,
-    );
-    expect(scanPositions(screen, "shift+tab: accept edits").length).toBeGreaterThan(0);
-    expect(scanPositions(screen, "scroll to view history").length).toBeGreaterThan(0);
+    ).screen;
+    expect(scanPositions(narrow, "scroll to view history")).toHaveLength(0);
+    expect(scanPositions(narrow, "↑15k ↓540").length).toBeGreaterThan(0);
   });
 });
