@@ -139,7 +139,7 @@ function impactSection(node: GraphNode, radius: BlastRadius): string {
   );
   const files = radius.files.map((file) => `  ${file}`);
   return [
-    `${title}: ${radius.dependents.length} dependents in ${radius.files.length} files${radius.truncated ? " (truncated)" : ""}`,
+    `${title}: ${count(radius.dependents.length, "dependent")} in ${count(radius.files.length, "file")}${radius.truncated ? " (truncated)" : ""}`,
     ...byDepth,
     "Files to review:",
     ...files,
@@ -190,4 +190,8 @@ function list(title: string, items: string[]): string {
 function section(title: string, items: string[]): string {
   if (items.length === 0) return `${title}: none.`;
   return `${title}:\n${items.map((i) => `  - ${i}`).join("\n")}`;
+}
+
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
