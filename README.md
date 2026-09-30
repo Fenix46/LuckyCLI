@@ -221,7 +221,14 @@ Defaults in **bold**. Use `/model` in the REPL or `-m` on the CLI to switch.
 
 Type a message and press Enter. The agent streams its reasoning and tool calls
 inline, asks for approval on side-effecting tools, and saves the session after
-each turn.
+each turn. Shell commands show how long they took and the last few lines of
+their output; a turn that ran tools (or took over 10s) ends with a one-line
+recap — time, tool count, tokens.
+
+You can keep typing while the agent works: prompts sent mid-turn are **queued**
+(listed above the input) and run in order as soon as the current turn ends.
+Interrupting with `Esc` puts the queued text back into the input instead of
+running it.
 
 ### Keys
 
@@ -229,7 +236,8 @@ each turn.
 |-----|--------|
 | `Enter` | Send the message |
 | `Option/Alt + Enter` (macOS) · `Ctrl + Enter` (Win/Linux) | Insert a newline (multiline input) |
-| `Esc` | Interrupt the running turn |
+| `Esc` | Interrupt the running turn (queued prompts return to the input) |
+| `Shift + Tab` | Cycle approval mode: normal → accept edits → auto |
 | `Ctrl + C` | Cancel a running turn, or quit when idle |
 | `↑` / `↓` | Navigate menus and pickers |
 | `Tab` | Complete the highlighted slash command |
@@ -242,6 +250,7 @@ each turn.
 | `/provider` | Switch provider and authenticate |
 | `/status` | Show provider auth, account, quota and context status |
 | `/compact` | Summarize older chat history now |
+| `/copy [n]` | Copy the latest reply (or the n-th from the end) to the clipboard |
 | `/resume` | Pick a saved session to resume |
 | `/theme` | Choose terminal UI colors |
 | `/graph` | Build or refresh the project knowledge graph |
@@ -283,6 +292,11 @@ side-effecting ones prompt for approval.
 - **Approval prompts.** Tools resolved to `ask` pause for `Allow once` / `Allow
   always` / `Reject`. Choosing **always** is remembered for the session — per
   exact command for `exec`, per tool for file writes — so you aren't re-prompted.
+- **Approval modes** (`Shift+Tab`). *Normal* asks for every side-effecting
+  tool; *accept edits* auto-approves file edits but still asks for shell
+  commands; *auto* approves everything so the agent can work unattended —
+  except shell calls that opt into a destructive command (`allowDangerous`),
+  which always ask. Tools denied by policy stay denied in every mode.
 - **Filesystem sandbox.** File tools reject absolute paths and anything that
   escapes the working directory.
 - **Destructive-command guard.** `exec` classifies commands and refuses clearly
