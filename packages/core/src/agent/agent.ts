@@ -24,7 +24,11 @@ import type {
 } from "../tools/types.js";
 import type { PlanDecision, PlanProposal } from "./plan.js";
 import { buildSummarizationPrompt } from "../prompts/index.js";
-import { runVerification } from "../workflow/verify.js";
+import {
+  resolveVerificationCommands,
+  runVerification,
+  runVerificationCommand,
+} from "../workflow/verify.js";
 import type { VerificationResult } from "../workflow/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 
@@ -81,8 +85,15 @@ export interface AgentConfig {
   onFilesChanged?: (paths: string[]) => void;
   /** Optional hook fired when a tool may have changed unknown files (shell commands). */
   onWorkspaceChanged?: () => void;
-  /** Run trusted project checks after a successful approved file edit. */
-  verificationMode?: "manual" | "after-edit";
+  /**
+   * When to run the project's checks automatically:
+   * - "manual" (default): only when asked;
+   * - "after-edit": every trusted check after each successful file edit;
+   * - "end-of-turn": one quick check (typecheck, else build, else test) when
+   *   the model is about to finish a turn in which it edited files; a failure
+   *   is handed back to the model to fix (at most twice per turn).
+   */
+  verificationMode?: VerificationMode;
   /** Session id included in automatic verification results. */
   verificationSessionId?: string;
   /** Optional hook fired when the model loads a skill via skill_load. */
@@ -151,7 +162,7 @@ export class Agent {
   private readonly runSubAgent: ((request: SpawnAgentRequest, signal?: AbortSignal) => Promise<SpawnAgentResult>) | undefined;
   private readonly onFilesChanged: ((paths: string[]) => void) | undefined;
   private readonly onWorkspaceChanged: (() => void) | undefined;
-  private readonly verificationMode: "manual" | "after-edit";
+  private verificationMode: VerificationMode;
   private readonly verificationSessionId: string | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
   private readonly allowedSkills: readonly string[] | undefined;
@@ -271,6 +282,11 @@ export class Agent {
     return this.compactHistory(undefined, { force: true });
   }
 
+  /** Change when checks run automatically (e.g. when the session enters auto mode). */
+  setVerificationMode(mode: VerificationMode): void {
+    this.verificationMode = mode;
+  }
+
   /** Run one user turn to completion, yielding events as work progresses. */
   async *send(
     userInput: string | ContentPart[],
@@ -299,6 +315,9 @@ export class Agent {
     // Failure tracking is per turn: a new user message resets the counters so
     // a tool that legitimately recovered isn't throttled by an old failure.
     this.repeatedToolFailures.clear();
+    // Files edited this turn, and how many end-of-turn checks already ran.
+    const editedThisTurn = new Set<string>();
+    let autoChecks = 0;
 
     // Use the cheap, already-known context size for the routine pre-turn check.
     // The previous stream's final usage measured the full transcript we sent, so
@@ -439,6 +458,24 @@ export class Agent {
 
       if (usage) this.recordUsage(usage);
 
+      // About to finish after editing files: in end-of-turn mode, check the
+      // work first and hand a failure back to the model instead of ending.
+      if (
+        toolCalls.length === 0 &&
+        this.verificationMode === "end-of-turn" &&
+        editedThisTurn.size > 0 &&
+        assistantBlocks.length > 0 &&
+        autoChecks < MAX_AUTO_CHECKS &&
+        !signal?.aborted
+      ) {
+        autoChecks += 1;
+        const failure = yield* this.runEndOfTurnCheck(signal);
+        if (failure) {
+          this.history.push({ role: "user", content: [{ type: "text", text: failure }] });
+          continue;
+        }
+      }
+
       // No tools requested -> the turn is complete.
       if (toolCalls.length === 0 || finishReason !== "tool_calls") {
         // A turn can end with tool calls left unexecuted — e.g. max_tokens cut
@@ -557,6 +594,9 @@ export class Agent {
             }
             result = settled;
           }
+          if (!result.isError && result.metadata?.diff) {
+            for (const diff of result.metadata.diff) editedThisTurn.add(diff.path);
+          }
           if (this.verificationMode === "after-edit" && !result.isError && result.metadata?.diff) {
             const files = result.metadata.diff.map((diff) => diff.path);
             if (files.length > 0) {
@@ -645,6 +685,41 @@ export class Agent {
       type: "error",
       message: `Reached max steps (${this.maxSteps}) without completing.`,
     };
+  }
+
+  /**
+   * Run the project's quickest meaningful check, shown to the host as a
+   * `verify` tool call. Returns the message to hand back to the model when it
+   * failed, or undefined when it passed or there is nothing to run.
+   */
+  private async *runEndOfTurnCheck(signal?: AbortSignal): AsyncGenerator<AgentEvent, string | undefined> {
+    const commands = await resolveVerificationCommands(this.cwd);
+    const check =
+      commands.find((c) => c.id === "typecheck") ??
+      commands.find((c) => c.id === "build") ??
+      commands[0];
+    if (!check) return undefined;
+    const id = `auto-check-${Date.now().toString(36)}`;
+    const label = check.argv.join(" ");
+    yield { type: "tool_start", id, name: "verify", input: { check: check.id, command: label, automatic: true } };
+    const result = await runVerificationCommand(check, {
+      timeoutMs: AUTO_CHECK_TIMEOUT_MS,
+      ...(signal ? { signal } : {}),
+    });
+    const failed = result.status !== "passed" && result.status !== "cancelled";
+    const tail = result.output.trim().split("\n").slice(-AUTO_CHECK_OUTPUT_LINES).join("\n");
+    yield {
+      type: "tool_end",
+      id,
+      name: "verify",
+      content: `${label}: ${result.status}${tail ? `\n${tail}` : ""}`,
+      isError: failed,
+    };
+    if (!failed) return undefined;
+    return (
+      `[automatic check] \`${label}\` failed after your edits:\n\n${tail}\n\n` +
+      "Fix the cause, then finish. If the failure is unrelated to your change, say so instead of working around it."
+    );
   }
 
   /** The effective permission for a tool, honoring an explicit policy. */
@@ -976,6 +1051,13 @@ function isAbortError(err: unknown): boolean {
 
 /** How many times a transient provider failure is retried per step. */
 const MAX_TRANSIENT_RETRIES = 2;
+// End-of-turn checks: at most this many per turn (a fix attempt each), each
+// bounded in time, handing back this much of the failing output.
+const MAX_AUTO_CHECKS = 2;
+const AUTO_CHECK_TIMEOUT_MS = 5 * 60 * 1000;
+const AUTO_CHECK_OUTPUT_LINES = 40;
+
+export type VerificationMode = "manual" | "after-edit" | "end-of-turn";
 // Minimum spacing between tool_output events for one call.
 const OUTPUT_BATCH_MS = 100;
 /** Base backoff for transient retries; doubles per attempt (500ms, 1s). */

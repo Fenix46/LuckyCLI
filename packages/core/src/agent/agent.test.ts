@@ -1390,3 +1390,78 @@ describe("live tool output", () => {
     expect("one\ntwo\nthree\n".startsWith(outputs.map((e) => e.chunk).join(""))).toBe(true);
   });
 });
+
+describe("end-of-turn verification", () => {
+  function editTool() {
+    return defineTool({
+      name: "fake_edit",
+      description: "pretend edit",
+      schema: z.object({}),
+      readonly: true,
+      async execute() {
+        return {
+          content: "edited",
+          metadata: { diff: [{ path: "src/a.ts", additions: 1, deletions: 0, hunks: [] }] },
+        };
+      },
+    });
+  }
+  const edit: StreamChunk[] = [
+    { toolCall: { type: "tool_call", id: "e1", name: "fake_edit", arguments: {} } },
+    { finishReason: "tool_calls" },
+  ];
+  const done = (text: string): StreamChunk[] => [{ textDelta: text }, { finishReason: "stop" }];
+
+  async function project(typecheck: string): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "lucky-autocheck-"));
+    await writeFile(join(root, "package.json"), JSON.stringify({ scripts: { typecheck } }));
+    await writeFile(join(root, "package-lock.json"), "{}");
+    return root;
+  }
+
+  it("hands a failing check back to the model, at most twice per turn", async () => {
+    const cwd = await project("node -e \"console.log('TS2322: bad type'); process.exit(2)\"");
+    const agent = new Agent({
+      provider: new ScriptedProvider([edit, done("done"), done("fixed"), done("really fixed")]),
+      model: "mock",
+      cwd,
+      tools: new ToolRegistry().register(editTool()),
+      verificationMode: "end-of-turn",
+    });
+    const events = await collect(agent.send("change it"));
+    const checks = events.filter((e) => e.type === "tool_end" && e.name === "verify") as Array<{ isError: boolean; content: string }>;
+    expect(checks).toHaveLength(2);
+    expect(checks.every((c) => c.isError)).toBe(true);
+    expect(checks[0]?.content).toContain("TS2322: bad type");
+    const handedBack = agent.messages.filter(
+      (m) => m.role === "user" && m.content.some((p) => p.type === "text" && p.text.startsWith("[automatic check]")),
+    );
+    expect(handedBack).toHaveLength(2);
+    expect(events.at(-1)?.type).toBe("turn_end");
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  it("finishes normally when the check passes, and stays off in manual mode", async () => {
+    const cwd = await project("node -e \"process.exit(0)\"");
+    const auto = new Agent({
+      provider: new ScriptedProvider([edit, done("done")]),
+      model: "mock",
+      cwd,
+      tools: new ToolRegistry().register(editTool()),
+      verificationMode: "end-of-turn",
+    });
+    const autoEvents = await collect(auto.send("change it"));
+    expect(autoEvents.filter((e) => e.type === "tool_end" && e.name === "verify")).toHaveLength(1);
+    expect(autoEvents.at(-1)?.type).toBe("turn_end");
+
+    const manual = new Agent({
+      provider: new ScriptedProvider([edit, done("done")]),
+      model: "mock",
+      cwd,
+      tools: new ToolRegistry().register(editTool()),
+    });
+    const manualEvents = await collect(manual.send("change it"));
+    expect(manualEvents.some((e) => e.type === "tool_start" && e.name === "verify")).toBe(false);
+    await rm(cwd, { recursive: true, force: true });
+  });
+});
