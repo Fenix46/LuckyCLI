@@ -70,12 +70,19 @@ export const execTool = defineTool({
     }
 
     try {
-      const { stdout, stderr } = await execAsync(command, {
+      const pending = execAsync(command, {
         cwd: ctx.cwd,
         timeout: timeoutMs ?? DEFAULT_TIMEOUT_MS,
         maxBuffer: MAX_BUFFER,
         ...(ctx.signal ? { signal: ctx.signal } : {}),
       });
+      // Relay output live (for the UI) while it is also buffered for the result.
+      if (ctx.onOutput) {
+        const relay = (chunk: Buffer | string) => ctx.onOutput?.(chunk.toString());
+        pending.child.stdout?.on("data", relay);
+        pending.child.stderr?.on("data", relay);
+      }
+      const { stdout, stderr } = await pending;
       const out = [stdout, stderr].filter(Boolean).join("\n").trim();
       return { content: truncateOutput(out || "(no output)") };
     } catch (err) {

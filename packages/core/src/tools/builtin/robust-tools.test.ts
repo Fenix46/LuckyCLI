@@ -289,6 +289,18 @@ describe("robust built-in tools", () => {
     expect(result.content.trimEnd().endsWith("DONE")).toBe(true);
   });
 
+  it("relays exec output live through onOutput", async () => {
+    const registry = new ToolRegistry().register(execTool);
+    const chunks: string[] = [];
+    const result = await registry.execute(
+      "exec",
+      { command: "printf 'a\\n'; sleep 0.1; printf 'b\\n'" },
+      { cwd: root, onOutput: (chunk) => chunks.push(chunk) },
+    );
+    expect(result.content).toBe("a\nb");
+    expect(chunks.join("")).toBe("a\nb\n");
+  });
+
   it("explains a timeout", async () => {
     const registry = new ToolRegistry().register(execTool);
     const result = await registry.execute("exec", { command: "sleep 5", timeoutMs: 200 }, { cwd: root });

@@ -39,6 +39,8 @@ export type AgentEvent =
   | { type: "context_compacted"; result: CompactionResult }
   | { type: "retry"; attempt: number; maxAttempts: number; delayMs: number }
   | { type: "tool_start"; id: string; name: string; input: unknown }
+  /** Output a still-running tool produced (display only; batched). */
+  | { type: "tool_output"; id: string; name: string; chunk: string }
   | {
       type: "tool_end";
       id: string;

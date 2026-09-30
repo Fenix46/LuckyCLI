@@ -33,6 +33,12 @@ export interface ToolContext {
   allowedSkills?: readonly string[];
   /** Cancellation signal propagated from the agent loop. */
   signal?: AbortSignal;
+  /**
+   * Live output of a long-running tool (e.g. a shell command's stdout/stderr
+   * as it arrives), surfaced to the UI while the call is still running. The
+   * final result still carries the complete output for the model.
+   */
+  onOutput?: (chunk: string) => void;
   /** Optional bridge for tools that need to ask the human a question. */
   askUser?: (request: AskUserRequest) => Promise<string>;
   /**

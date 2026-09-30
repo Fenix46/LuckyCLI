@@ -1353,3 +1353,40 @@ describe("parallel tool execution", () => {
     expect(log).toEqual(["start:a", "end:a"]);
   });
 });
+
+describe("live tool output", () => {
+  it("relays output between tool_start and tool_end while the tool runs", async () => {
+    const chatty = defineTool({
+      name: "chatty",
+      description: "Streams output.",
+      schema: z.object({ value: z.string() }),
+      async execute(_input, ctx) {
+        for (const part of ["one\n", "two\n", "three\n"]) {
+          ctx.onOutput?.(part);
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        return { content: "one\ntwo\nthree" };
+      },
+    });
+    const agent = new Agent({
+      provider: new ScriptedProvider([
+        [
+          { toolCall: { type: "tool_call", id: "c1", name: "chatty", arguments: { value: "x" } } },
+          { finishReason: "tool_calls" },
+        ],
+        [{ finishReason: "stop" }],
+      ]),
+      model: "mock",
+      tools: new ToolRegistry().register(chatty),
+    });
+
+    const events = await collect(agent.send("go"));
+    const kinds = events.map((e) => e.type).filter((t) => t.startsWith("tool_"));
+    expect(kinds[0]).toBe("tool_start");
+    expect(kinds.at(-1)).toBe("tool_end");
+    const outputs = events.filter((e) => e.type === "tool_output") as Array<{ chunk: string; id: string }>;
+    expect(outputs.length).toBeGreaterThanOrEqual(2);
+    expect(outputs.every((e) => e.id === "c1")).toBe(true);
+    expect("one\ntwo\nthree\n".startsWith(outputs.map((e) => e.chunk).join(""))).toBe(true);
+  });
+});

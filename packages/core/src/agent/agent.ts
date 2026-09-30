@@ -519,7 +519,40 @@ export class Agent {
             isError: true,
           };
         } else {
-          result = await (prefetched.get(call) ?? this.runTool(call, signal));
+          const prefetchedResult = prefetched.get(call);
+          if (prefetchedResult) {
+            result = await prefetchedResult;
+          } else {
+            // Run the tool while relaying its live output: the loop wakes on
+            // either new output or completion, so output events are yielded
+            // in between without waiting for the tool to finish.
+            let pending = "";
+            let wake: (() => void) | undefined;
+            const running = this.runTool(call, signal, (chunk) => {
+              pending += chunk;
+              wake?.();
+            });
+            let settled: ToolResult | undefined;
+            void running.then((value) => {
+              settled = value;
+              wake?.();
+            });
+            while (settled === undefined) {
+              await new Promise<void>((resolve) => {
+                wake = resolve;
+                if (pending || settled !== undefined) resolve();
+              });
+              wake = undefined;
+              if (pending && settled === undefined) {
+                const chunk = pending;
+                pending = "";
+                yield { type: "tool_output", id: call.id, name: call.name, chunk };
+                // Batch bursts of output into fewer, larger events.
+                await sleep(OUTPUT_BATCH_MS);
+              }
+            }
+            result = settled;
+          }
           if (this.verificationMode === "after-edit" && !result.isError && result.metadata?.diff) {
             const files = result.metadata.diff.map((diff) => diff.path);
             if (files.length > 0) {
@@ -620,10 +653,15 @@ export class Agent {
   }
 
   /** Execute one approved tool call with the agent's full tool context. */
-  private runTool(call: ToolCallPart, signal?: AbortSignal): Promise<ToolResult> {
+  private runTool(
+    call: ToolCallPart,
+    signal?: AbortSignal,
+    onOutput?: (chunk: string) => void,
+  ): Promise<ToolResult> {
     return this.tools.execute(call.name, call.arguments, {
       cwd: this.cwd,
       ...(signal ? { signal } : {}),
+      ...(onOutput ? { onOutput } : {}),
       ...(this.askUser ? { askUser: this.askUser } : {}),
       ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
       ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
@@ -933,6 +971,8 @@ function isAbortError(err: unknown): boolean {
 
 /** How many times a transient provider failure is retried per step. */
 const MAX_TRANSIENT_RETRIES = 2;
+// Minimum spacing between tool_output events for one call.
+const OUTPUT_BATCH_MS = 100;
 /** Base backoff for transient retries; doubles per attempt (500ms, 1s). */
 const TRANSIENT_RETRY_BACKOFF_MS = 500;
 /** Consecutive identical tool-call failures before the turn gives up. */
