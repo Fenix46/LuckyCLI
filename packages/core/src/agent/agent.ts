@@ -10,12 +10,17 @@ import type {
   TokenUsage,
 } from "../providers/types.js";
 import { modelInfo } from "../providers/catalog.js";
-import { resolveToolPermission, type ToolPermissionPolicy } from "../tools/permissions.js";
+import {
+  resolveToolPermission,
+  type ToolPermission,
+  type ToolPermissionPolicy,
+} from "../tools/permissions.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type {
   AskUserRequest,
   SpawnAgentRequest,
   SpawnAgentResult,
+  ToolResult,
 } from "../tools/types.js";
 import type { PlanDecision, PlanProposal } from "./plan.js";
 import { buildSummarizationPrompt } from "../prompts/index.js";
@@ -460,6 +465,22 @@ export class Agent {
         return;
       }
 
+      // Concurrency-safe calls that need no approval (reads, searches,
+      // fetches) start together up front, so a step that reads five files
+      // costs one file's latency instead of five. Events and results are still
+      // produced in call order below; the loop just awaits the running promise.
+      const prefetched = new Map<ToolCallPart, Promise<ToolResult>>();
+      const parallelCalls = toolCalls.filter(
+        (call) =>
+          this.tools.get(call.name)?.concurrencySafe === true &&
+          this.permissionFor(call.name) === "allow",
+      );
+      if (parallelCalls.length > 1) {
+        for (const call of parallelCalls) {
+          prefetched.set(call, this.runTool(call, signal));
+        }
+      }
+
       // Execute every requested tool, feeding results back as one user turn.
       const resultBlocks: ContentPart[] = [];
       for (const call of toolCalls) {
@@ -470,13 +491,8 @@ export class Agent {
           input: call.arguments,
         };
 
-        const tool = this.tools.get(call.name);
         const hasExplicitPolicy = this.permissions !== undefined;
-        const permission = hasExplicitPolicy
-          ? resolveToolPermission(this.permissions, call.name, tool?.readonly ?? false)
-          : tool?.readonly
-            ? "allow"
-            : "ask";
+        const permission = this.permissionFor(call.name);
 
         // Backward compatibility: without an explicit policy, an ask-level tool
         // is allowed when no approval bridge exists, matching the original
@@ -503,18 +519,7 @@ export class Agent {
             isError: true,
           };
         } else {
-          result = await this.tools.execute(call.name, call.arguments, {
-            cwd: this.cwd,
-            ...(signal ? { signal } : {}),
-            ...(this.askUser ? { askUser: this.askUser } : {}),
-            ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
-            ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
-            ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
-            ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
-            ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
-            ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
-            ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
-          });
+          result = await (prefetched.get(call) ?? this.runTool(call, signal));
           if (this.verificationMode === "after-edit" && !result.isError && result.metadata?.diff) {
             const files = result.metadata.diff.map((diff) => diff.path);
             if (files.length > 0) {
@@ -603,6 +608,31 @@ export class Agent {
       type: "error",
       message: `Reached max steps (${this.maxSteps}) without completing.`,
     };
+  }
+
+  /** The effective permission for a tool, honoring an explicit policy. */
+  private permissionFor(name: string): ToolPermission {
+    const tool = this.tools.get(name);
+    if (this.permissions !== undefined) {
+      return resolveToolPermission(this.permissions, name, tool?.readonly ?? false);
+    }
+    return tool?.readonly ? "allow" : "ask";
+  }
+
+  /** Execute one approved tool call with the agent's full tool context. */
+  private runTool(call: ToolCallPart, signal?: AbortSignal): Promise<ToolResult> {
+    return this.tools.execute(call.name, call.arguments, {
+      cwd: this.cwd,
+      ...(signal ? { signal } : {}),
+      ...(this.askUser ? { askUser: this.askUser } : {}),
+      ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
+      ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
+      ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
+      ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
+      ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
+      ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
+      ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
+    });
   }
 
   /**

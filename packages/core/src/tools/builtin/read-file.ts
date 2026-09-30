@@ -22,6 +22,7 @@ export const readFileTool = defineTool({
     "full-file understanding. Returns up to 256KB of UTF-8 text; 1-based line " +
     "numbers with offset and limit.",
   readonly: true,
+  concurrencySafe: true,
   schema: z.object({
     path: z.string().describe("File path, relative to the working directory."),
     offset: z

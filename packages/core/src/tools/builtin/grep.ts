@@ -24,6 +24,7 @@ export const grepTool = defineTool({
     "each match (cheaper than a follow-up read_file when you just need to see " +
     "the surrounding code).",
   readonly: true,
+  concurrencySafe: true,
   schema: z.object({
     pattern: z.string().describe("Regular expression to search for."),
     path: z

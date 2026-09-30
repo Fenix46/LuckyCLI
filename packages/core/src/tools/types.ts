@@ -112,6 +112,13 @@ export interface Tool<Schema extends z.ZodType = z.ZodType> {
    */
   parametersSchema?: Record<string, unknown>;
   readonly?: boolean;
+  /**
+   * Safe to run concurrently with other such calls in the same step: no side
+   * effects, no user interaction, no shared mutable state. When the model
+   * requests several of these at once (and none needs approval) the agent
+   * runs them in parallel. Results are still reported in call order.
+   */
+  concurrencySafe?: boolean;
   execute(input: z.infer<Schema>, ctx: ToolContext): Promise<ToolResult>;
 }
 

@@ -36,6 +36,7 @@ export const graphQueryTool = defineTool({
     "declared in a file path). When the name isn't an exact match, returns the " +
     "closest symbols as suggestions to re-query — prefer that over grepping.",
   readonly: true,
+  concurrencySafe: true,
   schema: z.object({
     query: z.string().describe("Symbol name, module name, or repo-relative file path."),
     relation: z
@@ -93,6 +94,7 @@ export const graphOverviewTool = defineTool({
     "symbols ('god nodes'), and the most-used external libraries. Use this to " +
     "orient yourself in an unfamiliar codebase before diving into files.",
   readonly: true,
+  concurrencySafe: true,
   schema: z.object({
     limit: z
       .number()

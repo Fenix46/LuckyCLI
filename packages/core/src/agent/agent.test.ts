@@ -1273,3 +1273,83 @@ describe("turn enrichment", () => {
     expect(parts).toHaveLength(1);
   });
 });
+
+describe("parallel tool execution", () => {
+  function slowTool(name: string, opts: { concurrencySafe?: boolean; readonly?: boolean }, log: string[]) {
+    return defineTool({
+      name,
+      description: "Slow tool.",
+      schema: z.object({ value: z.string() }),
+      ...(opts.readonly !== undefined ? { readonly: opts.readonly } : {}),
+      ...(opts.concurrencySafe !== undefined ? { concurrencySafe: opts.concurrencySafe } : {}),
+      async execute({ value }) {
+        log.push(`start:${value}`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        log.push(`end:${value}`);
+        return { content: `${name}:${value}` };
+      },
+    });
+  }
+
+  function calls(name: string, ids: string[]): StreamChunk[] {
+    return [
+      ...ids.map((id) => ({
+        toolCall: { type: "tool_call" as const, id, name, arguments: { value: id } },
+      })),
+      { finishReason: "tool_calls" as const },
+    ];
+  }
+
+  it("runs concurrency-safe calls together but reports them in call order", async () => {
+    const log: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([calls("peek", ["a", "b", "c"]), [{ finishReason: "stop" }]]),
+      model: "mock",
+      tools: new ToolRegistry().register(slowTool("peek", { readonly: true, concurrencySafe: true }, log)),
+    });
+
+    const events = await collect(agent.send("go"));
+    // All three started before the first one finished.
+    expect(log.slice(0, 3)).toEqual(["start:a", "start:b", "start:c"]);
+    const lifecycle = events
+      .filter((e) => e.type === "tool_start" || e.type === "tool_end")
+      .map((e) => `${e.type}:${(e as { id: string }).id}`);
+    expect(lifecycle).toEqual([
+      "tool_start:a", "tool_end:a",
+      "tool_start:b", "tool_end:b",
+      "tool_start:c", "tool_end:c",
+    ]);
+    const results = agent.messages.find((m) => m.role === "tool")?.content.map((part) =>
+      part.type === "tool_result" ? part.content : "",
+    );
+    expect(results).toEqual(["peek:a", "peek:b", "peek:c"]);
+  });
+
+  it("keeps tools without the flag sequential", async () => {
+    const log: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([calls("plain", ["a", "b"]), [{ finishReason: "stop" }]]),
+      model: "mock",
+      tools: new ToolRegistry().register(slowTool("plain", { readonly: true }, log)),
+    });
+    await collect(agent.send("go"));
+    expect(log).toEqual(["start:a", "end:a", "start:b", "end:b"]);
+  });
+
+  it("never pre-runs a call that needs approval", async () => {
+    const log: string[] = [];
+    const approvals: string[] = [];
+    const agent = new Agent({
+      provider: new ScriptedProvider([calls("guarded", ["a", "b"]), [{ finishReason: "stop" }]]),
+      model: "mock",
+      tools: new ToolRegistry().register(slowTool("guarded", { readonly: false, concurrencySafe: true }, log)),
+      approveTool: (_name, input) => {
+        approvals.push((input as { value: string }).value);
+        return (input as { value: string }).value === "a" ? "allow" : "deny";
+      },
+    });
+    await collect(agent.send("go"));
+    expect(approvals).toEqual(["a", "b"]);
+    expect(log).toEqual(["start:a", "end:a"]);
+  });
+});

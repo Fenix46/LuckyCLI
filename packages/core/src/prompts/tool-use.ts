@@ -69,7 +69,7 @@ This project has no knowledge graph. Locate code with grep and glob: grep for sy
 
 const COMMON_GUIDANCE = `# Working with tools
 
-- Run independent tool calls together when they can run in parallel; run dependent calls in sequence.
+- Run independent tool calls together when they can run in parallel; run dependent calls in sequence. Reads, searches, directory listings, graph queries and fetches issued in the same response execute concurrently, so gather everything you need to look at in one batch instead of one call per step.
 - Read before editing so you change the exact current text.
 
 # File reading discipline

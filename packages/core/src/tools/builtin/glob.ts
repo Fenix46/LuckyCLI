@@ -12,6 +12,7 @@ export const globTool = defineTool({
     "relative to the working directory. Returns matching paths, most recently " +
     "modified first. Use this to locate files when you don't know their exact path.",
   readonly: true,
+  concurrencySafe: true,
   schema: z.object({
     pattern: z.string().describe("Glob pattern, e.g. '**/*.ts' or 'src/*.json'."),
     path: z

@@ -14,6 +14,7 @@ export const httpFetchTool = defineTool({
     "Fetch and read the text content of a public URL (e.g. to inspect documentation, APIs or pages). " +
     "HTML pages are converted to readable markdown-like text.",
   readonly: true,
+  concurrencySafe: true,
   schema: z.object({
     url: z.string().url().describe("The complete HTTP or HTTPS URL to fetch."),
   }),
