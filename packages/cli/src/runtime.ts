@@ -65,6 +65,26 @@ function createGraphMaintainer(cwd: string): (paths: string[]) => void {
   };
 }
 
+/**
+ * After a shell command that may have changed files (git checkout, codegen,
+ * sed -i, a build), re-scan the graph shortly after — debounced so a burst of
+ * commands costs one scan — so the model's next graph query mid-turn already
+ * sees the new code instead of waiting for the next turn.
+ */
+function createWorkspaceRefresher(cwd: string): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void refreshGraph(cwd).catch(() => {
+        /* graph upkeep is best-effort; never disturb the session */
+      });
+    }, 300);
+    timer.unref?.();
+  };
+}
+
 // How long a turn waits for the graph refresh; a slower one (huge repo)
 // finishes in the background and the turn starts right away.
 const GRAPH_REFRESH_WAIT_MS = 1_500;
@@ -239,6 +259,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.presentPlan ? { presentPlan: opts.presentPlan } : {}),
     ...(opts.runSubAgent ? { runSubAgent: opts.runSubAgent } : {}),
     onFilesChanged: createGraphMaintainer(cwd),
+    onWorkspaceChanged: createWorkspaceRefresher(cwd),
     onSkillLoaded: (id) => skillActivator.markActive(id),
     enrichTurn: async (text) => {
       await refreshGraphBeforeTurn(cwd);
