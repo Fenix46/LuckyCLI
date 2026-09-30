@@ -1,8 +1,10 @@
 import { z } from "zod";
 import {
+  type BlastRadius,
   type GraphNode,
   type Neighbor,
   type RankedNode,
+  blastRadius,
   callersOf,
   calleesOf,
   neighborsOf,
@@ -33,14 +35,16 @@ export const graphQueryTool = defineTool({
     "cheaply before opening source. Results may include external library nodes " +
     "(marked external) a file imports. Relations: 'find' (default, where a symbol " +
     "is defined), 'callers', 'callees', 'neighbors' (all links), 'file' (symbols " +
-    "declared in a file path). When the name isn't an exact match, returns the " +
+    "declared in a file path), 'impact' (everything that transitively depends on " +
+    "it, up to 3 hops, plus the files involved — check this before changing a " +
+    "shared function, type or module). When the name isn't an exact match, returns the " +
     "closest symbols as suggestions to re-query — prefer that over grepping.",
   readonly: true,
   concurrencySafe: true,
   schema: z.object({
     query: z.string().describe("Symbol name, module name, or repo-relative file path."),
     relation: z
-      .enum(["find", "callers", "callees", "neighbors", "file"])
+      .enum(["find", "callers", "callees", "neighbors", "file", "impact"])
       .optional()
       .describe("What to return about the query (default 'find')."),
   }),
@@ -74,7 +78,9 @@ export const graphQueryTool = defineTool({
 
     const lines: string[] = [];
     for (const node of matches) {
-      if (relation === "callers") {
+      if (relation === "impact") {
+        lines.push(impactSection(node, blastRadius(graph, node.id)));
+      } else if (relation === "callers") {
         lines.push(section(`Callers of ${formatNode(node)}`, callersOf(graph, node.id).map(formatNode)));
       } else if (relation === "callees") {
         lines.push(section(`Called by ${formatNode(node)}`, calleesOf(graph, node.id).map(formatNode)));
@@ -124,6 +130,21 @@ export const graphOverviewTool = defineTool({
     return { content: parts.join("\n\n") };
   },
 });
+
+function impactSection(node: GraphNode, radius: BlastRadius): string {
+  const title = `Impact of changing ${formatNode(node)}`;
+  if (radius.dependents.length === 0) return `${title}\n  (nothing in the project depends on it)`;
+  const byDepth = radius.dependents.map(
+    (d) => `  ${d.depth === 1 ? "direct" : `${d.depth} hops`} (${d.relation}) ${formatNode(d.node)}`,
+  );
+  const files = radius.files.map((file) => `  ${file}`);
+  return [
+    `${title}: ${radius.dependents.length} dependents in ${radius.files.length} files${radius.truncated ? " (truncated)" : ""}`,
+    ...byDepth,
+    "Files to review:",
+    ...files,
+  ].join("\n");
+}
 
 function formatNeighbor(n: Neighbor): string {
   const arrow = n.direction === "out" ? `${n.relation} →` : `← ${n.relation}`;

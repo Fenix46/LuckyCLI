@@ -241,6 +241,7 @@ export {
   trackedGraphFiles,
 } from "./graph/fs-snapshot.js";
 export {
+  blastRadius,
   callersOf,
   calleesOf,
   godNodes,
@@ -250,6 +251,7 @@ export {
   summarize,
   topModules,
 } from "./graph/query.js";
+export type { BlastRadius, Dependent } from "./graph/query.js";
 export type { GraphImpact, GraphOverview, Neighbor, RankedNode } from "./graph/query.js";
 export { estimateTokenCost } from "./usage-cost.js";
 export type { TokenCostEstimate, TokenCostRates } from "./usage-cost.js";

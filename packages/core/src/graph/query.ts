@@ -8,7 +8,7 @@
  * connected nodes) without the heavy clustering — enough to orient the agent.
  */
 import { edgesFrom, edgesTo, getNode } from "./store.js";
-import type { Graph, GraphNode } from "./types.js";
+import type { Graph, GraphEdge, GraphNode } from "./types.js";
 
 /**
  * Last path-like segment of a module label, splitting on any non-alphanumeric
@@ -128,6 +128,83 @@ export function impactOf(graph: Graph, query: string, limit = 50): GraphImpact[]
       )
       .slice(0, limit),
   }));
+}
+
+// Relations along which a change propagates to the dependent (source) node.
+// "defines" is containment, not dependency, so it is not followed.
+const DEPENDENCY_RELATIONS: ReadonlySet<string> = new Set([
+  "calls",
+  "uses",
+  "references",
+  "extends",
+  "implements",
+  "imports",
+]);
+
+export interface Dependent {
+  node: GraphNode;
+  /** Hops from the changed node: 1 = direct dependent. */
+  depth: number;
+  /** Relation of the edge that reached this node. */
+  relation: string;
+}
+
+export interface BlastRadius {
+  /** Project-code nodes that transitively depend on the root, nearest first. */
+  dependents: Dependent[];
+  /** Distinct project files containing a dependent, in first-reached order. */
+  files: string[];
+  /** True when `limit` cut the traversal short. */
+  truncated: boolean;
+}
+
+/**
+ * Everything that transitively depends on `id`: breadth-first over incoming
+ * dependency edges (calls, imports, extends, …), up to `maxDepth` hops and
+ * `limit` nodes. External library nodes are never dependents. This is the
+ * "what could break if I change this" view for refactors.
+ */
+export function blastRadius(
+  graph: Graph,
+  id: string,
+  options: { maxDepth?: number; limit?: number } = {},
+): BlastRadius {
+  const maxDepth = options.maxDepth ?? 3;
+  const limit = options.limit ?? 60;
+  const incoming = new Map<string, GraphEdge[]>();
+  for (const edge of graph.edges) {
+    if (!DEPENDENCY_RELATIONS.has(edge.relation)) continue;
+    const list = incoming.get(edge.target);
+    if (list) list.push(edge);
+    else incoming.set(edge.target, [edge]);
+  }
+
+  const seen = new Set<string>([id]);
+  const dependents: Dependent[] = [];
+  const files: string[] = [];
+  let frontier = [id];
+  let truncated = false;
+  for (let depth = 1; depth <= maxDepth && frontier.length > 0 && !truncated; depth++) {
+    const next: string[] = [];
+    for (const target of frontier) {
+      for (const edge of incoming.get(target) ?? []) {
+        if (seen.has(edge.source)) continue;
+        const node = getNode(graph, edge.source);
+        if (!node || node.external) continue;
+        seen.add(edge.source);
+        if (dependents.length >= limit) {
+          truncated = true;
+          break;
+        }
+        dependents.push({ node, depth, relation: edge.relation });
+        if (!files.includes(node.sourceFile)) files.push(node.sourceFile);
+        next.push(edge.source);
+      }
+      if (truncated) break;
+    }
+    frontier = next;
+  }
+  return { dependents, files, truncated };
 }
 
 /** Total degree (edges where the node is an endpoint) for every node. */
