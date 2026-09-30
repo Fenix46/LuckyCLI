@@ -38,7 +38,7 @@ import {
   requiresApprovalInAutoMode,
   shellCommandVerdict,
 } from "../approval.js";
-import { nextPermissionMode } from "./lib/requests.js";
+import { nextPermissionMode, verificationModeFor } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
@@ -156,6 +156,7 @@ export function Root({
     // state just mirrors it for rendering. normal → acceptEdits → auto → normal.
     const next = nextPermissionMode(permissionModeRef.current);
     permissionModeRef.current = next;
+    runtimeRef.current?.agent.setVerificationMode(verificationModeFor(next));
     // Returning to normal also forgets the session's "always" approvals, so the
     // user starts asking again from a clean slate.
     if (next === "normal") sessionApprovedTools.current.clear();
@@ -360,6 +361,7 @@ export function Root({
       return;
     }
 
+    built.agent.setVerificationMode(verificationModeFor(permissionModeRef.current));
     setRuntime((current) => {
       void current?.mcpManager?.close();
       return {

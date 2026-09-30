@@ -7,7 +7,7 @@ import {
   requiresApprovalInAutoMode,
   shellCommandVerdict,
 } from "./approval.js";
-import { nextPermissionMode } from "./ui/lib/requests.js";
+import { nextPermissionMode, verificationModeFor } from "./ui/lib/requests.js";
 
 const cwd = tmpdir();
 
@@ -75,5 +75,14 @@ describe("approval scopes", () => {
     expect(describeAlwaysScope("exec", { command: "git push origin main" }, true)).toBe(
       "Don't ask again for this exact command this session",
     );
+  });
+});
+
+describe("verificationModeFor", () => {
+  it("checks work at the end of turns only in auto mode", () => {
+    expect(verificationModeFor("auto", {})).toBe("end-of-turn");
+    expect(verificationModeFor("auto", { LUCKY_AUTO_VERIFY: "off" })).toBe("manual");
+    expect(verificationModeFor("normal", {})).toBe("manual");
+    expect(verificationModeFor("acceptEdits", {})).toBe("manual");
   });
 });

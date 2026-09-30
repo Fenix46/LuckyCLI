@@ -141,6 +141,8 @@ export function toolVerb(name: string, running: boolean, error?: boolean): strin
         return ["Check process", "Checked process"];
       case "present_plan":
         return ["Present plan", "Presented plan"];
+      case "verify":
+        return ["Check", "Checked"];
       case "read_file":
         return ["Read", "Read"];
       case "write_file":
@@ -234,6 +236,12 @@ export function toolTarget(name: string, input: unknown): string {
   if (name === "apply_patch") {
     const patch = inputString(input, "patch");
     return patch ? patchTargets(patch).join(", ") : "";
+  }
+
+  if (name === "verify") {
+    const command = inputString(input, "command");
+    const automatic = (input as { automatic?: unknown } | null)?.automatic === true;
+    return command ? `${command}${automatic ? " (automatic)" : ""}` : "project";
   }
 
   if (name === "present_plan") {

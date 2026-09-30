@@ -53,3 +53,15 @@ export interface AgentUsageEntry {
 
 /** Sub-agent token consumption keyed by profile name, for the live panel. */
 export type AgentUsageMap = Map<string, AgentUsageEntry>;
+
+/**
+ * Auto mode checks its own work: when a turn that edited files is about to
+ * finish, the project's quickest check runs and a failure goes back to the
+ * model. Other modes leave checks to the user. LUCKY_AUTO_VERIFY=off opts out.
+ */
+export function verificationModeFor(
+  mode: PermissionMode,
+  env: NodeJS.ProcessEnv = process.env,
+): "manual" | "end-of-turn" {
+  return mode === "auto" && env.LUCKY_AUTO_VERIFY !== "off" ? "end-of-turn" : "manual";
+}

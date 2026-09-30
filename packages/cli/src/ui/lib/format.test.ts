@@ -136,3 +136,12 @@ describe("plan rows", () => {
     );
   });
 });
+
+describe("verification rows", () => {
+  it("label automatic end-of-turn checks", () => {
+    expect(formatToolAction("verify", { command: "npm run typecheck", automatic: true }, true)).toBe(
+      "Check npm run typecheck (automatic)",
+    );
+    expect(formatToolAction("verify", {}, false)).toBe("Checked project");
+  });
+});
