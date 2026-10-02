@@ -46,6 +46,8 @@ $asset = "$BinName-windows-x64.exe"
 if ($Version -eq "latest") {
     $baseUrl = "https://github.com/$Repo/releases/latest/download"
 } else {
+    # Tags are always vX.Y.Z; accept a pin given without the v.
+    if (-not $Version.StartsWith("v")) { $Version = "v$Version" }
     $baseUrl = "https://github.com/$Repo/releases/download/$Version"
 }
 $assetUrl     = "$baseUrl/$asset"
@@ -73,28 +75,32 @@ try {
     }
 
     # --- verify checksum -----------------------------------------------------
-    # SHA256SUMS lines look like:  <hex>  lucky-windows-x64.exe
+    # Mandatory, like the built-in self-update: never install an unverified
+    # binary. SHA256SUMS lines look like:  <hex>  lucky-windows-x64.exe
     Write-Info "Verifying checksum"
     $expected = $null
     try {
-        $sums = (Invoke-WebRequest -Uri $checksumsUrl -UseBasicParsing).Content
-        foreach ($line in ($sums -split "`n")) {
-            $parts = ($line.Trim() -split "\s+", 2)
-            if ($parts.Count -eq 2 -and $parts[1].Trim() -eq $asset) {
-                $expected = $parts[0].Trim().ToLower()
-                break
-            }
-        }
+        $content = (Invoke-WebRequest -Uri $checksumsUrl -UseBasicParsing).Content
     } catch {
-        Write-Warn "Could not fetch SHA256SUMS; skipping checksum verification."
+        Die "Could not fetch SHA256SUMS; refusing to install an unverified binary."
     }
-    if ($expected) {
-        $actual = (Get-FileHash -Path $tmpBin -Algorithm SHA256).Hash.ToLower()
-        if ($actual -ne $expected) {
-            Die "Checksum mismatch for $asset.`n  expected $expected`n  got      $actual"
+    # Windows PowerShell 5.1 returns an octet-stream body as bytes, not text.
+    if ($content -is [byte[]]) { $content = [System.Text.Encoding]::UTF8.GetString($content) }
+    foreach ($line in ($content -split "`n")) {
+        $parts = ($line.Trim() -split "\s+", 2)
+        if ($parts.Count -eq 2 -and $parts[1].Trim() -eq $asset) {
+            $expected = $parts[0].Trim().ToLower()
+            break
         }
-        Write-Ok "Checksum verified"
     }
+    if (-not $expected) {
+        Die "No checksum for $asset in SHA256SUMS; refusing to install."
+    }
+    $actual = (Get-FileHash -Path $tmpBin -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne $expected) {
+        Die "Checksum mismatch for $asset.`n  expected $expected`n  got      $actual"
+    }
+    Write-Ok "Checksum verified"
 
     # --- install -------------------------------------------------------------
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null

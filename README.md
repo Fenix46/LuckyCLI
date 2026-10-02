@@ -127,13 +127,17 @@ lucky
 Options: set `LUCKY_INSTALL_DIR` to install elsewhere, or `LUCKY_VERSION` to pin
 a version (e.g. `v0.6.0`). On Windows set them first, e.g.
 `$env:LUCKY_VERSION = "v0.6.0"`. Both installers verify the binary's SHA-256
-checksum.
+checksum against the release's `SHA256SUMS` and refuse to install if it can't be
+checked.
 
 ### Updating
 
-LuckyCLI keeps itself current. By default (`auto`) it checks for a new release on
-startup, downloads and SHA-256-verifies it in the background, and **applies it on
-the next launch** — never mid-session.
+LuckyCLI keeps itself current. By default (`auto`), every launch asks GitHub for
+the latest release; when there is a newer one it downloads it, verifies its
+SHA-256 and installs it over the binary right away, then tells you to **restart
+lucky** to run it (the session you're in keeps working on the old version). If
+the install fails, lucky shows why plus the manual command, and tries again at
+the next launch. `notify` only shows a banner.
 
 ```bash
 lucky update                 # check; show current/latest + whether self-update works

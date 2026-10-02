@@ -87,12 +87,13 @@ import { AgentsPanel } from "./components/AgentsPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
 import { QueuedPromptsView, type QueuedPrompt } from "./components/QueuedPrompts.js";
-import type {
-  ApprovalRequest,
-  UserQuestionRequest,
-  PlanRequest,
-  PermissionMode,
-  AgentUsageMap,
+import {
+  QUESTION_SKIPPED,
+  type ApprovalRequest,
+  type UserQuestionRequest,
+  type PlanRequest,
+  type PermissionMode,
+  type AgentUsageMap,
 } from "./lib/requests.js";
 
 interface AppMeta {
@@ -562,25 +563,23 @@ export function App({
           abort();
           return true;
         }
-        if (options.length > 0 && (key.leftArrow || key.upArrow || _in === "h" || _in === "k")) {
+        // Only ↑/↓/Tab move the selection: letters (h/j/k/l included) and ←/→
+        // belong to the typed answer, which ChatInput collects and submit() sends.
+        if (options.length > 0 && key.upArrow) {
           setSelectedQuestionOptionIndex(
             (prev) => (prev - 1 + options.length) % options.length,
           );
           return true;
         }
-        if (options.length > 0 && (key.rightArrow || key.downArrow || _in === "l" || _in === "j" || key.tab)) {
+        if (options.length > 0 && (key.downArrow || key.tab)) {
           setSelectedQuestionOptionIndex((prev) => (prev + 1) % options.length);
           return true;
         }
-        if (key.return && options.length > 0 && !userQuestionRequest.allowFreeText) {
-          userQuestionRequest.resolve(options[selectedQuestionOptionIndex] ?? options[0] ?? "");
-          setUserQuestionRequest(null);
-          return true;
-        }
         if (key.escape) {
-          userQuestionRequest.resolve("User skipped the question.");
+          // Skip just this question; the turn goes on (Ctrl+C above stops it).
+          userQuestionRequest.resolve(QUESTION_SKIPPED);
           setUserQuestionRequest(null);
-          abort();
+          setInput("");
         }
         return true; // swallow everything else while the question is open
       },
@@ -1166,7 +1165,6 @@ export function App({
           as the transcript grows, the whole column grows and older rows scroll
           into the terminal's scrollback. */}
       <Box flexDirection="column" flexShrink={0} width="100%">
-      <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} expanded={tasksExpanded} />
       <AgentUsagePanel usage={agentUsage} theme={activeTheme} width={messageWidth} />
       {effortPicker ? (
         <EffortPickerView
@@ -1222,6 +1220,10 @@ export function App({
         />
       ) : null}
 
+      {/* The task checklist sits under the activity line so "what is running"
+          and "where the plan stands" read as one status block. */}
+      <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} expanded={tasksExpanded} />
+
       {queuedPrompts.length > 0 && !approvalRequest && !userQuestionRequest ? (
         <QueuedPromptsView prompts={queuedPrompts} theme={activeTheme} width={messageWidth} />
       ) : null}
@@ -1261,12 +1263,11 @@ export function App({
             <UserQuestionRequestView
               request={userQuestionRequest}
               selectedIndex={selectedQuestionOptionIndex}
+              typing={input.trim().length > 0}
               theme={activeTheme}
               width={inputWidth}
             />
-            {(userQuestionRequest.allowFreeText ?? true) ? (
-              <Box marginTop={1}>{chatInput}</Box>
-            ) : null}
+            <Box marginTop={1}>{chatInput}</Box>
           </Box>
         ) : (
           chatInput

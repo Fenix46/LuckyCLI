@@ -46,10 +46,13 @@ esac
 asset="${BIN_NAME}-${os_name}-${arch_name}"
 
 if [ "$VERSION" = "latest" ]; then
-  url="https://github.com/${REPO}/releases/latest/download/${asset}"
+  base="https://github.com/${REPO}/releases/latest/download"
 else
-  url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
+  # Tags are always vX.Y.Z; accept a pin given without the v.
+  case "$VERSION" in v*) ;; *) VERSION="v${VERSION}" ;; esac
+  base="https://github.com/${REPO}/releases/download/${VERSION}"
 fi
+url="${base}/${asset}"
 
 # --- download ----------------------------------------------------------------
 if command -v curl >/dev/null 2>&1; then
@@ -60,20 +63,42 @@ else
   die "Need either curl or wget installed to download LuckyCLI."
 fi
 
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+  die "Need sha256sum or shasum to verify the download."
+fi
+
 printf '%s\n' "${BOLD}Installing LuckyCLI${RESET} (${asset}, ${VERSION})"
 
 tmp="$(mktemp -t lucky.XXXXXX)"
-trap 'rm -f "$tmp"' EXIT
+sums="$(mktemp -t lucky-sums.XXXXXX)"
+trap 'rm -f "$tmp" "$sums"' EXIT
 
 info "Downloading from ${url}"
 download "$url" "$tmp" || die "Download failed. Does a release with asset '${asset}' exist? See https://github.com/${REPO}/releases"
 [ -s "$tmp" ] || die "Downloaded file is empty."
+
+# --- verify checksum ---------------------------------------------------------
+# Mandatory, like the built-in self-update: never install an unverified binary.
+info "Verifying checksum"
+download "${base}/SHA256SUMS" "$sums" || die "Could not fetch SHA256SUMS; refusing to install an unverified binary."
+expected="$(awk -v a="$asset" '$NF == a { print tolower($1) }' "$sums")"
+[ -n "$expected" ] || die "No checksum for ${asset} in SHA256SUMS; refusing to install."
+actual="$(sha256 "$tmp" | tr 'A-F' 'a-f')"
+[ "$actual" = "$expected" ] || die "Checksum mismatch for ${asset}.
+  expected ${expected}
+  got      ${actual}"
+ok "Checksum verified"
 
 # --- install -----------------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
 target="${INSTALL_DIR}/${BIN_NAME}"
 chmod +x "$tmp"
 mv "$tmp" "$target"
+rm -f "$sums"
 trap - EXIT
 ok "Installed to ${BOLD}${target}${RESET}"
 

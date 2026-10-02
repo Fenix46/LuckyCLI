@@ -32,7 +32,7 @@ import { runUpdateCommand } from "./update-cli.js";
 import { runCommand } from "./run-cli.js";
 import { runReviewCommand, runVerifyCommand } from "./workflow-cli.js";
 import { blastRadiusLines, graphImpactLines } from "./graph-cli.js";
-import { applyStagedUpdateIfAny } from "@luckycli/core";
+import { cleanupStaleBinary } from "@luckycli/core";
 
 const HELP = `lucky — a multi-provider terminal agent
 
@@ -184,18 +184,10 @@ async function runGraphCommand(args: string[]): Promise<void> {
 
 function main(): void {
   const rawArgs = process.argv.slice(2);
-  // In ACP mode stdout is a JSON-RPC channel: anything human-facing must go
-  // to stderr or the editor's client chokes on the very first bytes.
-  const humanOut = rawArgs[0] === "acp" ? process.stderr : process.stdout;
 
-  // Finish any update staged on a previous run before doing anything else, so a
-  // cold start always lands on the newest binary. Best-effort: never blocks startup.
-  const staged = applyStagedUpdateIfAny();
-  if (staged.swapped) {
-    // The on-disk binary is new, but THIS process was spawned from the old
-    // image — the next launch runs the update. Say so honestly.
-    humanOut.write(`Update ${staged.version} installed — active from the next launch.\n`);
-  }
+  // Remove the `<binary>.old` a previous Windows self-update left behind (a
+  // running .exe can only be moved aside, not deleted). Best-effort.
+  cleanupStaleBinary(process.execPath);
 
   // Subcommands are handled before the TUI path (they print and exit).
   if (rawArgs[0] === "graph") {

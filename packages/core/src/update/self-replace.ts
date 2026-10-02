@@ -23,6 +23,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { versionLabel } from "./versions.js";
 
 const REPO = "Fenix46/LuckyCLI";
 
@@ -82,7 +83,8 @@ export interface AssetUrls {
 
 /**
  * Release URLs for this host's asset. `"latest"` uses the rolling latest
- * release; a pinned `vX.Y.Z` (the `LUCKY_VERSION` convention) targets that tag.
+ * release; a pinned version (the `LUCKY_VERSION` convention) targets that tag,
+ * with or without the leading `v` (tags are always `vX.Y.Z`).
  */
 export function buildAssetUrls(
   version: string | "latest",
@@ -94,7 +96,7 @@ export function buildAssetUrls(
   const base =
     version === "latest"
       ? `https://github.com/${REPO}/releases/latest/download`
-      : `https://github.com/${REPO}/releases/download/${version}`;
+      : `https://github.com/${REPO}/releases/download/${versionLabel(version)}`;
   return {
     asset,
     assetUrl: `${base}/${asset}`,

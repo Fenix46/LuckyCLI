@@ -7,6 +7,7 @@ import { findStableSplit } from "./stream-split.js";
 interface StreamingMarkdownProps {
   text: string;
   theme: Theme;
+  width: number;
 }
 
 /**
@@ -24,7 +25,7 @@ interface StreamingMarkdownProps {
  * The component unmounts when the turn ends (streaming text → null), which
  * resets the ref for the next turn.
  */
-function StreamingMarkdownInner({ text, theme }: StreamingMarkdownProps): React.JSX.Element {
+function StreamingMarkdownInner({ text, theme, width }: StreamingMarkdownProps): React.JSX.Element {
   const stablePrefixRef = React.useRef("");
 
   // Defensive: if the text was replaced rather than extended (shouldn't happen
@@ -44,8 +45,8 @@ function StreamingMarkdownInner({ text, theme }: StreamingMarkdownProps): React.
 
   return (
     <Box flexDirection="column">
-      {stablePrefix ? <Markdown text={stablePrefix} theme={theme} /> : null}
-      {unstableSuffix ? <Markdown text={unstableSuffix} theme={theme} /> : null}
+      {stablePrefix ? <Markdown text={stablePrefix} theme={theme} width={width} /> : null}
+      {unstableSuffix ? <Markdown text={unstableSuffix} theme={theme} width={width} /> : null}
     </Box>
   );
 }

@@ -171,7 +171,7 @@ export function ItemView({
     case "assistant":
       return (
         <Reply theme={theme} continuation={continuation}>
-          <Markdown text={item.text} theme={theme} />
+          <Markdown text={item.text} theme={theme} width={width - REPLY_GUTTER} />
         </Reply>
       );
     case "streaming":
@@ -179,7 +179,7 @@ export function ItemView({
       // "assistant" item above so it doesn't jump when the turn ends.
       return (
         <Reply theme={theme} continuation={continuation}>
-          <StreamingMarkdown text={item.text} theme={theme} />
+          <StreamingMarkdown text={item.text} theme={theme} width={width - REPLY_GUTTER} />
         </Reply>
       );
     case "error":
@@ -262,7 +262,7 @@ export function ItemView({
             borderBottom={false}
             paddingLeft={2}
           >
-            <Markdown text={item.markdown} theme={theme} />
+            <Markdown text={item.markdown} theme={theme} width={Math.max(48, Math.min(width, 104)) - 3} />
           </Box>
         </Box>
       );
@@ -288,6 +288,9 @@ export function ItemView({
 }
 
 /** An assistant reply block: "◆" in the gutter on the first block only. */
+/** Columns Reply's glyph column takes from the reply body. */
+const REPLY_GUTTER = 2;
+
 function Reply({
   theme,
   continuation,
@@ -295,7 +298,7 @@ function Reply({
 }: React.PropsWithChildren<{ theme: Theme; continuation: boolean }>): React.JSX.Element {
   return (
     <Box flexDirection="row">
-      <Box width={2} flexShrink={0}>
+      <Box width={REPLY_GUTTER} flexShrink={0}>
         {continuation ? null : <Text color={theme.primary}>{GLYPH.reply}</Text>}
       </Box>
       <Box flexDirection="column" flexGrow={1} flexShrink={1}>

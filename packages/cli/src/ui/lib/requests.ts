@@ -21,6 +21,13 @@ export interface UserQuestionRequest extends AskUserRequest {
 }
 
 /**
+ * The answer sent back when the user presses Esc on a question. Skipping only
+ * dismisses the question — the turn keeps running and the model proceeds on
+ * its own judgment (Ctrl+C is what stops the turn).
+ */
+export const QUESTION_SKIPPED = "User skipped the question; proceed with your best judgment.";
+
+/**
  * A development plan being shown in the transcript while its accept/modify/
  * reject decision is collected through the question UI. The decision itself
  * flows back via the askUser bridge, so no resolver is carried here.

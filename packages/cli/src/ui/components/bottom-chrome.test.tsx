@@ -63,6 +63,17 @@ describe("ThemePickerView", () => {
   });
 });
 
+describe("ThemePickerView", () => {
+  it("scrolls a long theme list instead of growing past the window", () => {
+    const items = Array.from({ length: 30 }, (_, i) => ({ id: `theme-${i}`, name: `Theme ${i}` }));
+    const { screen } = renderToScreen(<ThemePickerView theme={theme} items={items} selectedIndex={20} />, 60);
+    expect(scanPositions(screen, "❯")).toHaveLength(1);
+    expect(scanPositions(screen, "theme-20")).toHaveLength(1);
+    expect(scanPositions(screen, "theme-0 ")).toHaveLength(0);
+    expect(scanPositions(screen, "21/30")).toHaveLength(1);
+  });
+});
+
 describe("SlashMenu", () => {
   it("renders names and descriptions with the cursor on the selection", () => {
     const { screen } = renderToScreen(
@@ -79,6 +90,21 @@ describe("SlashMenu", () => {
     expect(scanPositions(screen, "/help")).toHaveLength(1);
     expect(scanPositions(screen, "❯ /model")).toHaveLength(1);
     expect(scanPositions(screen, "switch model")).toHaveLength(1);
+  });
+
+  it("scrolls a long list in a fixed window around the selection", () => {
+    const commands = Array.from({ length: 20 }, (_, i) => ({ name: `/cmd${i}`, desc: `does ${i}` }));
+    const { screen, height } = renderToScreen(
+      <SlashMenu theme={theme} commands={commands} selectedIndex={10} maxRows={5} />,
+      60,
+    );
+    // margin + "↑" line + 5 rows + "↓" line
+    expect(height).toBe(8);
+    expect(scanPositions(screen, "❯ /cmd10")).toHaveLength(1);
+    expect(scanPositions(screen, "/cmd0 ")).toHaveLength(0);
+    expect(scanPositions(screen, "↑ 8 more")).toHaveLength(1);
+    expect(scanPositions(screen, "↓ 7 more")).toHaveLength(1);
+    expect(scanPositions(screen, "11/20")).toHaveLength(1);
   });
 });
 
