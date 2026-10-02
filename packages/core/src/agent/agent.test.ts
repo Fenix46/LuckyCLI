@@ -14,6 +14,7 @@ import type {
 } from "../providers/types.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { askUserTool } from "../tools/builtin/ask-user.js";
+import { readFileTool } from "../tools/builtin/read-file.js";
 import { defineTool } from "../tools/types.js";
 import { fileDiff } from "../diff.js";
 import { Agent } from "./agent.js";
@@ -842,6 +843,58 @@ describe("Agent loop", () => {
     // The model saw the cleared transcript on a later step.
     const last = seen.at(-1)!.flatMap((m) => m.content).filter((p) => p.type === "tool_result");
     expect(last.some((p) => p.type === "tool_result" && p.content.startsWith("[Earlier"))).toBe(true);
+  });
+
+  it("does not re-send a file the model already read, unless that result was cleared", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "lucky-ledger-"));
+    try {
+      await writeFile(join(dir, "big.ts"), "x".repeat(6_000), "utf8");
+      const bulky = defineTool({
+        name: "bulky",
+        description: "Returns a lot of text.",
+        schema: z.object({ n: z.number() }),
+        async execute({ n }) {
+          return { content: `result ${n} ${"y".repeat(5_000)}` };
+        },
+      });
+      const read = (id: string): StreamChunk[] => [
+        { toolCall: { type: "tool_call", id, name: "read_file", arguments: { path: "big.ts" } } },
+        { finishReason: "tool_calls", usage: { inputTokens: 900, outputTokens: 5 } },
+      ];
+      const bulkyStep = (n: number): StreamChunk[] => [
+        { toolCall: { type: "tool_call", id: `b${n}`, name: "bulky", arguments: { n } } },
+        { finishReason: "tool_calls", usage: { inputTokens: 900, outputTokens: 5 } },
+      ];
+      const script: StreamChunk[][] = [
+        read("r1"),
+        read("r2"),
+        ...Array.from({ length: 12 }, (_, i) => bulkyStep(i)),
+        read("r3"),
+        [{ textDelta: "done", finishReason: "stop" }],
+      ];
+      const agent = new Agent({
+        provider: new ScriptedProvider(script),
+        model: "mock",
+        cwd: dir,
+        tools: new ToolRegistry().register(readFileTool).register(bulky),
+        compaction: { maxContextTokens: 1_000 },
+      });
+
+      await collect(agent.send("go"));
+
+      const results = new Map(
+        agent.messages
+          .flatMap((m) => m.content)
+          .filter((p): p is Extract<typeof p, { type: "tool_result" }> => p.type === "tool_result")
+          .map((p) => [p.toolCallId, p.content]),
+      );
+      expect(results.get("r2")).toContain("File unchanged since your earlier read");
+      // r1 was cleared to save context, so the later read sends the file again.
+      expect(results.get("r1")).toMatch(/^\[Earlier read_file output/);
+      expect(results.get("r3")).toContain("x".repeat(100));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps provider reasoning with the turn it produced, never on its own", async () => {

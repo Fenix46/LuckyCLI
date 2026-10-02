@@ -33,6 +33,7 @@ import {
 } from "../workflow/verify.js";
 import type { VerificationResult } from "../workflow/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
+import { ReadLedger } from "../tools/read-ledger.js";
 import { ownershipOverlaps } from "../agents/ownership.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
@@ -197,6 +198,8 @@ export class Agent {
   private prunedTokensSinceUsage = 0;
   /** Stable per-conversation key so providers can route requests to a warm prompt cache. */
   private readonly promptCacheKey = randomUUID();
+  /** File reads whose results are still in the transcript (see ReadLedger). */
+  private readonly readLedger = new ReadLedger();
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -807,6 +810,8 @@ export class Agent {
   ): Promise<ToolResult> {
     return this.tools.execute(call.name, call.arguments, {
       cwd: this.cwd,
+      readLedger: this.readLedger,
+      toolCallId: call.id,
       ...(signal ? { signal } : {}),
       ...(onOutput ? { onOutput } : {}),
       ...(this.askUser ? { askUser: this.askUser } : {}),
@@ -978,6 +983,7 @@ export class Agent {
       return block?.type === "tool_result" && block.content.length > PRUNE_MIN_RESULT_CHARS && !block.content.startsWith(PRUNED_PREFIX);
     });
     let freedChars = 0;
+    const clearedCalls: string[] = [];
     for (const { message, part } of candidates) {
       const block = this.history[message]?.content[part];
       if (block?.type === "tool_result") freedChars += block.content.length;
@@ -988,6 +994,7 @@ export class Agent {
       const msg = this.history[message]!;
       const block = msg.content[part];
       if (block?.type !== "tool_result") continue;
+      clearedCalls.push(block.toolCallId);
       const content = [...msg.content];
       content[part] = {
         ...block,
@@ -996,6 +1003,8 @@ export class Agent {
       this.history[message] = { ...msg, content };
     }
     this.countCache = undefined;
+    // A cleared read can no longer be pointed back to.
+    this.readLedger.forgetCalls(clearedCalls);
     const freedTokens = Math.round(freedChars / CHARS_PER_TOKEN);
     this.prunedTokensSinceUsage += freedTokens;
     return freedTokens;
@@ -1046,6 +1055,8 @@ export class Agent {
       ],
     };
     this.history.splice(0, this.history.length, summaryMessage, ...tail);
+    // Earlier reads now live only in the summary: re-reads must send content.
+    this.readLedger.clear();
     // The transcript was rewritten wholesale; any memoized count is now stale.
     this.countCache = undefined;
     const after = await this.contextStatus();

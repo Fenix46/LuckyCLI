@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { resolveExistingInsideCwd } from "../path.js";
@@ -5,6 +6,9 @@ import { defineTool, type ToolContext } from "../types.js";
 
 const MAX_BYTES = 256 * 1024;
 const MAX_RANGE_LINES = 2_000;
+const UNCHANGED_NOTE =
+  "[File unchanged since your earlier read of this same range in this conversation; " +
+  "that result is still current, so refer to it instead of re-reading.]";
 /** Longer lines (minified bundles, data blobs) are cut to this many chars. */
 const MAX_LINE_CHARS = 2_000;
 /**
@@ -46,6 +50,15 @@ export const readFileTool = defineTool({
     const abs = await resolveExistingInsideCwd(ctx.cwd, path);
     const { text, truncated } = await readCapped(ctx, abs);
     const lineCount = countLines(text);
+
+    // The same read of the same content is already in the conversation:
+    // point back to it rather than paying for the whole file again.
+    const readKey = `${abs}\0${offset ?? ""}:${limit ?? ""}`;
+    const hash = createHash("sha1").update(text).digest("hex");
+    if (ctx.readLedger?.has(readKey, hash)) {
+      return { content: UNCHANGED_NOTE };
+    }
+    if (ctx.readLedger && ctx.toolCallId) ctx.readLedger.record(readKey, hash, ctx.toolCallId);
 
     // An unbounded read of a huge file would land tens of thousands of tokens
     // in the transcript, re-sent on every later step: serve the first page.

@@ -380,6 +380,7 @@ export function liveTailLines(live: string, count = 3): string[] {
 }
 
 export function summarizeReadOutput(lines: string[]): string {
+  if (lines[0]?.startsWith("[File unchanged since your earlier read")) return "unchanged · already in context";
   const rangeLine = lines.find((line) => /^\[showing \d+ of \d+ lines\]$/.test(line));
   if (rangeLine) return rangeLine.replace(/^\[|\]$/g, "");
   const noLines = lines.find((line) => line.startsWith("[no lines"));
