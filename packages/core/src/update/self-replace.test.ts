@@ -51,6 +51,13 @@ describe("buildAssetUrls", () => {
     );
   });
 
+  it("adds the v prefix to a pinned version given without it", () => {
+    const urls = buildAssetUrls("0.6.0", "darwin", "arm64");
+    expect(urls.assetUrl).toBe(
+      "https://github.com/Fenix46/LuckyCLI/releases/download/v0.6.0/lucky-darwin-arm64",
+    );
+  });
+
   it("targets a pinned version tag", () => {
     const urls = buildAssetUrls("v0.2.2", "linux", "x64");
     expect(urls.assetUrl).toBe(
