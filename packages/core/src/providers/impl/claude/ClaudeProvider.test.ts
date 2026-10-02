@@ -560,6 +560,26 @@ describe("ClaudeProvider", () => {
     );
   });
 
+  it("drops reasoning state produced by another provider", async () => {
+    const provider = new ClaudeProvider({ type: "claude", apiKey: "test-key" });
+    await provider.generate(
+      [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "reasoning", provider: "openai-oauth", data: "{}" },
+            { type: "text", text: "hello" },
+          ],
+        },
+        { role: "user", content: [{ type: "text", text: "again" }] },
+      ],
+      { model: "claude-test" },
+    );
+    const request = createMock.mock.calls.at(-1)?.[0] as { messages: Array<{ content: Array<{ type: string }> }> };
+    expect(request.messages[1]?.content.map((block) => block.type)).toEqual(["text"]);
+  });
+
   it("maps canonical tool calls and results to Anthropic content blocks", async () => {
     const provider = new ClaudeProvider({ type: "claude", apiKey: "test-key" });
 

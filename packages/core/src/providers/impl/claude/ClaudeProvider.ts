@@ -9,6 +9,7 @@ import { providerInfo } from "../../catalog.js";
 import type {
   ClaudeCredentials,
   ContentPart,
+  ReasoningPart,
   FinishReason,
   GenerationConfig,
   GenerationResponse,
@@ -639,7 +640,10 @@ function toAnthropic(
       continue;
     }
 
-    const content = msg.content.map(toAnthropicBlock);
+    // Reasoning state belongs to the provider that produced it; Claude
+    // neither understands nor needs another provider's.
+    const content = msg.content.filter(isWirePart).map(toAnthropicBlock);
+    if (content.length === 0) continue;
     const role: "user" | "assistant" =
       msg.role === "assistant" ? "assistant" : "user";
     result.push({ role, content });
@@ -686,7 +690,11 @@ function markLastBlock(lastMessage: Anthropic.Messages.MessageParam | undefined)
   }
 }
 
-function toAnthropicBlock(part: ContentPart): Anthropic.Messages.ContentBlockParam {
+function isWirePart(part: ContentPart): part is Exclude<ContentPart, ReasoningPart> {
+  return part.type !== "reasoning";
+}
+
+function toAnthropicBlock(part: Exclude<ContentPart, ReasoningPart>): Anthropic.Messages.ContentBlockParam {
   switch (part.type) {
     case "text":
       return { type: "text", text: part.text };

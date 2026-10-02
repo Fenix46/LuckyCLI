@@ -54,7 +54,29 @@ type ResponsesInputItem =
       type: "function_call_output";
       call_id: string;
       output: string;
-    };
+    }
+  | ResponsesReasoningItem;
+
+/**
+ * A reasoning item as replayed to the Responses API. With `store: false` the
+ * server keeps nothing between requests, so the encrypted reasoning it
+ * returned is sent back verbatim (without its id) to let the model continue
+ * its chain of thought across tool calls instead of starting over.
+ */
+interface ResponsesReasoningItem {
+  type: "reasoning";
+  summary: Array<{ type: "summary_text"; text: string }>;
+  encrypted_content: string;
+}
+
+/** What a ReasoningPart from this provider carries in `data`. */
+interface StoredReasoning {
+  model: string;
+  summary: Array<{ type: "summary_text"; text: string }>;
+  encrypted_content: string;
+}
+
+const PROVIDER_ID = "openai-oauth";
 
 interface ResponsesTool {
   type: "function";
@@ -72,6 +94,7 @@ interface ResponsesRequest {
   reasoning?: { effort: string };
   tools?: ResponsesTool[];
   prompt_cache_key?: string;
+  include?: string[];
 }
 
 interface ResponsesUsage {
@@ -88,6 +111,8 @@ interface ResponsesStreamEvent {
     name?: string;
     call_id?: string;
     arguments?: string;
+    summary?: Array<{ type: "summary_text"; text: string }>;
+    encrypted_content?: string | null;
   };
   usage?: ResponsesUsage;
   response?: {
@@ -228,6 +253,19 @@ export class OpenAiOAuthProvider implements IProvider {
         // (no text) so a long thinking phase doesn't look like a hung stream.
         if (event.type.startsWith("response.reasoning")) {
           yield { reasoning: true };
+        }
+
+        if (
+          event.type === "response.output_item.done" &&
+          event.item?.type === "reasoning" &&
+          event.item.encrypted_content
+        ) {
+          const stored: StoredReasoning = {
+            model: config.model || INFO.defaultModel,
+            summary: event.item.summary ?? [],
+            encrypted_content: event.item.encrypted_content,
+          };
+          yield { reasoningPart: { type: "reasoning", provider: PROVIDER_ID, data: JSON.stringify(stored) } };
         }
 
         if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
@@ -420,6 +458,22 @@ function usageNotes(usage: ChatGptUsageResponse): string[] {
   return notes;
 }
 
+/** Decode a stored reasoning part into a replayable item, if it fits this model. */
+function replayableReasoning(data: string, model: string): ResponsesReasoningItem | undefined {
+  try {
+    const stored = JSON.parse(data) as Partial<StoredReasoning>;
+    // Encrypted reasoning is bound to the model that produced it.
+    if (stored.model !== model || typeof stored.encrypted_content !== "string") return undefined;
+    return {
+      type: "reasoning",
+      summary: Array.isArray(stored.summary) ? stored.summary : [],
+      encrypted_content: stored.encrypted_content,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function buildRequestBody(
   messages: Message[],
   config: GenerationConfig,
@@ -438,6 +492,13 @@ function buildRequestBody(
     }
 
     if (msg.role === "assistant") {
+      // Reasoning first: the API expects it ahead of the message and calls it
+      // led to. Only state produced by this provider for this model is valid.
+      for (const part of msg.content) {
+        if (part.type !== "reasoning" || part.provider !== PROVIDER_ID) continue;
+        const item = replayableReasoning(part.data, config.model || INFO.defaultModel);
+        if (item) input.push(item);
+      }
       const text = textOf(msg.content);
       if (text) input.push({ role: "assistant", content: text });
       for (const part of msg.content) {
@@ -475,6 +536,8 @@ function buildRequestBody(
     // The Codex endpoint rejects max_output_tokens ("Unsupported parameter"),
     // so config.maxTokens (e.g. from compaction) must not be forwarded.
     ...(config.reasoningEffort ? { reasoning: { effort: config.reasoningEffort } } : {}),
+    // Ask for the encrypted reasoning so it can be replayed next step.
+    include: ["reasoning.encrypted_content"],
     // Without a cache key the backend may route each step to a cold cache and
     // re-bill the whole transcript; the key pins a conversation to one cache.
     ...(config.promptCacheKey ? { prompt_cache_key: config.promptCacheKey } : {}),

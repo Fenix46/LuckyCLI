@@ -15,6 +15,7 @@ import type { IProvider } from "../../IProvider.js";
 import { providerInfo } from "../../catalog.js";
 import type {
   ContentPart,
+  ReasoningPart,
   AntigravityCredentials,
   FinishReason,
   GeminiCredentials,
@@ -517,7 +518,10 @@ function toGeminiContents(messages: Message[]): Content[] {
     // turn. The same-role merge below keeps the request valid when the next
     // message is also a user turn.
     const role = msg.role === "assistant" ? "model" : "user";
-    const parts = msg.content.map(toGeminiPart);
+    // Another provider's reasoning state means nothing to Gemini: drop it.
+    const parts = msg.content
+      .filter((part): part is Exclude<ContentPart, ReasoningPart> => part.type !== "reasoning")
+      .map(toGeminiPart);
     // A Content with an empty parts[] is rejected with 400 INVALID_ARGUMENT.
     // Skip empty turns defensively so a transcript that already contains one
     // (e.g. a session saved before this was guarded) can still be sent.
@@ -565,7 +569,7 @@ function ensureToolCallThoughtSignatures(contents: Content[]): Content[] {
   });
 }
 
-function toGeminiPart(part: ContentPart): Part {
+function toGeminiPart(part: Exclude<ContentPart, ReasoningPart>): Part {
   switch (part.type) {
     case "text":
       return { text: part.text };

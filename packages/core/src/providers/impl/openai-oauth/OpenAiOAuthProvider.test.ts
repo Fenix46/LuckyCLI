@@ -91,6 +91,59 @@ describe("OpenAiOAuthProvider", () => {
     expect(response.content).toEqual([{ type: "text", text: "done" }]);
   });
 
+  it("captures encrypted reasoning and replays it to the same model only", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      body: sseStream(
+        'data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"ENC"}}',
+        'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"read_file","arguments":"{}"}}',
+        'data: {"type":"response.completed"}',
+      ),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "t",
+      refresh: "r",
+      expires: Date.now() + 3_600_000,
+    });
+
+    const chunks = [];
+    for await (const chunk of provider.generateStream([{ role: "user", content: [{ type: "text", text: "hi" }] }], {
+      model: "gpt-5.5",
+    })) {
+      chunks.push(chunk);
+    }
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).include).toEqual(["reasoning.encrypted_content"]);
+    const part = chunks.find((c) => c.reasoningPart)?.reasoningPart;
+    expect(part).toMatchObject({ type: "reasoning", provider: "openai-oauth" });
+
+    const history = [
+      { role: "user" as const, content: [{ type: "text" as const, text: "hi" }] },
+      {
+        role: "assistant" as const,
+        content: [part!, { type: "tool_call" as const, id: "c1", name: "read_file", arguments: {} }],
+      },
+      {
+        role: "tool" as const,
+        content: [{ type: "tool_result" as const, toolCallId: "c1", name: "read_file", content: "ok" }],
+      },
+    ];
+    await provider.generate(history, { model: "gpt-5.5" });
+    const replayed = JSON.parse(fetchMock.mock.calls[1][1].body).input;
+    expect(replayed[1]).toEqual({
+      type: "reasoning",
+      summary: [{ type: "summary_text", text: "plan" }],
+      encrypted_content: "ENC",
+    });
+    expect(replayed[2]).toMatchObject({ type: "function_call", call_id: "c1" });
+
+    // Encrypted reasoning is bound to its model: a model switch drops it.
+    await provider.generate(history, { model: "gpt-5.4-mini" });
+    const switched = JSON.parse(fetchMock.mock.calls[2][1].body).input;
+    expect(switched.some((item: { type?: string }) => item.type === "reasoning")).toBe(false);
+  });
+
   it("pins the conversation to a prompt cache and reports cached input", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => ({
       ok: true,

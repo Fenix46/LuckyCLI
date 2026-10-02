@@ -44,7 +44,22 @@ export interface ToolResultPart {
   isError?: boolean;
 }
 
-export type ContentPart = TextPart | ImagePart | ToolCallPart | ToolResultPart;
+/**
+ * Opaque reasoning state a provider attached to an assistant turn and wants
+ * back on later requests (e.g. ChatGPT's encrypted reasoning items), so the
+ * model continues its chain of thought instead of re-deriving it every step.
+ * Only the provider named here can read `data`; every other provider drops
+ * the part. Never shown to the user.
+ */
+export interface ReasoningPart {
+  type: "reasoning";
+  /** Id of the provider that produced it (see ProviderId). */
+  provider: string;
+  /** Provider-specific serialized payload. */
+  data: string;
+}
+
+export type ContentPart = TextPart | ImagePart | ToolCallPart | ToolResultPart | ReasoningPart;
 
 // ─── Message ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +149,8 @@ export interface StreamChunk {
    * "reasoning" state so a slow turn doesn't look hung.
    */
   reasoning?: boolean;
+  /** Reasoning state to keep with the assistant turn (see ReasoningPart). */
+  reasoningPart?: ReasoningPart;
 }
 
 // ─── Provider identity & capabilities ────────────────────────────────────────

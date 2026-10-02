@@ -5,6 +5,7 @@ import type {
   FinishReason,
   ModelInfo,
   Message,
+  ReasoningPart,
   ProviderStatus,
   TextPart,
   ToolCallPart,
@@ -403,6 +404,7 @@ export class Agent {
       let finishReason: FinishReason = "stop";
       let usage: TokenUsage | undefined;
       const toolCalls: ToolCallPart[] = [];
+      const reasoningParts: ReasoningPart[] = [];
       let textBuf = "";
 
       try {
@@ -426,6 +428,7 @@ export class Agent {
                 yield { type: "text", delta: chunk.textDelta };
               }
               if (chunk.reasoning) yield { type: "reasoning" };
+              if (chunk.reasoningPart) reasoningParts.push(chunk.reasoningPart);
               if (chunk.toolCall) {
                 yieldedThisStep = true;
                 toolCalls.push(chunk.toolCall);
@@ -483,6 +486,9 @@ export class Agent {
       const assistantBlocks: ContentPart[] = [];
       if (textBuf) assistantBlocks.push({ type: "text", text: textBuf });
       assistantBlocks.push(...toolCalls);
+      // Reasoning state rides along with the turn it produced, ahead of it, so
+      // the provider can hand it back next step. Alone it is not a turn.
+      if (assistantBlocks.length > 0) assistantBlocks.unshift(...reasoningParts);
       if (assistantBlocks.length > 0) {
         this.history.push({ role: "assistant", content: assistantBlocks });
       }
@@ -910,6 +916,9 @@ export class Agent {
           case "image":
             parts.push("i", String(part.data.length));
             break;
+          case "reasoning":
+            parts.push("z", String(part.data.length));
+            break;
         }
       }
     }
@@ -1258,6 +1267,9 @@ function serializePart(part: ContentPart): string {
       return `tool_result ${part.name} ${part.isError ? "(error) " : ""}${truncate(part.content, 8_000)}`;
     case "image":
       return `[image ${part.mimeType}, ${part.data.length} base64 chars omitted]`;
+    case "reasoning":
+      // Opaque provider state: nothing a summary could use.
+      return "";
   }
 }
 

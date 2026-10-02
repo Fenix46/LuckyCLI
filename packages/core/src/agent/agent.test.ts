@@ -844,6 +844,25 @@ describe("Agent loop", () => {
     expect(last.some((p) => p.type === "tool_result" && p.content.startsWith("[Earlier"))).toBe(true);
   });
 
+  it("keeps provider reasoning with the turn it produced, never on its own", async () => {
+    const reasoning = { type: "reasoning" as const, provider: "claude", data: "state" };
+    const agent = new Agent({
+      provider: new ScriptedProvider([
+        [{ reasoningPart: reasoning }, ...toolCallStep("r1")],
+        // A reasoning-only reply is not a turn: nothing is persisted for it.
+        [{ reasoningPart: reasoning }, { finishReason: "stop" }],
+      ]),
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+    });
+
+    await collect(agent.send("go"));
+
+    const assistants = agent.messages.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.content.map((p) => p.type)).toEqual(["reasoning", "tool_call"]);
+  });
+
   it("sends a stable prompt cache key for the whole conversation", async () => {
     const keys: Array<string | undefined> = [];
     class KeyProvider implements IProvider {
