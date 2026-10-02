@@ -595,7 +595,8 @@ describe("ClaudeProvider", () => {
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: [
-          { role: "user", content: [{ type: "text", text: "read file" }] },
+          // The end of the previous step carries the second cache breakpoint.
+          { role: "user", content: [{ type: "text", text: "read file", cache_control: { type: "ephemeral" } }] },
           {
             role: "assistant",
             content: [

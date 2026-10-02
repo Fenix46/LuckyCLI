@@ -56,8 +56,9 @@ const CLAUDE_COUNT_PROBE_MODEL = "claude-haiku-4-5-20251001";
 // (system prompt + tool definitions) and on a moving breakpoint at the end of
 // the transcript so each step re-reads the prior context at cache-read price
 // (~1/10) instead of re-billing the entire prefix at full input price. The API
-// allows at most 4 cache_control blocks per request, so we use exactly 3:
-// last system block, last tool, last message block.
+// allows at most 4 cache_control blocks per request, so we use all 4:
+// last system block, last tool, last message block, and the end of the
+// previous step (see markCacheBreakpoints).
 const CACHE_CONTROL = { type: "ephemeral" } as const;
 
 export class ClaudeProvider implements IProvider {
@@ -644,10 +645,7 @@ function toAnthropic(
     result.push({ role, content });
   }
 
-  // Moving cache breakpoint: mark the last block of the last message so the
-  // entire transcript up to here is cached and re-read at ~1/10 price on the
-  // next step, when this block has become part of the stable prefix.
-  markLastBlock(result);
+  markCacheBreakpoints(result);
 
   const system = systemParts.join("\n").trim();
   return system
@@ -655,8 +653,30 @@ function toAnthropic(
     : { messages: result };
 }
 
-function markLastBlock(messages: Anthropic.Messages.MessageParam[]): void {
-  const lastMessage = messages[messages.length - 1];
+/**
+ * Moving cache breakpoints. The last block of the last message caches the
+ * whole transcript for the next step. A second one sits where the previous
+ * step's request ended (the last user-side message before the newest
+ * assistant turn): the API only looks back ~20 blocks from a breakpoint for
+ * an earlier cache entry, so a step that adds many blocks at once (parallel
+ * tool calls and their results) would otherwise miss the cache and re-write
+ * the entire transcript at the cache-write rate.
+ */
+function markCacheBreakpoints(messages: Anthropic.Messages.MessageParam[]): void {
+  markLastBlock(messages[messages.length - 1]);
+  let seenAssistant = false;
+  for (let i = messages.length - 2; i >= 0; i--) {
+    const message = messages[i]!;
+    if (message.role === "assistant") {
+      seenAssistant = true;
+    } else if (seenAssistant) {
+      markLastBlock(message);
+      return;
+    }
+  }
+}
+
+function markLastBlock(lastMessage: Anthropic.Messages.MessageParam | undefined): void {
   if (!lastMessage || typeof lastMessage.content === "string") return;
   const lastBlock = lastMessage.content[lastMessage.content.length - 1];
   // Thinking/redacted-thinking blocks cannot carry cache_control; only the

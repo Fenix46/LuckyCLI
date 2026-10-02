@@ -91,6 +91,30 @@ describe("OpenAiOAuthProvider", () => {
     expect(response.content).toEqual([{ type: "text", text: "done" }]);
   });
 
+  it("pins the conversation to a prompt cache and reports cached input", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      body: sseStream(
+        'data: {"type":"response.completed","response":{"usage":{"input_tokens":1200,"output_tokens":5,"input_tokens_details":{"cached_tokens":1000}}}}',
+      ),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "t",
+      refresh: "r",
+      expires: Date.now() + 3_600_000,
+    });
+
+    const response = await provider.generate([{ role: "user", content: [{ type: "text", text: "hi" }] }], {
+      model: "gpt-5.5",
+      promptCacheKey: "conv-1",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).prompt_cache_key).toBe("conv-1");
+    expect(response.usage).toEqual({ inputTokens: 1200, outputTokens: 5, cacheReadTokens: 1000 });
+  });
+
   it("sends reasoning.effort when set, and omits it when not", async () => {
     // Fresh stream per call: generate() is invoked twice and a ReadableStream
     // can only be read once.

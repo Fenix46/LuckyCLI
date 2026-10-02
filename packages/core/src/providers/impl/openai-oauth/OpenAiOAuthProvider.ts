@@ -71,6 +71,13 @@ interface ResponsesRequest {
   stream: boolean;
   reasoning?: { effort: string };
   tools?: ResponsesTool[];
+  prompt_cache_key?: string;
+}
+
+interface ResponsesUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  input_tokens_details?: { cached_tokens?: number } | null;
 }
 
 interface ResponsesStreamEvent {
@@ -82,9 +89,9 @@ interface ResponsesStreamEvent {
     call_id?: string;
     arguments?: string;
   };
-  usage?: { input_tokens: number; output_tokens: number };
+  usage?: ResponsesUsage;
   response?: {
-    usage?: { input_tokens?: number; output_tokens?: number } | null;
+    usage?: ResponsesUsage | null;
   };
 }
 
@@ -238,9 +245,11 @@ export class OpenAiOAuthProvider implements IProvider {
         if (event.type === "response.completed") {
           const eventUsage = event.usage ?? event.response?.usage ?? undefined;
           if (eventUsage) {
+            const cached = eventUsage.input_tokens_details?.cached_tokens;
             usage = {
               inputTokens: eventUsage.input_tokens ?? 0,
               outputTokens: eventUsage.output_tokens ?? 0,
+              ...(cached != null ? { cacheReadTokens: cached } : {}),
             };
             this._lastUsage = usage;
           }
@@ -466,6 +475,9 @@ function buildRequestBody(
     // The Codex endpoint rejects max_output_tokens ("Unsupported parameter"),
     // so config.maxTokens (e.g. from compaction) must not be forwarded.
     ...(config.reasoningEffort ? { reasoning: { effort: config.reasoningEffort } } : {}),
+    // Without a cache key the backend may route each step to a cold cache and
+    // re-bill the whole transcript; the key pins a conversation to one cache.
+    ...(config.promptCacheKey ? { prompt_cache_key: config.promptCacheKey } : {}),
     ...(config.tools?.length
       ? {
           tools: config.tools.map((tool) => ({
