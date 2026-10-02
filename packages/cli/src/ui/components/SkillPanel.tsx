@@ -72,8 +72,11 @@ export function SkillPanel({
                 <Text bold color={idx === selectedInstalledIndex ? theme.accent : theme.text}>
                   {row.name.padEnd(22)}
                 </Text>
+                <Text color={row.scope === "project" ? theme.accent : theme.subtle}>
+                  {(row.scope === "project" ? "project" : "global").padEnd(9)}
+                </Text>
                 <Text color={idx === selectedInstalledIndex ? theme.text : theme.muted}>
-                  {truncateSingleLine(row.summary, Math.max(20, width - 34))}
+                  {truncateSingleLine(row.summary, Math.max(20, width - 43))}
                 </Text>
               </Box>
             ))
