@@ -299,7 +299,9 @@ export function Root({
         task: request.task,
         ...(request.files ? { writableFiles: request.files } : {}),
         cwd: process.cwd(),
-        system: config.system,
+        // A custom LUCKY_SYSTEM prompt is honored verbatim; otherwise core
+        // composes a smaller prompt sized to the sub-agent's own tools.
+        ...(process.env.LUCKY_SYSTEM !== undefined ? { system: config.system } : {}),
         resolveCredentials: (provider) =>
           resolveCredentials(provider, loadStoredConfig(), process.env),
         onUsage: (usage) =>
