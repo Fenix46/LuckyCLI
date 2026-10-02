@@ -140,6 +140,14 @@ export interface AgentConfig {
    * generated otherwise.
    */
   promptCacheKey?: string;
+  /**
+   * The restored history is being resumed with a cold provider cache: if it
+   * is large, compact it once before the first turn, so the old part is
+   * summarized by a cheap model once instead of being re-sent at full price
+   * on every step. The summary is part of the history from then on, so the
+   * next resume starts light too.
+   */
+  compactOnResume?: boolean;
 }
 
 export type ToolApproval = "allow" | "always" | "deny" | boolean;
@@ -204,6 +212,8 @@ export class Agent {
   private prunedTokensSinceUsage = 0;
   /** Stable per-conversation key so providers can route requests to a warm prompt cache. */
   private readonly promptCacheKey: string;
+  /** Set until the first turn decides whether a large resumed history gets compacted. */
+  private compactOnResume: boolean;
   /** File reads whose results are still in the transcript (see ReadLedger). */
   private readonly readLedger = new ReadLedger();
   private readonly history: Message[] = [];
@@ -246,6 +256,7 @@ export class Agent {
     this.writeTextFile = cfg.writeTextFile;
     this.enrichTurn = cfg.enrichTurn;
     this.promptCacheKey = cfg.promptCacheKey ?? randomUUID();
+    this.compactOnResume = cfg.compactOnResume === true && (cfg.messages?.length ?? 0) > 0;
     if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
 
@@ -371,14 +382,19 @@ export class Agent {
     const beforeStatus = await this.cheapContextStatus();
     yield { type: "context", status: beforeStatus };
     let compactedThisTurn = false;
-    if (this.shouldCompact(beforeStatus)) {
+    const resumeCompaction = this.compactOnResume && estimateTokens(this.history) >= RESUME_COMPACT_MIN_TOKENS;
+    this.compactOnResume = false;
+    if (resumeCompaction || this.shouldCompact(beforeStatus)) {
       // compactHistory already measured the post-compaction transcript; reuse
       // that status instead of measuring the same history a second time. On
       // Claude OAuth a status call is a real billed request (no free
       // /count_tokens), so the duplicate was costing an extra full-transcript
       // round-trip on every compaction.
+      // A resumed history may be one long turn with no older turns to split
+      // off; forcing keeps just the new message verbatim in that case.
       const { status: afterStatus, ...result } = await this.compactHistory(
         beforeStatus.usedTokens,
+        { force: resumeCompaction },
       );
       yield { type: "context_compacted", result };
       yield { type: "context", status: afterStatus };
@@ -1209,6 +1225,33 @@ function isAbortError(err: unknown): boolean {
   const e = err as { name?: string; message?: string; code?: string };
   if (e.name === "AbortError" || e.code === "ABORT_ERR") return true;
   return typeof e.message === "string" && /\baborted?\b/i.test(e.message);
+}
+
+/** A resumed history at least this large (estimated) is compacted before its first turn. */
+const RESUME_COMPACT_MIN_TOKENS = 30_000;
+
+/** Rough token estimate of a transcript, without a provider round-trip. */
+function estimateTokens(messages: Message[]): number {
+  let chars = 0;
+  for (const message of messages) {
+    for (const part of message.content) {
+      switch (part.type) {
+        case "text":
+          chars += part.text.length;
+          break;
+        case "tool_call":
+          chars += JSON.stringify(part.arguments).length;
+          break;
+        case "tool_result":
+          chars += part.content.length;
+          break;
+        case "image":
+        case "reasoning":
+          break;
+      }
+    }
+  }
+  return Math.round(chars / CHARS_PER_TOKEN);
 }
 
 /** Default absolute compaction ceiling (see compaction.maxContextTokens). */

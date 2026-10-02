@@ -948,6 +948,58 @@ describe("Agent loop", () => {
     expect(new Set(keys).size).toBe(1);
   });
 
+  it("compacts a large resumed history before its first turn", async () => {
+    const seen: Message[][] = [];
+    class RecordingProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(messages: Message[]): AsyncGenerator<StreamChunk> {
+        seen.push([...messages]);
+        yield { textDelta: "ok", finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [{ type: "text", text: "summary of the old session" }], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const old: Message[] = [
+      { role: "user", content: [{ type: "text", text: "build the parser" }] },
+      { role: "assistant", content: [{ type: "text", text: "z".repeat(200_000) }] },
+    ];
+
+    const resumed = new Agent({
+      provider: new RecordingProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+      messages: old,
+      compactOnResume: true,
+    });
+    const events = await collect(resumed.send("now the lexer"));
+    expect(events.some((e) => e.type === "context_compacted")).toBe(true);
+    expect(seen[0]?.[0]).toMatchObject({
+      role: "system",
+      content: [{ type: "text", text: expect.stringContaining("summary of the old session") }],
+    });
+    expect(seen[0]?.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: "now the lexer" }] });
+
+    // A small resumed history, or a warm resume, is sent as is.
+    seen.length = 0;
+    const small = new Agent({
+      provider: new RecordingProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+      messages: [old[0]!, { role: "assistant", content: [{ type: "text", text: "done" }] }],
+      compactOnResume: true,
+    });
+    const smallEvents = await collect(small.send("next"));
+    expect(smallEvents.some((e) => e.type === "context_compacted")).toBe(false);
+    expect(seen[0]).toHaveLength(3);
+  });
+
   it("keeps a resumed conversation's prompt cache key", async () => {
     const keys: Array<string | undefined> = [];
     class KeyProvider implements IProvider {
