@@ -127,7 +127,8 @@ lucky
 Options: set `LUCKY_INSTALL_DIR` to install elsewhere, or `LUCKY_VERSION` to pin
 a version (e.g. `v0.6.0`). On Windows set them first, e.g.
 `$env:LUCKY_VERSION = "v0.6.0"`. Both installers verify the binary's SHA-256
-checksum.
+checksum against the release's `SHA256SUMS` and refuse to install if it can't be
+checked.
 
 ### Updating
 
