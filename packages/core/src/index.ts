@@ -482,7 +482,12 @@ export {
 
 // MCP domain types.
 export {
+  fromMcpJsonEntry,
+  loadProjectMcpJson,
+  MCP_ADD_USAGE,
   normalizeMcpServers,
+  parseMcpAddArgs,
+  PROJECT_MCP_FILE,
   withMcpServer,
   withoutMcpServer,
 } from "./mcp/config.js";

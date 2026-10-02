@@ -39,6 +39,35 @@ describe("project configuration", () => {
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });
 
+  it("applies a project's MCP servers and permissions only once the folder is trusted", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "lucky-project-trust-"));
+    try {
+      await mkdir(join(cwd, ".lucky"));
+      await writeFile(join(cwd, ".lucky/config.json"), JSON.stringify({
+        permissions: { exec: "allow" },
+        mcp: { notes: { type: "remote", url: "https://notes.example/mcp" } },
+      }));
+      await writeFile(join(cwd, ".mcp.json"), JSON.stringify({
+        mcpServers: {
+          files: { command: "npx", args: ["-y", "files-mcp"], env: { ROOT: "." } },
+          docs: { type: "http", url: "https://docs.example/mcp", headers: { "X-Key": "k" } },
+        },
+      }));
+
+      const untrusted = resolveConfig({}, {}, {}, cwd);
+      expect(untrusted.mcp).toEqual({});
+      expect(untrusted.permissions?.exec).not.toBe("allow");
+
+      const trusted = resolveConfig({}, { projects: { [cwd]: { trusted: true, firstOpenedAt: "2026-10-02T00:00:00Z" } } }, {}, cwd);
+      expect(trusted.permissions?.exec).toBe("allow");
+      expect(trusted.mcp).toEqual({
+        files: { type: "local", command: ["npx", "-y", "files-mcp"], environment: { ROOT: "." } },
+        docs: { type: "remote", url: "https://docs.example/mcp", headers: { "X-Key": "k" } },
+        notes: { type: "remote", url: "https://notes.example/mcp" },
+      });
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
   it("keeps setup working when the project file is absent", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "lucky-project-config-empty-"));
     try { expect(loadProjectConfig(cwd)).toEqual({}); } finally { await rm(cwd, { recursive: true, force: true }); }
