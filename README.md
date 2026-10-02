@@ -258,12 +258,12 @@ Defaults in **bold**. Use `/model` in the REPL or `-m` on the CLI to switch.
 - **Gemini** (`gemini`): gemini-3.1-pro-preview, gemini-3.1-flash-lite,
   gemini-3-pro-preview, gemini-3-flash-preview, **gemini-2.5-pro**,
   gemini-2.5-flash, gemma-4-31b-it, gemma-4-26b-a4b-it
-- **Antigravity** (`antigravity`): the models your account offers, read live —
-  newer Gemini Flash releases first, then Gemini 3.1 Pro, Claude Sonnet 4.6
-  (Thinking), Claude Opus 4.6 (Thinking) and GPT-OSS 120B. Models served in
-  Low/Medium/High variants appear once in `/model`, and the effort is chosen in
-  the next step (default **Gemini 3.5 Flash, medium** until the live catalog
-  says otherwise).
+- **Antigravity** (`antigravity`): **Gemini 3.8 Flash**, Gemini 3.7 Flash,
+  Gemini 3.6 Flash, Gemini 3.1 Pro, Claude Sonnet 4.6 (Thinking), Claude Opus 4.6
+  (Thinking), GPT-OSS 120B (Medium), checked against what your account offers.
+  Models served in Low/Medium/High variants appear once in `/model` and the
+  effort is chosen in the next step (default: Gemini 3.8 Flash, medium). Newer
+  Gemini releases show up on their own from the live catalog.
 - **OpenAI** (`openai`): **gpt-4o**, gpt-4o-mini, gpt-4.1, o4-mini
 - **OpenRouter, opencode Zen, Ollama, llama.cpp, vLLM, OpenAI-compatible**: the
   models the service or server reports (Ollama suggests llama3.1, qwen2.5,
