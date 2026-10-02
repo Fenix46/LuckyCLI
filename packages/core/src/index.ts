@@ -197,6 +197,12 @@ export {
   replaceProjectMemory,
 } from "./project-memory.js";
 export type { ProjectMemory } from "./project-memory.js";
+export {
+  appendProjectInstructionsToSystemPrompt,
+  loadProjectInstructions,
+  PROJECT_INSTRUCTION_FILES,
+} from "./project-instructions.js";
+export type { ProjectInstructionFile } from "./project-instructions.js";
 
 // Native knowledge graph (schema + on-disk store).
 export {

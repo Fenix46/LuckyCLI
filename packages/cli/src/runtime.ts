@@ -3,7 +3,9 @@ import {
   Agent,
   type ResumeCacheHints,
   McpManager,
+  appendProjectInstructionsToSystemPrompt,
   appendProjectMemoryToSystemPrompt,
+  loadProjectInstructions,
   buildSystemPromptFromContext,
   detectProjectFacts,
   defaultToolRegistry,
@@ -264,7 +266,12 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     model: opts.model,
     cwd,
     tools,
-    system: reusedSystem ?? appendProjectMemoryToSystemPrompt(composed, projectMemory),
+    system:
+      reusedSystem ??
+      appendProjectMemoryToSystemPrompt(
+        appendProjectInstructionsToSystemPrompt(composed, loadProjectInstructions(cwd)),
+        projectMemory,
+      ),
     ...(opts.cacheHints?.promptCacheKey ? { promptCacheKey: opts.cacheHints.promptCacheKey } : {}),
     ...(opts.compactOnResume ? { compactOnResume: true } : {}),
     permissions: opts.permissions,
