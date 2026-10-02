@@ -96,3 +96,35 @@ describe("registerExtraTools", () => {
     expect(registry.has("b")).toBe(true);
   });
 });
+
+describe("buildAgent cache hints", () => {
+  it("reuses a resumed session's system prompt and cache key verbatim", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { buildAgent } = await import("./runtime.js");
+    const cwd = await mkdtemp(join(tmpdir(), "lucky-runtime-"));
+    const saved = process.env.LUCKY_SYSTEM;
+    delete process.env.LUCKY_SYSTEM;
+    try {
+      const base = {
+        provider: "openai" as const,
+        model: "gpt-4o",
+        credentials: { type: "openai" as const, apiKey: "test" },
+        system: "default system",
+        composeSystemFromContext: true,
+        cwd,
+      };
+      const resumed = buildAgent({ ...base, cacheHints: { systemPrompt: "STORED PROMPT", promptCacheKey: "conv-1" } });
+      expect(resumed.systemPrompt).toBe("STORED PROMPT");
+      expect(resumed.cacheKey).toBe("conv-1");
+
+      const fresh = buildAgent(base);
+      expect(fresh.systemPrompt).not.toBe("STORED PROMPT");
+      expect(fresh.cacheKey).not.toBe("conv-1");
+    } finally {
+      if (saved !== undefined) process.env.LUCKY_SYSTEM = saved;
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});

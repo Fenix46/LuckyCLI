@@ -51,11 +51,14 @@ import {
   onTasksUpdated,
   recordGraphBuilt,
   resolveCredentials,
+  resumeCacheHints,
   saveSession,
   saveStoredConfig,
   setActiveTaskListId,
   type ContextStatus,
   type Message,
+  type ResumeCacheHints,
+  type Session,
   type PlanDecision,
   type PlanProposal,
   type ProviderId,
@@ -234,6 +237,7 @@ export class LuckyAcpAgent implements Agent {
       // as the TUI's session picker does — a session started on one model
       // must not silently continue on whatever the config now says.
       { provider: stored.provider, model: stored.model },
+      stored,
     );
     // Per spec the whole history streams back as notifications before the
     // response. Text only: tool traffic is transient UI state, and replaying
@@ -262,6 +266,8 @@ export class LuckyAcpAgent implements Agent {
     messages?: Message[],
     createdAt?: number,
     resume?: { provider: ProviderId; model: string },
+    /** The saved session being resumed, for its prompt-cache hints. */
+    stored?: Pick<Session, "provider" | "model" | "updatedAt" | "systemPrompt" | "promptCacheKey">,
   ): Promise<AcpSession> {
     const config = this.requireConfig();
     // A resumed session keeps its own provider/model when we can still reach
@@ -300,7 +306,8 @@ export class LuckyAcpAgent implements Agent {
           }
         : {}),
     };
-    session.agent = (await this.buildSessionRuntime(session, messages)).agent;
+    const cacheHints = stored ? resumeCacheHints(stored, active.provider, active.model) : undefined;
+    session.agent = (await this.buildSessionRuntime(session, messages, cacheHints)).agent;
     this.sessions.set(sessionId, session);
     // Tell the editor which slash commands its command menu can offer. A
     // client that ignores the notification simply shows no menu; the commands
@@ -328,6 +335,7 @@ export class LuckyAcpAgent implements Agent {
   protected async buildSessionRuntime(
     session: AcpSession,
     messages?: Message[],
+    cacheHints?: ResumeCacheHints,
   ): Promise<BuiltAgentRuntime> {
     const mcpServers = session.mcpServers;
     const config = this.requireConfig();
@@ -362,6 +370,7 @@ export class LuckyAcpAgent implements Agent {
       // config wins on a name conflict (the user's auth/pins are explicit).
       mcp: mergeMcpServers(mapAcpMcpServers(mcpServers), config.mcp),
       ...(messages?.length ? { messages } : {}),
+      ...(cacheHints ? { cacheHints } : {}),
       ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
       ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
       // Reasoning effort and the thinking toggle are provider-specific knobs
@@ -429,7 +438,9 @@ export class LuckyAcpAgent implements Agent {
     session.credentials = credentials;
     try {
       session.agent = (
-        await this.buildSessionRuntime(session, carried.length ? carried : undefined)
+        await this.buildSessionRuntime(session, carried.length ? carried : undefined, {
+          promptCacheKey: session.agent.cacheKey,
+        })
       ).agent;
     } catch (err) {
       // A provider that fails to build leaves the session on its old runtime
@@ -668,7 +679,9 @@ export class LuckyAcpAgent implements Agent {
             },
             rebuild: async () => {
               session.agent = (
-                await this.buildSessionRuntime(session, [...session.agent.messages])
+                await this.buildSessionRuntime(session, [...session.agent.messages], {
+                  promptCacheKey: session.agent.cacheKey,
+                })
               ).agent;
             },
           });
@@ -891,6 +904,8 @@ export class LuckyAcpAgent implements Agent {
         updatedAt: Date.now(),
         cwd: session.cwd,
         messages,
+        ...(session.agent.systemPrompt !== undefined ? { systemPrompt: session.agent.systemPrompt } : {}),
+        promptCacheKey: session.agent.cacheKey,
       });
     } catch {
       // Persistence must never break a turn (stub agents in tests, full disk…).

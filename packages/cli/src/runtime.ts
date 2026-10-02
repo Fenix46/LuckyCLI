@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   Agent,
+  type ResumeCacheHints,
   McpManager,
   appendProjectMemoryToSystemPrompt,
   buildSystemPromptFromContext,
@@ -144,6 +145,12 @@ export interface BuildAgentOptions {
    */
   composeSystemFromContext?: boolean;
   /**
+   * Resuming a saved session: reuse its exact system prompt (when still fresh)
+   * and its prompt-cache key, so the provider's cache for this conversation
+   * is read instead of re-written. See resumeCacheHints.
+   */
+  cacheHints?: ResumeCacheHints;
+  /**
    * Pre-built tool registry to use as-is. When given, `extraTools` is ignored —
    * the caller owns the registry (e.g. to register MCP tools into it later).
    */
@@ -228,8 +235,12 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   // Optionally recompose the system prompt from this session's context so the
   // conditional sections react to it. A custom LUCKY_SYSTEM always wins, so we
   // only recompose when the prebuilt prompt is the default one.
+  // A stored prompt is reused verbatim so the request prefix stays identical;
+  // LUCKY_SYSTEM still wins, as it always does.
+  const reusedSystem =
+    process.env.LUCKY_SYSTEM === undefined ? opts.cacheHints?.systemPrompt : undefined;
   const composed =
-    opts.composeSystemFromContext && process.env.LUCKY_SYSTEM === undefined
+    reusedSystem === undefined && opts.composeSystemFromContext && process.env.LUCKY_SYSTEM === undefined
       ? buildSystemPromptFromContext({
           environment: {
             cwd,
@@ -251,7 +262,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     model: opts.model,
     cwd,
     tools,
-    system: appendProjectMemoryToSystemPrompt(composed, projectMemory),
+    system: reusedSystem ?? appendProjectMemoryToSystemPrompt(composed, projectMemory),
+    ...(opts.cacheHints?.promptCacheKey ? { promptCacheKey: opts.cacheHints.promptCacheKey } : {}),
     permissions: opts.permissions,
     ...(opts.allowedSkills ? { allowedSkills: opts.allowedSkills } : {}),
     approveTool: opts.approveTool,

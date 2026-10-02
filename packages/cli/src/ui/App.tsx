@@ -216,6 +216,8 @@ export function App({
         messages,
         usage: agent.totalTokenUsage,
         retryCount: agent.totalRetryCount,
+        ...(agent.systemPrompt !== undefined ? { systemPrompt: agent.systemPrompt } : {}),
+        promptCacheKey: agent.cacheKey,
       });
     } catch {
       // persistence is best-effort; never break the session over a write error

@@ -24,6 +24,8 @@ import {
   setActiveTaskListId,
   cleanupOrphanTaskLists,
   listSessions,
+  resumeCacheHints,
+  type ResumeCacheHints,
   getProfile,
   resolveCredentials,
   runSubAgent as runSubAgentCore,
@@ -316,6 +318,8 @@ export function Root({
     messages?: Message[];
     initialUsage?: import("@luckycli/core").TokenUsage;
     initialRetryCount?: number;
+    /** Prompt-cache hints when resuming or rebuilding a conversation. */
+    cacheHints?: ResumeCacheHints;
     /**
      * MCP servers to load. Defaults to the current state, but callers that have
      * just changed the config must pass the next value explicitly: the state
@@ -355,6 +359,7 @@ export function Root({
       ...(next.messages?.length ? { messages: next.messages } : {}),
       ...(next.initialUsage ? { initialUsage: next.initialUsage } : {}),
       ...(next.initialRetryCount !== undefined ? { initialRetryCount: next.initialRetryCount } : {}),
+      ...(next.cacheHints ? { cacheHints: next.cacheHints } : {}),
     });
 
     if (activationId !== activationIdRef.current) {
@@ -394,6 +399,7 @@ export function Root({
       ...(resume?.messages?.length ? { messages: resume.messages } : {}),
       ...(resume?.usage ? { initialUsage: resume.usage } : {}),
       ...(resume?.retryCount !== undefined ? { initialRetryCount: resume.retryCount } : {}),
+      ...(resume ? { cacheHints: resumeCacheHints(resume, config.provider, config.model) } : {}),
     });
   // Intentionally one-shot for initial boot config.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -409,6 +415,8 @@ export function Root({
       ...(carriedMessages.length ? { messages: carriedMessages } : {}),
       ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
       ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
+      // Only the untouched resumed conversation matches what the session stored.
+      ...(pendingMessages ? {} : { cacheHints: resumeCacheHints(resumeSession, result.provider, result.model) }),
     });
     setPendingMessages(null);
     setSetupFallbackRuntime(null);
@@ -446,6 +454,7 @@ export function Root({
       ...(session.messages.length ? { messages: session.messages } : {}),
       ...(session.usage ? { initialUsage: session.usage } : {}),
       ...(session.retryCount !== undefined ? { initialRetryCount: session.retryCount } : {}),
+      cacheHints: resumeCacheHints(session, resolved.provider, resolved.model),
     });
   }
 
@@ -467,6 +476,7 @@ export function Root({
       ...(carried.length ? { messages: carried } : {}),
       initialUsage: runtime.agent.totalTokenUsage,
       initialRetryCount: runtime.agent.totalRetryCount,
+      cacheHints: { promptCacheKey: runtime.agent.cacheKey },
     });
   }
 
@@ -493,6 +503,7 @@ export function Root({
         ...(carriedMessages.length ? { messages: carriedMessages } : {}),
         ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
         ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
+        cacheHints: resumeCacheHints(resumeSession, config.provider, config.model),
       });
     }
   }
@@ -507,6 +518,7 @@ export function Root({
       messages: [...runtime.agent.messages],
       initialUsage: runtime.agent.totalTokenUsage,
       initialRetryCount: runtime.agent.totalRetryCount,
+      cacheHints: { promptCacheKey: runtime.agent.cacheKey },
       // Pass the new config explicitly: setMcpConfig above hasn't applied yet,
       // so the closure's mcpConfig still holds the previous servers.
       mcp: nextMcpConfig,
