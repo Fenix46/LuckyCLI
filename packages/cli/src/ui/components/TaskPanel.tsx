@@ -8,13 +8,13 @@ import { GLYPH } from "./kit.js";
 
 /**
  * The live work task list, rendered as a checklist anchored in the bottom
- * chrome, right under the activity line and above the prompt input. Ported, single-agent, from Claude Code's
- * TaskListV2: one row per task with a status icon, a counts header, and the
+ * chrome, right under the activity line and above the prompt input. Ported,
+ * single-agent, from Claude Code's TaskListV2: one row per task with a status icon, a counts header, and the
  * in-progress task highlighted. It re-renders whenever the on-disk task list
  * changes (App subscribes to onTasksUpdated and re-reads listTasks).
  *
- * Renders nothing when the list is empty so it adds no chrome until there is a
- * plan to show.
+ * Renders nothing when the list is empty or fully completed, so it only takes
+ * chrome while there is work in flight.
  */
 export function TaskPanel({
   tasks,
@@ -34,21 +34,11 @@ export function TaskPanel({
   const inProgress = tasks.filter((t) => t.status === "in_progress").length;
   const pending = tasks.length - completed - inProgress;
 
-  // Once everything is done, the full checklist is just noise that lingers for
-  // the rest of the session. Collapse it to a single summary line so it stops
-  // hogging chrome; a new pending/in_progress task re-expands it automatically.
-  // The list still lives on disk and is viewable via /task.
-  if (pending === 0 && inProgress === 0) {
-    return (
-      <Box marginTop={1} paddingLeft={1}>
-        <Text color={theme.muted}>
-          <Text color={theme.success}>{GLYPH.ok}</Text> {completed} {completed === 1 ? "task" : "tasks"} done
-          {"  "}
-          <Text color={theme.subtle}>/task to review · /task clear to reset</Text>
-        </Text>
-      </Box>
-    );
-  }
+  // Once everything is done the checklist has served its purpose: hide it so
+  // it doesn't linger in the chrome for the rest of the session. The list
+  // still lives on disk (viewable via /task), and the next task_create
+  // archives it and starts a fresh list, which brings the panel back.
+  if (pending === 0 && inProgress === 0) return null;
 
   const headerParts = [`${completed}/${tasks.length} done`];
   if (inProgress > 0) headerParts.push(`${inProgress} in progress`);
