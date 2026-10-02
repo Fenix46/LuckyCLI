@@ -40,7 +40,7 @@ const GROUPS: ToolGroup[] = [
   {
     heading: "## Search and navigation",
     intro:
-      "When the project has a knowledge graph, treat it as your primary index. Use it to locate a symbol, see who calls it, and gauge the blast radius of a change before you touch anything — then confirm in the real file before editing. Fall back to text search only when the graph has no answer. Don't open many files at random to \"look around\" if the graph or a search can point you straight at the target.",
+      "See the Navigation section for when to use each.",
     tools: [
       { name: "graph_query", text: "find a symbol or file, inspect callers, callees and neighbors, or get the transitive impact of changing it." },
       { name: "graph_overview", text: "get a high-level map when the relevant area of the codebase is unclear." },
@@ -102,7 +102,11 @@ export function buildToolsPrompt(ctx: PromptContext): string | null {
   const blocks: string[] = [];
   for (const group of GROUPS) {
     if (group.requires && !group.requires(ctx)) continue;
-    const lines = group.tools.filter((t) => enabled.has(t.name));
+    // Graph tools are registered either way, but only worth explaining when
+    // the project actually has a graph.
+    const lines = group.tools.filter(
+      (t) => enabled.has(t.name) && (ctx.hasGraph === true || !t.name.startsWith("graph_")),
+    );
     if (lines.length === 0) continue;
     const body = lines.map((t) => `- ${t.name}: ${t.text}`).join("\n");
     blocks.push([group.heading, group.intro, body].filter(Boolean).join("\n"));
