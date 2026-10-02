@@ -458,7 +458,7 @@ export {
   sessionFilePath,
   sessionsDirPath,
 } from "./session/store.js";
-export type { Session, SessionMeta } from "./session/store.js";
+export type { Session, SessionFilter, SessionMeta } from "./session/store.js";
 
 export {
   startOAuthFlow,

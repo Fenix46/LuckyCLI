@@ -97,6 +97,28 @@ describe("session store", () => {
     expect(latestSession()?.id).toBe(newer.id);
   });
 
+  it("lists and continues sessions per project", async () => {
+    const projectA = await mkdtemp(join(tmpdir(), "lucky-proj-a-"));
+    const projectB = await mkdtemp(join(tmpdir(), "lucky-proj-b-"));
+    try {
+      const a1 = makeSession({ updatedAt: 1000, cwd: projectA });
+      const b1 = makeSession({ updatedAt: 3000, cwd: projectB });
+      const a2 = makeSession({ updatedAt: 2000, cwd: join(projectA, "sub", "..") });
+      const legacy = makeSession({ updatedAt: 4000 });
+      for (const session of [a1, b1, a2, legacy]) saveSession(session);
+
+      expect(listSessions({ cwd: projectA }).map((s) => s.id)).toEqual([a2.id, a1.id]);
+      expect(listSessions({ cwd: projectB }).map((s) => s.id)).toEqual([b1.id]);
+      expect(latestSession({ cwd: projectA })?.id).toBe(a2.id);
+      expect(listSessions({ cwd: projectB })[0]?.cwd).toBe(projectB);
+      // Sessions saved before the project was recorded only show up unfiltered.
+      expect(listSessions().map((s) => s.id)).toEqual([legacy.id, b1.id, a2.id, a1.id]);
+    } finally {
+      await rm(projectA, { recursive: true, force: true });
+      await rm(projectB, { recursive: true, force: true });
+    }
+  });
+
   it("deletes a session", () => {
     const session = makeSession();
     saveSession(session);
