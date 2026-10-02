@@ -77,6 +77,24 @@ describe("filesystem tools", () => {
     expect(result.content).toContain("offset/limit");
   });
 
+  it("serves only the first page of a very large file read whole", async () => {
+    const huge = Array.from({ length: 2_500 }, (_, i) => `line ${i + 1}`).join("\n");
+    await writeFile(join(root, "huge.txt"), huge, "utf8");
+
+    const result = await registry.execute("read_file", { path: "huge.txt" }, { cwd: root });
+    expect(result.content).toContain("  2000: line 2000");
+    expect(result.content).not.toContain("line 2001");
+    expect(result.content).toContain("[showing 2000 of 2500 lines]");
+  });
+
+  it("cuts overlong lines such as minified bundles", async () => {
+    await writeFile(join(root, "min.js"), `a\n${"x".repeat(5_000)}`, "utf8");
+
+    const result = await registry.execute("read_file", { path: "min.js" }, { cwd: root });
+    expect(result.content.length).toBeLessThan(2_200);
+    expect(result.content).toContain("[line truncated, 3000 more chars]");
+  });
+
   it("does not nudge a small whole-file read", async () => {
     await writeFile(join(root, "small.txt"), "a\nb\nc", "utf8");
     const result = await registry.execute("read_file", { path: "small.txt" }, { cwd: root });

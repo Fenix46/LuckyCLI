@@ -8,7 +8,7 @@ const execAsync = promisify(exec);
 // Output is captured generously (a noisy build must not be killed for
 // talking too much) and trimmed to MAX_RETURN_CHARS before reaching the model.
 const MAX_BUFFER = 16 * 1024 * 1024;
-const MAX_RETURN_CHARS = 64 * 1024;
+const MAX_RETURN_CHARS = 30_000;
 // Share of the returned budget kept from the START of the output; the rest
 // comes from the end, where test failures, compiler errors and exit summaries
 // usually are.

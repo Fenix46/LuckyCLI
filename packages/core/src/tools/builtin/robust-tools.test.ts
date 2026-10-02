@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry.js";
+import { defaultToolRegistry } from "./index.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { classifyCommandSemantics, execTool, truncateOutput } from "./exec.js";
 import { classifyPowerShellCommandSemantics, powerShellTool } from "./powershell.js";
@@ -335,6 +336,11 @@ describe("robust built-in tools", () => {
       category: "destructive",
       reason: "force push",
     });
+  });
+
+  it("offers the PowerShell tool only on Windows", () => {
+    expect(defaultToolRegistry("win32").has("PowerShell")).toBe(true);
+    expect(defaultToolRegistry("linux").has("PowerShell")).toBe(false);
   });
 
   it("refuses dangerous PowerShell commands unless explicitly allowed", async () => {
