@@ -3,6 +3,7 @@ import React from "react";
 import type { ContentPart } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import { truncateSingleLine } from "../lib/format.js";
+import { SectionTitle } from "./kit.js";
 
 /** A prompt submitted while a turn was running, waiting for its own turn. */
 export interface QueuedPrompt {
@@ -31,21 +32,20 @@ function QueuedPromptsViewInner({
   const visible = prompts.slice(0, MAX_VISIBLE);
   const hidden = prompts.length - visible.length;
   return (
-    <Box flexDirection="column" marginTop={1} paddingLeft={2}>
-      <Text color={theme.accent} bold>
-        ⧗ queued ({prompts.length}){" "}
-        <Text color={theme.muted} dimColor>
-          sent when the current turn ends · esc cancels and restores them
-        </Text>
-      </Text>
+    <Box flexDirection="column" marginTop={1} paddingLeft={1}>
+      <SectionTitle
+        theme={theme}
+        title={`Queued (${prompts.length})`}
+        detail="sent when this turn ends · esc restores them"
+      />
       {visible.map((prompt, index) => (
-        <Text key={index} color={theme.muted} wrap="truncate-end">
+        <Text key={index} color={theme.text} wrap="truncate-end">
           {"  "}
-          {index + 1}. {truncateSingleLine(prompt.text, Math.max(16, width - 8))}
+          <Text color={theme.muted}>{index + 1}.</Text> {truncateSingleLine(prompt.text, Math.max(16, width - 8))}
         </Text>
       ))}
       {hidden > 0 ? (
-        <Text color={theme.muted} dimColor>
+        <Text color={theme.muted}>
           {"  "}+{hidden} more
         </Text>
       ) : null}

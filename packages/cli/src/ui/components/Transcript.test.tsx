@@ -60,7 +60,7 @@ describe("QueuedPromptsView", () => {
 });
 
 describe("reply layout", () => {
-  it("shows the lucky header once per reply, not after its own tool rows", () => {
+  it("marks a reply once, not again after its own tool rows", () => {
     const { screen } = renderToScreen(
       <TranscriptList
         items={[
@@ -76,7 +76,7 @@ describe("reply layout", () => {
       />,
       80,
     );
-    expect(scanPositions(screen, "lucky ›")).toHaveLength(1);
+    expect(scanPositions(screen, "◆")).toHaveLength(1);
     expect(scanPositions(screen, "All done.")).toHaveLength(1);
   });
 
@@ -85,7 +85,7 @@ describe("reply layout", () => {
       <ItemView item={{ kind: "notice", text: "Interrupted · tell lucky what to do instead" }} theme={theme} width={80} />,
       80,
     );
-    expect(scanPositions(screen, "✕ Interrupted")).toHaveLength(1);
+    expect(scanPositions(screen, "! Interrupted")).toHaveLength(1);
     expect(scanPositions(screen, "error")).toHaveLength(0);
   });
 });

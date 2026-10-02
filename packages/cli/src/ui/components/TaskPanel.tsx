@@ -4,6 +4,7 @@ import type { Task, TaskStatus } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import { truncateSingleLine } from "../lib/format.js";
 import { selectTaskWindow, formatHiddenSummary } from "../lib/task-window.js";
+import { GLYPH, SectionTitle } from "./kit.js";
 
 /**
  * The live work task list, rendered as a checklist anchored in the bottom
@@ -39,17 +40,18 @@ export function TaskPanel({
   // The list still lives on disk and is viewable via /task.
   if (pending === 0 && inProgress === 0) {
     return (
-      <Box marginBottom={1} paddingLeft={2}>
-        <Text color={theme.success} dimColor>
-          ✔ Tasks ({completed} done) — use /task to review or /task clear to reset
+      <Box marginBottom={1} paddingLeft={1}>
+        <Text color={theme.muted}>
+          <Text color={theme.success}>{GLYPH.ok}</Text> {completed} {completed === 1 ? "task" : "tasks"} done
+          {"  "}
+          <Text color={theme.subtle}>/task to review · /task clear to reset</Text>
         </Text>
       </Box>
     );
   }
 
-  const headerParts = [`${completed} done`];
+  const headerParts = [`${completed} of ${tasks.length} done`];
   if (inProgress > 0) headerParts.push(`${inProgress} in progress`);
-  headerParts.push(`${pending} open`);
 
   // Leave room for the two-space indent, the icon + space, and a little slack.
   const maxSubject = Math.max(15, width - 8);
@@ -59,18 +61,16 @@ export function TaskPanel({
   const { visible, hidden, hiddenCount } = selectTaskWindow(tasks, expanded ? 0 : undefined);
 
   return (
-    <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
-      <Text color={theme.muted}>
-        Tasks (<Text bold>{tasks.length}</Text>: {headerParts.join(", ")})
-      </Text>
-      <Box flexDirection="column">
+    <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
+      <SectionTitle theme={theme} title="Tasks" detail={headerParts.join(" · ")} />
+      <Box flexDirection="column" paddingLeft={2}>
         {visible.map((task) => (
           <TaskRow key={task.id} task={task} theme={theme} maxSubject={maxSubject} />
         ))}
       </Box>
       {hiddenCount > 0 ? (
-        <Text color={theme.muted} dimColor>
-          … +{formatHiddenSummary(hidden)} · ctrl+o to expand
+        <Text color={theme.muted}>
+          {"  "}… +{formatHiddenSummary(hidden)} · ctrl+o to expand
         </Text>
       ) : null}
     </Box>
@@ -80,11 +80,11 @@ export function TaskPanel({
 function statusIcon(status: TaskStatus): string {
   switch (status) {
     case "completed":
-      return "✔";
+      return GLYPH.ok;
     case "in_progress":
-      return "■";
+      return GLYPH.active;
     case "pending":
-      return "☐";
+      return "○";
   }
 }
 
@@ -120,9 +120,8 @@ function TaskRow({
     <Box flexDirection="row" gap={1}>
       <Text color={color}>{statusIcon(task.status)}</Text>
       <Text
-        color={isCompleted ? theme.muted : "white"}
+        color={isCompleted ? theme.muted : theme.text}
         bold={isInProgress}
-        dimColor={isCompleted}
         strikethrough={isCompleted}
         wrap="truncate-end"
       >

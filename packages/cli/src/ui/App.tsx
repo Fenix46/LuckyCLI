@@ -29,6 +29,7 @@ import {
   saveReasoningEffort,
   saveSession,
   saveStoredConfig,
+  PROVIDER_CATALOG,
   type GraphContextEnricher,
   type SkillActivator,
   type Task,
@@ -1056,6 +1057,14 @@ export function App({
       active={!mcpPanel.isOpen && !skillPanel.isOpen && !agentsPanel.isOpen}
       history={promptHistory}
       historyEnabled={historyEnabled}
+      theme={activeTheme}
+      placeholder={
+        userQuestionRequest
+          ? "Type your answer…"
+          : busy
+            ? "Queue a follow-up…"
+            : "Ask lucky to build, fix or explain something  ·  / for commands"
+      }
       submitEnabled={
         !mcpPanel.isOpen &&
         !skillPanel.isOpen &&
@@ -1173,7 +1182,7 @@ export function App({
               ? activeTheme.primary
               : busy || compacting
                 ? activeTheme.accent
-                : activeTheme.muted
+                : activeTheme.subtle
         }
         paddingX={1}
       >
@@ -1219,9 +1228,14 @@ export function App({
         permissionMode={permissionMode}
         showScrollHint={items.length > 1}
         contextStatus={contextStatus}
+        model={meta.model}
         effort={footerEffort}
         thinking={footerThinking}
-        usage={formatUsageFooter(agent.totalTokenUsage, tokenCosts?.[`${meta.provider}/${meta.model}`])}
+        usage={formatUsageFooter(
+          agent.totalTokenUsage,
+          tokenCosts?.[`${meta.provider}/${meta.model}`],
+          PROVIDER_CATALOG[meta.provider].usageTokensIncludeCache === true,
+        )}
       />
       </Box>
     </Box>

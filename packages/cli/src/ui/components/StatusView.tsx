@@ -2,6 +2,7 @@ import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
 import { type ContextStatus, type ProviderStatus, type TokenCostRates } from "@luckycli/core";
 import type { Theme } from "../themes.js";
+import { meterColor, SectionTitle } from "./kit.js";
 import {
   statusDetails,
   compactStatusNotes,
@@ -38,15 +39,13 @@ export function StatusView({
       <Box
         flexDirection="column"
         borderStyle="round"
-        borderColor={theme.muted}
+        borderColor={theme.subtle}
         paddingX={2}
         paddingY={1}
         width={panelWidth}
       >
-        <Box flexDirection="row" marginBottom={1}>
-          <Text bold color={theme.accent}>▌ </Text>
-          <Text bold>{provider.displayName}</Text>
-          <Text color={theme.muted}> · {provider.provider}</Text>
+        <Box marginBottom={1}>
+          <SectionTitle theme={theme} title={provider.displayName} detail={provider.provider} />
         </Box>
 
         <Box flexDirection="column" marginBottom={1}>
@@ -55,7 +54,7 @@ export function StatusView({
               <Box width={15}>
                 <Text color={theme.muted}>{row.label}</Text>
               </Box>
-              <Text color="white">{row.value}</Text>
+              <Text color={theme.text}>{row.value}</Text>
               {row.hint ? <Text color={theme.muted}> {row.hint}</Text> : null}
             </Box>
           ))}
@@ -134,11 +133,11 @@ export function UsageBar({
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text bold color="white">{label}</Text>
+      <Text bold color={theme.text}>{label}</Text>
       <Box flexDirection="row">
-        <Text color={theme.accent}>{"█".repeat(filled)}</Text>
-        <Text color={theme.muted}>{"░".repeat(empty)}</Text>
-        <Text color="white"> {unavailable ? "unknown" : `${safePercent}% used`}</Text>
+        <Text color={meterColor(theme, safePercent)}>{"█".repeat(filled)}</Text>
+        <Text color={theme.subtle}>{"░".repeat(empty)}</Text>
+        <Text color={theme.text}> {unavailable ? "unknown" : `${safePercent}% used`}</Text>
         {detail ? <Text color={theme.muted}> {detail}</Text> : null}
       </Box>
     </Box>

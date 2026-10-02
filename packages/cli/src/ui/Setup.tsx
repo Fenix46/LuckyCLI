@@ -325,18 +325,15 @@ export function Setup({
       <Box
         flexDirection="column"
         borderStyle="round"
-        borderColor={theme.muted}
+        borderColor={theme.subtle}
         paddingX={2}
         paddingY={1}
         width="100%"
       >
         <Box flexDirection="row" marginBottom={1}>
-          <Text bold color={theme.accent}>▌ </Text>
-          <Text bold color={theme.primary}>
-            {mode === "initial" ? "LuckyCLI setup" : "Provider setup"}
-          </Text>
+          <Text bold color={theme.primary}>☘ lucky</Text>
           <Text color={theme.muted}>
-            {mode === "initial" ? " · first run" : " · switch provider"}
+            {mode === "initial" ? "  ·  let's get you set up" : "  ·  switch provider"}
           </Text>
         </Box>
 

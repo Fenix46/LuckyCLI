@@ -26,19 +26,5 @@ function resolveVersion(): string {
   }
 }
 
-/** Block wordmark rendered in the intro banner (42 columns wide). Each line is
- *  tinted separately to produce a vertical gradient — see IntroBanner. */
-export const LOGO = [
-  "██╗     ██╗   ██╗ ██████╗██╗  ██╗██╗   ██╗",
-  "██║     ██║   ██║██╔════╝██║ ██╔╝╚██╗ ██╔╝",
-  "██║     ██║   ██║██║     █████╔╝  ╚████╔╝ ",
-  "██║     ██║   ██║██║     ██╔═██╗   ╚██╔╝  ",
-  "███████╗╚██████╔╝╚██████╗██║  ██╗   ██║   ",
-  "╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝   ",
-];
-
-/** Columns needed to render LOGO without wrapping (plus card padding). */
-export const LOGO_WIDTH = 42;
-
 /** Shared braille spinner frames — one "working" animation everywhere. */
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

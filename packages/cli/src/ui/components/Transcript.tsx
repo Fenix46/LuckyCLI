@@ -5,14 +5,16 @@ import type { Theme } from "../themes.js";
 import type { Item } from "../lib/items.js";
 import {
   formatDuration,
-  formatToolAction,
   formatToolResultSummary,
   liveTailLines,
   toolResultPreviewLines,
+  toolTarget,
+  toolVerb,
   truncateSingleLine,
 } from "../lib/format.js";
 import { SPINNER_FRAMES } from "./constants.js";
-import { DiffView } from "./DiffView.js";
+import { GLYPH, SectionTitle } from "./kit.js";
+import { DiffStats, DiffView } from "./DiffView.js";
 import { Markdown } from "../markdown/Markdown.js";
 import { StreamingMarkdown } from "../markdown/StreamingMarkdown.js";
 import { IntroBanner } from "./IntroBanner.js";
@@ -54,6 +56,7 @@ export function TranscriptList({
           key={`${index}:${item.kind === "streaming" ? "assistant" : item.kind}`}
           item={item}
           previous={index > 0 ? items[index - 1] : undefined}
+          next={items[index + 1]}
           theme={theme}
           width={width}
           provider={provider}
@@ -75,6 +78,7 @@ function isRunningTool(item: Item): boolean {
 function TranscriptItemInner({
   item,
   previous,
+  next,
   theme,
   width,
   provider,
@@ -82,16 +86,17 @@ function TranscriptItemInner({
   activityFrame = 0,
 }: {
   item: Item;
-  previous?: Item;
+  previous?: Item | undefined;
+  /** The following row; decides whether a tool row closes its branch. */
+  next?: Item | undefined;
   theme: Theme;
   width: number;
   provider: ProviderId;
   model: string;
   activityFrame?: number;
 }): React.JSX.Element {
-  // Whitespace is the only separator: an extra blank line when the speaker
-  // changes (or a new user turn starts) keeps the transcript scannable without
-  // drawing horizontal rules through it.
+  // Whitespace is the only separator: one blank line between blocks, none
+  // between a reply and the tool calls hanging off it.
   return (
     <Box flexDirection="column" marginTop={spacingBefore(item, previous)}>
       <ItemView
@@ -102,6 +107,7 @@ function TranscriptItemInner({
         model={model}
         activityFrame={activityFrame}
         continuation={continuesReply(previous)}
+        lastInGroup={next?.kind !== "tool"}
       />
     </Box>
   );
@@ -109,14 +115,14 @@ function TranscriptItemInner({
 
 /**
  * Memoized on its props: committed items are immutable, so a row only
- * re-renders when its own item, neighbor, theme, size or frame changes.
+ * re-renders when its own item, neighbors, theme, size or frame changes.
  */
 export const TranscriptItem = React.memo(TranscriptItemInner);
 
 /**
  * A reply block that follows the agent's own tool rows or narration belongs
- * to the same reply: it drops the "lucky" header so a turn reads as one
- * continuous answer instead of a stack of repeated headers.
+ * to the same reply: it drops the ◆ marker so a turn reads as one continuous
+ * answer instead of a stack of repeated headers.
  */
 function continuesReply(previous?: Item): boolean {
   return previous?.kind === "tool" || previous?.kind === "assistant" || previous?.kind === "streaming";
@@ -124,11 +130,8 @@ function continuesReply(previous?: Item): boolean {
 
 function spacingBefore(item: Item, previous?: Item): number {
   if (!previous) return 1;
-  // A new user turn gets the most air; everything inside a reply stays tight.
-  if (item.kind === "user") return 2;
-  if (item.kind === "tool" && (previous.kind === "tool" || previous.kind === "assistant" || previous.kind === "streaming")) {
-    return 0;
-  }
+  if (item.kind === "tool" && previous.kind === "tool") return 0;
+  if (item.kind === "tool" && (previous.kind === "assistant" || previous.kind === "streaming")) return 0;
   return 1;
 }
 
@@ -140,6 +143,7 @@ export function ItemView({
   model,
   activityFrame = 0,
   continuation = false,
+  lastInGroup = true,
 }: {
   item: Item;
   theme: Theme;
@@ -147,105 +151,58 @@ export function ItemView({
   provider?: ProviderId;
   model?: string;
   activityFrame?: number;
-  /** This reply block continues the previous one: skip the header. */
+  /** This reply block continues the previous one: skip the marker. */
   continuation?: boolean;
+  /** A tool row that closes its group draws └─ instead of ├─. */
+  lastInGroup?: boolean;
 }): React.JSX.Element {
   switch (item.kind) {
     case "intro":
       return (
-        <Box flexDirection="column" marginY={1}>
-          <IntroBanner
-            theme={theme}
-            provider={provider ?? "openai"}
-            model={model ?? ""}
-            width={width}
-          />
-        </Box>
+        <IntroBanner
+          theme={theme}
+          provider={provider ?? "openai"}
+          model={model ?? ""}
+          width={width}
+        />
       );
     case "user":
-      return (
-        <Box flexDirection="column">
-          <PromptBlock text={item.text} width={width} theme={theme} />
-        </Box>
-      );
+      return <PromptBlock text={item.text} width={width} theme={theme} />;
     case "assistant":
       return (
-        <Box flexDirection="column">
-          {continuation ? null : <ReplyHeader theme={theme} />}
-          <Box paddingLeft={2}>
-            <Markdown text={item.text} theme={theme} />
-          </Box>
-        </Box>
+        <Reply theme={theme} continuation={continuation}>
+          <Markdown text={item.text} theme={theme} />
+        </Reply>
+      );
+    case "streaming":
+      // The live reply while it streams. Rendered IDENTICALLY to the finalized
+      // "assistant" item above so it doesn't jump when the turn ends.
+      return (
+        <Reply theme={theme} continuation={continuation}>
+          <StreamingMarkdown text={item.text} theme={theme} />
+        </Reply>
       );
     case "error":
       return (
-        <Box flexDirection="column">
-          <Box flexDirection="row">
-            <Text bold color={theme.error}>▲ error</Text>
-            <Text color={theme.muted}> › </Text>
+        <Box flexDirection="row">
+          <Box width={2} flexShrink={0}>
+            <Text bold color={theme.error}>{GLYPH.fail}</Text>
           </Box>
-          <Box paddingLeft={2}>
+          <Box flexGrow={1} flexShrink={1}>
             <Text color={theme.error}>{item.text}</Text>
           </Box>
         </Box>
       );
-    case "tool": {
-      // Two-line layout: the action on its own row (status glyph + verb +
-      // target), the result summary indented underneath with an elbow marker.
-      // Keeping the result off the action row stops long targets and long
-      // results from fighting over one truncated line.
-      const isRunning = item.output === undefined;
-      const toolColor = item.error ? theme.error : isRunning ? theme.accent : theme.success;
-      // While running, the bullet is the shared braille spinner (the timer
-      // already re-renders the app each tick); done/error get a fixed glyph.
-      const statusSymbol = item.error
-        ? "✖"
-        : isRunning
-          ? SPINNER_FRAMES[activityFrame % SPINNER_FRAMES.length] ?? "●"
-          : "●";
-      const action = formatToolAction(item.name, item.input, isRunning, item.error);
-      const duration = item.durationMs !== undefined ? formatDuration(item.durationMs) : "";
-      const result = item.output ? formatToolResultSummary(item.name, item.output, item.error) : "";
+    case "tool":
       return (
-        <Box flexDirection="column" paddingLeft={2}>
-          <Box flexDirection="row" gap={1}>
-            <Text bold color={toolColor}>{statusSymbol}</Text>
-            <Text bold wrap="truncate-end">
-              {truncateSingleLine(action, Math.max(24, width - 8 - (duration ? duration.length + 1 : 0)))}
-            </Text>
-            {duration ? <Text color={theme.muted} dimColor>{duration}</Text> : null}
-          </Box>
-          {isRunning && item.live ? (
-            <Box flexDirection="column" paddingLeft={2}>
-              {liveTailLines(item.live).map((line, i) => (
-                <Text key={i} color={theme.muted} dimColor wrap="truncate-end">
-                  {"  "}{truncateSingleLine(line, Math.max(16, width - 12))}
-                </Text>
-              ))}
-            </Box>
-          ) : null}
-          {!isRunning && item.metadata?.diff?.length ? (
-            <Box paddingLeft={2}>
-              <DiffView diffs={item.metadata.diff} theme={theme} width={Math.max(24, width - 4)} />
-            </Box>
-          ) : !isRunning && result ? (
-            <Box flexDirection="column" paddingLeft={2}>
-              <Box flexDirection="row">
-                <Text color={theme.muted}>⎿ </Text>
-                <Text color={item.error ? theme.error : theme.muted} wrap="truncate-end">
-                  {truncateSingleLine(result, Math.max(16, width - 10))}
-                </Text>
-              </Box>
-              {toolResultPreviewLines(item.name, item.output ?? "", item.error).map((line, i) => (
-                <Text key={i} color={theme.muted} dimColor wrap="truncate-end">
-                  {"  "}{truncateSingleLine(line, Math.max(16, width - 12))}
-                </Text>
-              ))}
-            </Box>
-          ) : null}
-        </Box>
+        <ToolRow
+          item={item}
+          theme={theme}
+          width={width}
+          activityFrame={activityFrame}
+          last={lastInGroup}
+        />
       );
-    }
     case "status":
       return (
         <StatusView
@@ -256,30 +213,18 @@ export function ItemView({
           width={width}
         />
       );
-    case "streaming":
-      // The live assistant reply while it streams. Rendered IDENTICALLY to the
-      // finalized "assistant" item above so it doesn't jump when the turn ends
-      // and the text is committed to a real assistant item.
-      return (
-        <Box flexDirection="column">
-          {continuation ? null : <ReplyHeader theme={theme} />}
-          <Box paddingLeft={2}>
-            <StreamingMarkdown text={item.text} theme={theme} />
-          </Box>
-        </Box>
-      );
     case "turnSummary":
       return (
         <Box paddingLeft={2}>
-          <Text color={theme.muted} dimColor wrap="truncate-end">
+          <Text color={theme.muted} wrap="truncate-end">
             {truncateSingleLine(item.text, Math.max(16, width - 4))}
           </Text>
         </Box>
       );
     case "diff":
       return (
-        <Box flexDirection="column" paddingLeft={2}>
-          <Text bold color={theme.accent}>▌ {item.title}</Text>
+        <Box flexDirection="column">
+          <SectionTitle theme={theme} title={item.title} />
           <Box marginTop={1} paddingLeft={2}>
             <DiffView diffs={item.diffs} theme={theme} width={Math.max(24, width - 4)} />
           </Box>
@@ -289,9 +234,9 @@ export function ItemView({
       return (
         <Box paddingLeft={2}>
           {item.tone === "info" ? (
-            <Text color={theme.muted}>› </Text>
+            <Text color={theme.muted}>{GLYPH.dot} </Text>
           ) : (
-            <Text color={theme.warning}>✕ </Text>
+            <Text bold color={theme.warning}>{GLYPH.warn} </Text>
           )}
           <Text color={theme.muted} wrap="truncate-end">
             {truncateSingleLine(item.text, Math.max(16, width - 6))}
@@ -300,37 +245,40 @@ export function ItemView({
       );
     case "hint":
       return (
-        <Box>
+        <Box paddingLeft={2}>
           <Text color={theme.muted}>{item.text}</Text>
         </Box>
       );
     case "plan":
       return (
-        <Box
-          flexDirection="column"
-          width={Math.max(48, Math.min(width, 104))}
-          borderStyle="single"
-          borderColor={theme.accent}
-          borderTop={false}
-          borderRight={false}
-          borderBottom={false}
-          paddingLeft={2}
-        >
-          <Text bold color={theme.accent}>▣ Plan · {item.title}</Text>
-          <Box marginTop={1}>
+        <Box flexDirection="column" width={Math.max(48, Math.min(width, 104))}>
+          <SectionTitle theme={theme} title="Plan" detail={item.title} />
+          <Box
+            marginTop={1}
+            borderStyle="single"
+            borderColor={theme.subtle}
+            borderTop={false}
+            borderRight={false}
+            borderBottom={false}
+            paddingLeft={2}
+          >
             <Markdown text={item.markdown} theme={theme} />
           </Box>
         </Box>
       );
     case "command":
       return (
-        <Box flexDirection="column" paddingLeft={2}>
-          <Text bold color={theme.accent}>▌ {item.title}</Text>
+        <Box flexDirection="column">
+          <SectionTitle theme={theme} title={item.title} />
           <Box flexDirection="column" paddingLeft={2} marginTop={1}>
             {item.rows.map((row, idx) => (
               <Box key={idx} flexDirection="row">
-                <Text color={theme.muted}>{row.link ? `${terminalLink(row.link)}${row.label}${LINK_END}`.padEnd(14) : row.label.padEnd(14)}</Text>
-                <Text color="white">{row.value}</Text>
+                <Box width={14} flexShrink={0}>
+                  <Text color={theme.muted}>{row.link ? `${terminalLink(row.link)}${row.label}${LINK_END}` : row.label}</Text>
+                </Box>
+                <Box flexShrink={1}>
+                  <Text color={theme.text}>{row.value}</Text>
+                </Box>
               </Box>
             ))}
           </Box>
@@ -339,11 +287,135 @@ export function ItemView({
   }
 }
 
-function ReplyHeader({ theme }: { theme: Theme }): React.JSX.Element {
+/** An assistant reply block: "◆" in the gutter on the first block only. */
+function Reply({
+  theme,
+  continuation,
+  children,
+}: React.PropsWithChildren<{ theme: Theme; continuation: boolean }>): React.JSX.Element {
   return (
     <Box flexDirection="row">
-      <Text bold color={theme.success}>● lucky</Text>
-      <Text color={theme.muted}> › </Text>
+      <Box width={2} flexShrink={0}>
+        {continuation ? null : <Text color={theme.primary}>{GLYPH.reply}</Text>}
+      </Box>
+      <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
+/**
+ * One tool call as a branch of the reply tree:
+ *
+ *   ├─ Read src/parser.ts · 42 lines                       180ms
+ *   │    preview lines / diff
+ *   └─ Ran npm test · 12 passed                            1.4s
+ *
+ * The verb says what happened, the target is what it touched (accent), the
+ * summary is the outcome (muted) and the duration sits on the right edge.
+ */
+function ToolRow({
+  item,
+  theme,
+  width,
+  activityFrame,
+  last,
+}: {
+  item: Extract<Item, { kind: "tool" }>;
+  theme: Theme;
+  width: number;
+  activityFrame: number;
+  last: boolean;
+}): React.JSX.Element {
+  const isRunning = item.output === undefined;
+  const verb = toolVerb(item.name, isRunning, false);
+  // Targets are colored, so the quotes toolTarget adds for plain text go.
+  const target = toolTarget(item.name, item.input).replace(/^"([^"]*)"/, "$1");
+  const diffs = !isRunning ? item.metadata?.diff : undefined;
+  const singleDiff = diffs?.length === 1 ? diffs[0] : undefined;
+  // A single-file edit says it all with its counts; its text summary would
+  // only repeat the path.
+  const summary = singleDiff
+    ? ""
+    : item.output
+      ? formatToolResultSummary(item.name, item.output, item.error)
+      : "";
+  const duration = item.durationMs !== undefined ? formatDuration(item.durationMs) : "";
+  const status = item.error
+    ? GLYPH.fail
+    : isRunning
+      ? SPINNER_FRAMES[activityFrame % SPINNER_FRAMES.length] ?? "·"
+      : "";
+  const statusColor = item.error ? theme.error : theme.accent;
+
+  // Fixed columns: indent(0) + branch(3) + status(2) + verb + spaces + duration.
+  const room = Math.max(16, width - 3 - (status ? 2 : 0) - verb.length - 1 - (duration ? duration.length + 2 : 0));
+  const targetText = truncateSingleLine(target, Math.max(8, Math.min(room, Math.ceil(room * (summary ? 0.6 : 1)))));
+  const summaryRoom = room - targetText.length - (targetText ? 3 : 0);
+  const summaryText = summary && summaryRoom >= 8 ? truncateSingleLine(summary, summaryRoom) : "";
+
+  const previewLines = isRunning
+    ? item.live
+      ? liveTailLines(item.live)
+      : []
+    : diffs?.length
+      ? []
+      : toolResultPreviewLines(item.name, item.output ?? "", item.error);
+  const hasDiff = Boolean(diffs?.length);
+  const hasChildren = previewLines.length > 0 || hasDiff;
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row" width={width}>
+        <Text color={theme.subtle}>{last ? GLYPH.last : GLYPH.branch} </Text>
+        {status ? <Text bold color={statusColor}>{status} </Text> : null}
+        <Box flexGrow={1} flexShrink={1}>
+          <Text wrap="truncate-end">
+            <Text bold color={item.error ? theme.error : theme.text}>{verb}</Text>
+            {targetText ? <Text color={theme.accent}> {targetText}</Text> : null}
+            {summaryText ? (
+              <Text color={item.error ? theme.error : theme.muted}> {GLYPH.dot} {summaryText}</Text>
+            ) : null}
+            {singleDiff ? (
+              <Text>
+                {"  "}
+                <DiffStats diff={singleDiff} theme={theme} />
+              </Text>
+            ) : null}
+          </Text>
+        </Box>
+        {duration ? <Text color={theme.muted}>  {duration}</Text> : null}
+      </Box>
+      {hasChildren ? (
+        // The branch's vertical line runs down beside the children unless this
+        // row closes the group.
+        <Box
+          flexDirection="row"
+          {...(last
+            ? { paddingLeft: 3 }
+            : {
+                borderStyle: "single" as const,
+                borderColor: theme.subtle,
+                borderTop: false,
+                borderRight: false,
+                borderBottom: false,
+                paddingLeft: 2,
+              })}
+        >
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+            {hasDiff ? (
+              <DiffView diffs={diffs!} theme={theme} width={Math.max(24, width - 6)} header={false} />
+            ) : (
+              previewLines.map((line, i) => (
+                <Text key={i} color={theme.muted} wrap="truncate-end">
+                  {truncateSingleLine(line, Math.max(16, width - 8))}
+                </Text>
+              ))
+            )}
+          </Box>
+        </Box>
+      ) : null}
     </Box>
   );
 }

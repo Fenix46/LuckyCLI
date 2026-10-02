@@ -39,7 +39,6 @@ function ActivityIndicatorInner({
   width?: number;
 }): React.JSX.Element {
   const pulse = SPINNER_FRAMES[frame % SPINNER_FRAMES.length] ?? "⠋";
-  const dots = ".".repeat((Math.floor(frame / 4) % 3) + 1).padEnd(3, " ");
   const verb =
     labelOverride ??
     (phase === "reasoning"
@@ -49,25 +48,20 @@ function ActivityIndicatorInner({
         : phase === "working"
           ? "working"
           : "thinking");
+  const title = `${verb.charAt(0).toUpperCase()}${verb.slice(1)}…`;
   const elapsed = formatElapsed(elapsedSeconds);
-  // "⠋ lucky thinking… · <detail> · 12s · esc to interrupt": fixed parts first,
+  // "⠋ Working… · <detail>   12s · esc to interrupt": fixed parts first,
   // the detail gets whatever width remains.
-  const fixed = 2 + 6 + verb.length + 3 + 3 + elapsed.length + 20;
+  const fixed = 2 + title.length + 3 + 3 + elapsed.length + 20;
   const room = width !== undefined ? width - fixed : 80;
   const shownDetail = detail && room >= 12 ? truncateSingleLine(detail, room) : undefined;
   return (
     <Box marginTop={1}>
       <Text wrap="truncate-end">
-        <Text bold color={theme.success}>
-          {pulse} lucky{" "}
-        </Text>
-        <Text bold color={theme.accent}>
-          {verb}
-          {dots}
-        </Text>
-        {shownDetail ? <Text color="white"> · {shownDetail}</Text> : null}
-        <Text color={theme.muted}> · {elapsed}</Text>
-        <Text color={theme.muted} dimColor> · esc to interrupt</Text>
+        <Text bold color={theme.primary}>{pulse} </Text>
+        <Text bold color={theme.text}>{title}</Text>
+        {shownDetail ? <Text color={theme.accent}> {shownDetail}</Text> : null}
+        <Text color={theme.muted}>  {elapsed} · esc to interrupt</Text>
       </Text>
     </Box>
   );

@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import { SelectList } from "./components/SelectList.js";
 import { listSessions, loadSession, loadStoredConfig, type Session } from "@luckycli/core";
 import { themeById } from "./themes.js";
+import { KeyHints, SectionTitle } from "./components/kit.js";
 
 interface SessionPickerProps {
   /** Called with the chosen session when the user picks one. */
@@ -30,13 +31,11 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
   if (sessions.length === 0) {
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
-        <Text bold color={theme.accent}>▌ Resume session</Text>
+        <SectionTitle theme={theme} title="Resume session" />
         <Box marginTop={1}>
           <Text color={theme.muted}>No saved sessions were found on this machine.</Text>
         </Box>
-        <Box marginTop={1}>
-          <Text color={theme.muted} dimColor>esc start fresh</Text>
-        </Box>
+        <KeyHints theme={theme} hints={[["esc", "start fresh"]]} />
       </Box>
     );
   }
@@ -49,9 +48,7 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
 
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
-      <Text bold color={theme.accent}>
-        ▌ Resume session <Text color={theme.muted}>· {sessions.length} saved</Text>
-      </Text>
+      <SectionTitle theme={theme} title="Resume session" detail={`${sessions.length} saved`} />
       <Box marginY={1} flexDirection="column">
         <SelectList
           items={items}
@@ -63,7 +60,15 @@ export function SessionPicker({ onSelect, onCancel }: SessionPickerProps): React
           }}
         />
       </Box>
-      <Text color={theme.muted} dimColor>↑↓ move · enter resume · esc start fresh</Text>
+      <KeyHints
+        theme={theme}
+        marginTop={0}
+        hints={[
+          ["↑↓", "move"],
+          ["enter", "resume"],
+          ["esc", "start fresh"],
+        ]}
+      />
     </Box>
   );
 }

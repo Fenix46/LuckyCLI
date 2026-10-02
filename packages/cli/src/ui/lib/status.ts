@@ -155,13 +155,22 @@ export function quotaLabel(label: string): string {
 }
 
 /**
- * Session usage for the footer: tokens in/out so far and, when the user has
- * configured rates for this model, the estimated cost ("↑15k ↓2.1k · ≈0.0412 USD").
- * Empty before the first turn.
+ * Session usage for the footer: fresh input, cached input and output tokens
+ * so far and, when the user has configured rates for this model, the
+ * estimated cost ("15k in · 380k cached · 2.1k out · ≈0.0412 USD"). Cached
+ * input is shown apart because it is billed at a fraction of the price and
+ * would otherwise make a cache-heavy session look far more expensive than it
+ * is. `includesCache` is true for providers whose input count already
+ * contains the cached tokens (OpenAI family). Empty before the first turn.
  */
-export function formatUsageFooter(usage: TokenUsage, rates?: TokenCostRates): string {
+export function formatUsageFooter(usage: TokenUsage, rates?: TokenCostRates, includesCache = false): string {
   if (usage.inputTokens === 0 && usage.outputTokens === 0) return "";
-  const tokens = `↑${formatCompactNumber(usage.inputTokens)} ↓${formatCompactNumber(usage.outputTokens)}`;
+  const cached = usage.cacheReadTokens ?? 0;
+  const fresh = includesCache ? Math.max(0, usage.inputTokens - cached) : usage.inputTokens;
+  const parts = [`${formatCompactNumber(fresh)} in`];
+  if (cached > 0) parts.push(`${formatCompactNumber(cached)} cached`);
+  parts.push(`${formatCompactNumber(usage.outputTokens)} out`);
+  const tokens = parts.join(" · ");
   if (!rates) return tokens;
   try {
     const { total } = estimateTokenCost(usage, rates);
@@ -172,28 +181,17 @@ export function formatUsageFooter(usage: TokenUsage, rates?: TokenCostRates): st
   }
 }
 
-export function formatStatusFooter(
-  status: ContextStatus | null,
-  options: {
-    effort?: string;
-    thinking?: string;
-    usage?: string;
-  } = {},
-): string {
-  const parts = [`ctx: ${formatContextFooter(status)}`];
-  if (options.usage) parts.push(options.usage);
-  if (options.effort) parts.push(`effort: ${options.effort}`);
-  if (options.thinking) parts.push(`thinking: ${options.thinking}`);
-  return parts.join(" ┃ ");
-}
-
-export function formatContextFooter(status: ContextStatus | null): string {
-  if (!status) return "syncing…";
+/**
+ * Context fill for the footer meter: percent used when the usable window is
+ * known (the exact counts live in /context), raw usage otherwise.
+ */
+export function contextFooter(status: ContextStatus | null): { percent?: number; label: string } {
+  if (!status) return { label: "syncing…" };
   if (status.usedTokens !== undefined && status.usableTokens) {
-    const used = status.usedPercentage ?? Math.round((status.ratio ?? 0) * 100);
-    const remaining = status.remainingPercentage ?? Math.max(0, 100 - used);
-    return `${formatCompactNumber(status.usedTokens)}/${formatCompactNumber(status.usableTokens)} · ${remaining}% free`;
+    const percent = status.usedPercentage ?? Math.round((status.ratio ?? 0) * 100);
+    return { percent, label: `${percent}%` };
   }
-  if (status.contextWindow) return `${formatCompactNumber(status.contextWindow)} window`;
-  return "syncing…";
+  if (status.usedTokens !== undefined) return { label: `${formatCompactNumber(status.usedTokens)} used` };
+  if (status.contextWindow) return { label: `${formatCompactNumber(status.contextWindow)} window` };
+  return { label: "syncing…" };
 }

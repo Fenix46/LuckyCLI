@@ -63,7 +63,7 @@ describe("formatTurnSummary", () => {
   it("reports time, tools with failures, and tokens", () => {
     expect(
       formatTurnSummary({ elapsedMs: 12_000, tools: 4, failedTools: 1, inputTokens: 8123, outputTokens: 420 }),
-    ).toBe("✓ done in 12s · 4 tools (1 failed) · ↑8.1k ↓420 tokens");
+    ).toBe("✓ done in 12s · 4 tools (1 failed) · 8.1k in · 420 out");
   });
 
   it("omits empty sections", () => {

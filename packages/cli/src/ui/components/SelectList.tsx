@@ -29,7 +29,7 @@ export function SelectList<V>({
   theme?: Theme;
 }): React.JSX.Element {
   const accent = theme?.accent ?? "cyan";
-  const muted = theme?.muted ?? "gray";
+  const text = theme?.text;
   const [index, setIndex] = useState(0);
   const safeIndex = items.length === 0 ? 0 : Math.min(index, items.length - 1);
 
@@ -54,8 +54,8 @@ export function SelectList<V>({
         const selected = i === safeIndex;
         return (
           <Box key={`${String(item.value)}-${i}`} flexDirection="row">
-            <Text color={selected ? accent : muted}>{selected ? "❯ " : "  "}</Text>
-            <Text color={selected ? accent : undefined} bold={selected}>
+            <Text color={accent}>{selected ? "❯ " : "  "}</Text>
+            <Text color={selected ? accent : text} bold={selected}>
               {item.label}
             </Text>
           </Box>
