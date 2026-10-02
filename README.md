@@ -131,9 +131,12 @@ checksum.
 
 ### Updating
 
-LuckyCLI keeps itself current. By default (`auto`) it checks for a new release on
-startup, downloads and SHA-256-verifies it in the background, and **applies it on
-the next launch** — never mid-session.
+LuckyCLI keeps itself current. By default (`auto`), every launch asks GitHub for
+the latest release; when there is a newer one it downloads it, verifies its
+SHA-256 and installs it over the binary right away, then tells you to **restart
+lucky** to run it (the session you're in keeps working on the old version). If
+the install fails, lucky shows why plus the manual command, and tries again at
+the next launch. `notify` only shows a banner.
 
 ```bash
 lucky update                 # check; show current/latest + whether self-update works

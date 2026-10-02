@@ -15,6 +15,7 @@ import {
   getAutoUpdatePolicy,
   loadStoredConfig,
   saveStoredConfig,
+  versionLabel,
   withAutoUpdatePolicy,
 } from "@luckycli/core";
 import { APP_VERSION } from "./ui/components/constants.js";
@@ -58,11 +59,11 @@ export async function runUpdateCommand(
   }
 
   const apply = args.includes("--apply") || args.includes("-y");
-  const versionPin = process.env.LUCKY_VERSION;
+  const versionPin = process.env.LUCKY_VERSION ? versionLabel(process.env.LUCKY_VERSION) : undefined;
 
   let info: Awaited<ReturnType<typeof checkForUpdate>>;
   try {
-    info = await checkForUpdate(currentVersion, { force: true });
+    info = await checkForUpdate(currentVersion, { fetchImpl: io.fetchImpl });
   } catch (error) {
     err(`Update check failed: ${error instanceof Error ? error.message : error}`);
     return 1;
@@ -86,13 +87,18 @@ export async function runUpdateCommand(
     return 0;
   }
 
-  // --apply: download, verify, swap.
+  // --apply: download, verify, swap — the pinned release, else the one the
+  // check just found (not a moving "latest" that could change in between).
+  const target = versionPin ?? info.latestVersion;
+  if (!target) {
+    err("Update failed: no release version to install.");
+    return 1;
+  }
   try {
-    const result = await applyUpdateNow(versionPin, { fetchImpl: io.fetchImpl });
+    const result = await applyUpdateNow(target, { fetchImpl: io.fetchImpl });
     if (result.applied) {
-      const target = info.latestVersion ?? versionPin ?? "the latest version";
       out("");
-      out(`Updated to ${target}. Re-run \`lucky\` to use it.`);
+      out(`Updated to ${versionLabel(target)}. Re-run \`lucky\` to use it.`);
       return 0;
     }
     // Couldn't self-update in place — point at the manual command.

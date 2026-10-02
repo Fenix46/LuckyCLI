@@ -11,8 +11,17 @@ import {
   detectSelfUpdate,
   getAutoUpdatePolicy,
   loadStoredConfig,
+  versionLabel,
 } from "@luckycli/core";
-import { applyUpdateNow, checkForUpdate, updateRows, type UpdateInfo } from "../../update.js";
+import {
+  alreadyInstalled,
+  applyUpdateNow,
+  buildInstallCommand,
+  checkForUpdate,
+  updateRows,
+  type ApplyResult,
+  type UpdateInfo,
+} from "../../update.js";
 import { APP_VERSION } from "../components/constants.js";
 import type { Item } from "../lib/items.js";
 
@@ -24,15 +33,21 @@ export interface UpdateCheckDeps {
   /** True once the caller unmounted; suppresses late emissions. */
   isCancelled: () => boolean;
   check: () => Promise<UpdateInfo>;
-  apply: (version: string) => Promise<{ applied: boolean }>;
+  apply: (version: string) => Promise<ApplyResult>;
   canSelfUpdate: () => boolean;
+  /** Self-update already put `version` in place (see alreadyInstalled). */
+  alreadyInstalled: (version: string) => boolean;
 }
 
 /**
- * One background update check. "auto": download+install immediately, narrating
- * progress; on any failure (or a dev runtime that can't self-update) fall
- * through to the notify banner. "notify": banner only. Failures of the check
- * itself are swallowed — /update surfaces them on demand.
+ * One update check at launch.
+ *
+ * "auto": when a newer release exists, download, verify and install it right
+ * away, then tell the user to restart — the running process keeps its loaded
+ * image, so the swap is safe mid-session. Every outcome is reported: a failed
+ * install says why and gives the manual command, and the next launch tries
+ * again. "notify": banner only. A failing *check* (offline) stays silent —
+ * /update surfaces it on demand.
  */
 export async function runUpdateCheckFlow(deps: UpdateCheckDeps): Promise<void> {
   if (deps.policy === "off") return;
@@ -40,44 +55,72 @@ export async function runUpdateCheckFlow(deps: UpdateCheckDeps): Promise<void> {
   try {
     info = await deps.check();
   } catch {
-    return; // background check is best-effort
+    return; // offline or GitHub unreachable: nothing to act on
   }
-  if (deps.isCancelled() || !info.updateAvailable) return;
+  if (deps.isCancelled() || !info.updateAvailable || !info.latestVersion) return;
+  const version = versionLabel(info.latestVersion);
 
-  // Swapping the on-disk binary is safe under a live session — the running
-  // process keeps its loaded image — so the user only restarts to upgrade.
-  if (deps.policy === "auto" && info.latestVersion && deps.canSelfUpdate()) {
-    const version = info.latestVersion;
+  if (deps.policy !== "auto" || !deps.canSelfUpdate()) {
+    deps.emit({ kind: "command", title: "Update Available", rows: updateRows(info) });
+    return;
+  }
+
+  if (deps.alreadyInstalled(version)) {
+    // We installed this release and relaunched, yet the binary still reports
+    // the old version: the release is mislabeled. Reinstalling would loop.
     deps.emit({
       kind: "command",
       title: "Update",
       rows: [
         { label: "version", value: version },
-        { label: "status", value: "downloading in the background…" },
+        {
+          label: "status",
+          value: `already installed, but this binary reports ${versionLabel(info.currentVersion)} — the release build is mislabeled`,
+        },
       ],
     });
-    try {
-      const result = await deps.apply(version);
-      if (deps.isCancelled()) return;
-      if (result.applied) {
-        deps.emit({
-          kind: "command",
-          title: "Update installed",
-          rows: [
-            { label: "version", value: version },
-            { label: "status", value: "restart lucky to use the new version" },
-          ],
-        });
-        return;
-      }
-      // Could not self-update (dev runtime, unwritable dir): fall through.
-    } catch {
-      // Download/verify failed; fall through to the notify banner.
-    }
+    return;
   }
 
+  deps.emit({
+    kind: "command",
+    title: "Update",
+    rows: [
+      { label: "version", value: version },
+      { label: "status", value: "downloading and installing…" },
+    ],
+  });
+
+  let result: ApplyResult;
+  try {
+    result = await deps.apply(version);
+  } catch (error) {
+    result = { applied: false, reason: error instanceof Error ? error.message : String(error) };
+  }
   if (deps.isCancelled()) return;
-  deps.emit({ kind: "command", title: "Update Available", rows: updateRows(info) });
+
+  if (result.applied) {
+    deps.emit({
+      kind: "command",
+      title: "Update installed",
+      rows: [
+        { label: "version", value: version },
+        { label: "status", value: "restart lucky to use the new version" },
+      ],
+    });
+    return;
+  }
+
+  deps.emit({
+    kind: "command",
+    title: "Update failed",
+    rows: [
+      { label: "version", value: version },
+      { label: "reason", value: result.reason ?? "unknown" },
+      { label: "next", value: "lucky will retry at the next launch" },
+      { label: "command", value: result.installCommand ?? buildInstallCommand(version) },
+    ],
+  });
 }
 
 /** Mount-time hook: run the flow once with the real config/network deps. */
@@ -89,9 +132,10 @@ export function useUpdateCheck(emit: (item: Item) => void): void {
       policy: getAutoUpdatePolicy(loadStoredConfig()),
       emit,
       isCancelled: () => cancelled,
-      check: () => checkForUpdate(APP_VERSION),
-      apply: applyUpdateNow,
+      check: () => checkForUpdate(APP_VERSION, { fallbackToCache: true }),
+      apply: (version) => applyUpdateNow(version),
       canSelfUpdate: () => detectSelfUpdate().ok,
+      alreadyInstalled: (version) => alreadyInstalled(version),
     });
     return () => {
       cancelled = true;

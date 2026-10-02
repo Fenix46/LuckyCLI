@@ -25,6 +25,7 @@ function makeDeps(overrides: Partial<UpdateCheckDeps>): {
     check: async () => available(),
     apply: async () => ({ applied: true }),
     canSelfUpdate: () => true,
+    alreadyInstalled: () => false,
     ...overrides,
   };
   return { deps, emitted };
@@ -57,7 +58,7 @@ describe("runUpdateCheckFlow", () => {
     expect(emitted).toHaveLength(0);
   });
 
-  it("swallows a failing check (background is best-effort)", async () => {
+  it("stays silent when the check itself fails (offline)", async () => {
     const { deps, emitted } = makeDeps({
       check: async () => {
         throw new Error("network down");
@@ -79,15 +80,35 @@ describe("runUpdateCheckFlow", () => {
     expect(titles(emitted)).toEqual(["Update", "Update installed"]);
   });
 
-  it("auto policy falls back to the banner when apply fails", async () => {
+  it("auto policy reports why an install failed, with the manual command", async () => {
     const { deps, emitted } = makeDeps({
       policy: "auto",
       apply: async () => {
-        throw new Error("verify failed");
+        throw new Error("checksum mismatch");
       },
     });
     await runUpdateCheckFlow(deps);
-    expect(titles(emitted)).toEqual(["Update", "Update Available"]);
+    expect(titles(emitted)).toEqual(["Update", "Update failed"]);
+    const failed = emitted[1];
+    const rows = failed?.kind === "command" ? failed.rows : [];
+    expect(rows).toContainEqual({ label: "reason", value: "checksum mismatch" });
+    expect(rows.some((row) => row.label === "command" && row.value.includes("v9.9.9"))).toBe(true);
+  });
+
+  it("auto policy does not reinstall a release it already installed", async () => {
+    let applied = false;
+    const { deps, emitted } = makeDeps({
+      policy: "auto",
+      alreadyInstalled: () => true,
+      apply: async () => {
+        applied = true;
+        return { applied: true };
+      },
+    });
+    await runUpdateCheckFlow(deps);
+    expect(applied).toBe(false);
+    expect(titles(emitted)).toEqual(["Update"]);
+    expect(JSON.stringify(emitted)).toContain("mislabeled");
   });
 
   it("auto policy falls back to the banner when self-update isn't possible", async () => {
@@ -96,13 +117,13 @@ describe("runUpdateCheckFlow", () => {
     expect(titles(emitted)).toEqual(["Update Available"]);
   });
 
-  it("auto policy falls back to the banner when apply reports not-applied", async () => {
+  it("auto policy reports a not-applied install as failed", async () => {
     const { deps, emitted } = makeDeps({
       policy: "auto",
-      apply: async () => ({ applied: false }),
+      apply: async () => ({ applied: false, reason: "not-writable" }),
     });
     await runUpdateCheckFlow(deps);
-    expect(titles(emitted)).toEqual(["Update", "Update Available"]);
+    expect(titles(emitted)).toEqual(["Update", "Update failed"]);
   });
 
   it("suppresses late emissions after cancellation", async () => {

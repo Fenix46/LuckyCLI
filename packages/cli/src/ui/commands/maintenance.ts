@@ -56,16 +56,16 @@ export function maintenanceCommands(deps: MaintenanceCommandDeps = defaultDeps):
         }
 
         try {
-          const info = await deps.checkForUpdate(APP_VERSION, { force: true });
+          const info = await deps.checkForUpdate(APP_VERSION);
 
           // `/update apply`: download, verify, swap, then exit cleanly. Typing
           // the subcommand is the confirmation; we never swap mid-turn silently.
           if (args === "apply") {
-            if (!info.updateAvailable) {
+            if (!info.updateAvailable || !info.latestVersion) {
               ctx.emit({ kind: "command", title: "Update", rows: updateRows(info) });
               return;
             }
-            const result = await deps.applyUpdateNow(undefined);
+            const result = await deps.applyUpdateNow(info.latestVersion);
             if (result.applied) {
               ctx.emit({
                 kind: "command",
