@@ -25,7 +25,10 @@ import {
   CLAUDE_OAUTH_BETA_HEADER,
   claudeModelSupportsAdaptiveThinking,
   normalizeClaudeEffort,
+  CLAUDE_CLI_USER_AGENT,
+  CLAUDE_CLI_VERSION,
   claudeContextWindowForModel,
+  claudeModelAcceptsSampling,
   fetchClaudeOAuthProfile,
   fetchClaudeOAuthReferralEligibility,
   fetchClaudeOAuthRoles,
@@ -48,7 +51,7 @@ const CLAUDE_CODE_BETA_HEADER = [
   "advanced-tool-use-2025-11-20",
 ].join(",");
 const CLAUDE_CODE_BILLING_SYSTEM =
-  "x-anthropic-billing-header: cc_version=2.1.220.cea; cc_entrypoint=cli; cch=d1656;";
+  `x-anthropic-billing-header: cc_version=${CLAUDE_CLI_VERSION}.cea; cc_entrypoint=cli; cch=d1656;`;
 // Fallback model for OAuth token-count probes, used only when the caller gave
 // no model. Normally the probe runs on the conversation's own model so it can
 // read that model's prompt cache — see countTokensViaProbe.
@@ -376,7 +379,7 @@ export class ClaudeProvider implements IProvider {
           "anthropic-beta": CLAUDE_CODE_BETA_HEADER,
           "anthropic-dangerous-direct-browser-access": "true",
           "anthropic-version": "2023-06-01",
-          "User-Agent": "claude-cli/2.1.220 (external, cli)",
+          "User-Agent": CLAUDE_CLI_USER_AGENT,
           "x-app": "cli",
         },
       });
@@ -490,11 +493,14 @@ export class ClaudeProvider implements IProvider {
 function buildOptions(config: GenerationConfig, model: string) {
   const thinking = buildClaudeThinking(model, config);
   const effort = normalizeClaudeEffort(model, config.reasoningEffort);
+  // Newer models reject sampling parameters outright (400), so they are
+  // dropped there rather than failing the request.
+  const sampling = claudeModelAcceptsSampling(model);
   return {
-    ...(thinking === undefined && config.temperature !== undefined
+    ...(sampling && thinking === undefined && config.temperature !== undefined
       ? { temperature: config.temperature }
       : {}),
-    ...(config.topP !== undefined ? { top_p: config.topP } : {}),
+    ...(sampling && config.topP !== undefined ? { top_p: config.topP } : {}),
     ...(config.stopSequences ? { stop_sequences: config.stopSequences } : {}),
     ...(thinking ? { thinking } : {}),
     ...(effort ? { output_config: { effort } } : {}),

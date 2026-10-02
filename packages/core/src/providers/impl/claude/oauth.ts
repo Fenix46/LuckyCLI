@@ -17,6 +17,9 @@ export const CLAUDE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
 export const CLAUDE_CONTEXT_WINDOW_DEFAULT = 200_000;
 export const CLAUDE_CONTEXT_WINDOW_1M = 1_000_000;
 export const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+/** The Claude Code CLI version LuckyCLI presents itself as on OAuth requests. */
+export const CLAUDE_CLI_VERSION = "2.1.286";
+export const CLAUDE_CLI_USER_AGENT = `claude-cli/${CLAUDE_CLI_VERSION} (external, cli)`;
 let claudeOAuthCaLoaded = false;
 
 export type ClaudeEffortLevel = typeof CLAUDE_EFFORT_LEVELS[number];
@@ -291,7 +294,7 @@ export async function fetchClaudeOAuthUsage(accessToken: string): Promise<Claude
     headers: authHeaders(accessToken, {
       "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER,
       "Content-Type": "application/json",
-      "User-Agent": "claude-cli/2.1.220 (external, cli)",
+      "User-Agent": CLAUDE_CLI_USER_AGENT,
     }),
   }, "Claude OAuth usage");
   if (!res.ok) {
@@ -317,7 +320,7 @@ export async function fetchClaudeOAuthReferralEligibility(
         "anthropic-client-platform": "claude_code_cli",
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
-        "User-Agent": "claude-cli/2.1.220 (external, cli)",
+        "User-Agent": CLAUDE_CLI_USER_AGENT,
         "x-organization-uuid": organizationUuid,
       }),
     },
@@ -437,7 +440,12 @@ export function claudeContextWindowForModel(model: string): number {
 }
 
 export function claudeEffortLevelsForModel(model: string): ClaudeEffortLevel[] {
-  return claudeModelSupportsEffort(model) ? [...CLAUDE_EFFORT_LEVELS] : [];
+  if (!claudeModelSupportsEffort(model)) return [];
+  return CLAUDE_EFFORT_LEVELS.filter(
+    (level) =>
+      (level !== "xhigh" || claudeModelSupportsXhighEffort(model)) &&
+      (level !== "max" || claudeModelSupportsMaxEffort(model)),
+  );
 }
 
 export function claudeModelSupportsEffort(model: string): boolean {
@@ -446,6 +454,7 @@ export function claudeModelSupportsEffort(model: string): boolean {
     canonical.includes("sonnet-4-6") ||
     canonical.includes("sonnet-5") ||
     canonical.includes("opus-4-6") ||
+    canonical.includes("opus-4-7") ||
     canonical.includes("opus-4-8") ||
     canonical.includes("opus-5") ||
     canonical.includes("fable")
@@ -454,6 +463,21 @@ export function claudeModelSupportsEffort(model: string): boolean {
 
 export function claudeModelSupportsAdaptiveThinking(model: string): boolean {
   return claudeModelSupportsEffort(model);
+}
+
+/**
+ * The `xhigh` level (between high and max) arrived with Opus 4.7; Opus 4.8,
+ * the Opus 5 line, the Sonnet 5 line and Fable support it too.
+ */
+export function claudeModelSupportsXhighEffort(model: string): boolean {
+  const canonical = model.toLowerCase();
+  return (
+    canonical.includes("opus-4-7") ||
+    canonical.includes("opus-4-8") ||
+    canonical.includes("opus-5") ||
+    canonical.includes("sonnet-5") ||
+    canonical.includes("fable")
+  );
 }
 
 export function claudeModelSupportsMaxEffort(model: string): boolean {
@@ -467,10 +491,18 @@ export function claudeModelSupportsMaxEffort(model: string): boolean {
   );
 }
 
+/**
+ * Whether the model still accepts sampling parameters (temperature, top_p).
+ * Opus 4.7 onward, the Sonnet 5 line and Fable reject them with a 400.
+ */
+export function claudeModelAcceptsSampling(model: string): boolean {
+  return !claudeModelSupportsXhighEffort(model);
+}
+
 export function normalizeClaudeEffort(
   model: string,
   effort: string | undefined,
-): "low" | "medium" | "high" | "max" | undefined {
+): ClaudeEffortLevel | undefined {
   if (!effort || !claudeModelSupportsEffort(model)) return undefined;
   const normalized = effort.trim().toLowerCase();
   switch (normalized) {
@@ -479,6 +511,7 @@ export function normalizeClaudeEffort(
     case "high":
       return normalized;
     case "xhigh":
+      return claudeModelSupportsXhighEffort(model) ? "xhigh" : "high";
     case "max":
       return claudeModelSupportsMaxEffort(model) ? "max" : "high";
     default:
@@ -500,8 +533,10 @@ function modelSupportsClaude1m(model: string): boolean {
     canonical.includes("claude-sonnet-4") ||
     canonical.includes("claude-sonnet-5") ||
     canonical.includes("opus-4-6") ||
+    canonical.includes("opus-4-7") ||
     canonical.includes("opus-4-8") ||
-    canonical.includes("opus-5")
+    canonical.includes("opus-5") ||
+    canonical.includes("fable")
   );
 }
 

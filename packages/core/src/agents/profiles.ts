@@ -143,7 +143,7 @@ export function seedDefaultProfiles(): AgentProfile[] {
       name: "backend",
       description: "APIs, data layer, server logic and integration.",
       provider: "claude",
-      model: "claude-opus-5",
+      model: "claude-opus-5-5",
     },
     {
       name: "docs",

@@ -121,7 +121,7 @@ describe("ClaudeProvider", () => {
 
     expect(provider.info.models?.["claude-sonnet-5"]).toMatchObject({
       contextWindow: 1_000_000,
-      maxOutputTokens: 64_000,
+      maxOutputTokens: 128_000,
       source: "provider",
     });
   });
@@ -141,7 +141,7 @@ describe("ClaudeProvider", () => {
 
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        output_config: { effort: "max" },
+        output_config: { effort: "xhigh" },
         thinking: { type: "adaptive" },
       }),
       expect.any(Object),
@@ -164,6 +164,24 @@ describe("ClaudeProvider", () => {
     const request = createMock.mock.calls[0]?.[0];
     expect(request.output_config).toBeUndefined();
     expect(request.thinking).toBeUndefined();
+  });
+
+  it("drops sampling parameters for models that reject them", async () => {
+    const provider = new ClaudeProvider({ type: "claude", authMethod: "api_key", apiKey: "sk-test" });
+
+    await provider.generate(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      { model: "claude-sonnet-5-5", temperature: 0.2, topP: 0.9 },
+    );
+    await provider.generate(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      { model: "claude-sonnet-4-6", temperature: 0.2, topP: 0.9 },
+    );
+
+    const [newer, older] = createMock.mock.calls.map((call) => call[0]);
+    expect(newer.temperature).toBeUndefined();
+    expect(newer.top_p).toBeUndefined();
+    expect(older).toMatchObject({ temperature: 0.2, top_p: 0.9 });
   });
 
   it("counts OAuth context via an inference probe instead of count_tokens", async () => {
@@ -223,7 +241,7 @@ describe("ClaudeProvider", () => {
     expect(request.system).toEqual([
       {
         type: "text",
-        text: "x-anthropic-billing-header: cc_version=2.1.220.cea; cc_entrypoint=cli; cch=d1656;",
+        text: "x-anthropic-billing-header: cc_version=2.1.286.cea; cc_entrypoint=cli; cch=d1656;",
       },
       { type: "text", text: "Be concise.", cache_control: { type: "ephemeral" } },
     ]);
@@ -312,7 +330,7 @@ describe("ClaudeProvider", () => {
           Authorization: "Bearer oauth-access-token",
           "anthropic-beta": "oauth-2025-04-20",
           "Content-Type": "application/json",
-          "User-Agent": "claude-cli/2.1.220 (external, cli)",
+          "User-Agent": "claude-cli/2.1.286 (external, cli)",
         }),
       }),
     );
