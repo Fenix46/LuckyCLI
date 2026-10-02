@@ -454,11 +454,13 @@ export {
   latestSession,
   listSessions,
   loadSession,
+  RESUME_CACHE_WINDOW_MS,
+  resumeCacheHints,
   saveSession,
   sessionFilePath,
   sessionsDirPath,
 } from "./session/store.js";
-export type { Session, SessionFilter, SessionMeta } from "./session/store.js";
+export type { ResumeCacheHints, Session, SessionFilter, SessionMeta } from "./session/store.js";
 
 export {
   startOAuthFlow,

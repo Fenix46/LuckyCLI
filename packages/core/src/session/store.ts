@@ -60,6 +60,50 @@ export interface Session {
   usage?: TokenUsage;
   /** Number of transient provider retries across the session. */
   retryCount?: number;
+  /**
+   * The exact system prompt the session last ran with. Resuming soon after
+   * with the same one keeps the request prefix byte-identical, so the
+   * provider's prompt cache (if still alive) is read instead of re-written.
+   */
+  systemPrompt?: string;
+  /** The conversation's prompt-cache routing key (see AgentConfig.promptCacheKey). */
+  promptCacheKey?: string;
+}
+
+/**
+ * How long after its last save a session's stored system prompt is reused on
+ * resume. Provider prompt caches live minutes to about an hour; past that
+ * there is nothing to keep warm, so a freshly composed prompt (current date,
+ * git state, project memory) is the better choice.
+ */
+export const RESUME_CACHE_WINDOW_MS = 60 * 60 * 1000;
+
+/** What a resumed agent should reuse to hit the provider's prompt cache. */
+export interface ResumeCacheHints {
+  systemPrompt?: string;
+  promptCacheKey?: string;
+}
+
+/**
+ * Cache hints for resuming `session` on `provider`/`model`. The cache key is
+ * always kept (it only routes requests); the stored system prompt only when
+ * the session was saved recently on the same provider and model, since a
+ * different model never shares the cache anyway.
+ */
+export function resumeCacheHints(
+  session: Pick<Session, "provider" | "model" | "updatedAt" | "systemPrompt" | "promptCacheKey">,
+  provider: string,
+  model: string,
+  now = Date.now(),
+): ResumeCacheHints {
+  const fresh =
+    session.provider === provider &&
+    session.model === model &&
+    now - session.updatedAt <= RESUME_CACHE_WINDOW_MS;
+  return {
+    ...(session.promptCacheKey ? { promptCacheKey: session.promptCacheKey } : {}),
+    ...(fresh && session.systemPrompt ? { systemPrompt: session.systemPrompt } : {}),
+  };
 }
 
 export function sessionsDirPath(): string {

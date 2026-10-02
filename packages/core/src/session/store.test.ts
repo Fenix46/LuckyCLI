@@ -16,6 +16,7 @@ import {
   listSessionCheckpoints,
   loadSession,
   removeSessionCheckpoint,
+  resumeCacheHints,
   saveSession,
   sessionsDirPath,
   type Session,
@@ -117,6 +118,28 @@ describe("session store", () => {
       await rm(projectA, { recursive: true, force: true });
       await rm(projectB, { recursive: true, force: true });
     }
+  });
+
+  it("gives resume cache hints only while the stored prompt can still be cached", () => {
+    const now = 10 * 60 * 60 * 1000;
+    const saved = {
+      provider: "claude" as const,
+      model: "claude-sonnet-5",
+      updatedAt: now - 10 * 60 * 1000,
+      systemPrompt: "SYSTEM",
+      promptCacheKey: "conv-1",
+    };
+    expect(resumeCacheHints(saved, "claude", "claude-sonnet-5", now)).toEqual({
+      systemPrompt: "SYSTEM",
+      promptCacheKey: "conv-1",
+    });
+    // Too old to still be cached: compose a fresh prompt, keep the routing key.
+    expect(resumeCacheHints({ ...saved, updatedAt: now - 2 * 60 * 60 * 1000 }, "claude", "claude-sonnet-5", now)).toEqual({
+      promptCacheKey: "conv-1",
+    });
+    // Another model never shares the cache.
+    expect(resumeCacheHints(saved, "claude", "claude-opus-5", now)).toEqual({ promptCacheKey: "conv-1" });
+    expect(resumeCacheHints({ provider: "claude", model: "m", updatedAt: now }, "claude", "m", now)).toEqual({});
   });
 
   it("deletes a session", () => {

@@ -948,6 +948,30 @@ describe("Agent loop", () => {
     expect(new Set(keys).size).toBe(1);
   });
 
+  it("keeps a resumed conversation's prompt cache key", async () => {
+    const keys: Array<string | undefined> = [];
+    class KeyProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(_m: Message[], config: GenerationConfig): AsyncGenerator<StreamChunk> {
+        keys.push(config.promptCacheKey);
+        yield { textDelta: "ok", finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const agent = new Agent({ provider: new KeyProvider(), model: "mock", tools: new ToolRegistry(), promptCacheKey: "conv-1" });
+    await collect(agent.send("hi"));
+    expect(keys).toEqual(["conv-1"]);
+    expect(agent.cacheKey).toBe("conv-1");
+  });
+
   it("retries a transient provider error before the stream yields anything", async () => {
     // A 429 before the first token must not kill the turn: the loop retries
     // with backoff and the reply lands normally.

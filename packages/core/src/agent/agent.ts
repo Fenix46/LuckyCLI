@@ -134,6 +134,12 @@ export interface AgentConfig {
   initialUsage?: TokenUsage;
   /** Retry count restored from a persisted session. */
   initialRetryCount?: number;
+  /**
+   * Conversation identity for provider prompt-cache routing. Pass the stored
+   * key when resuming so requests land on the same warm cache; a fresh one is
+   * generated otherwise.
+   */
+  promptCacheKey?: string;
 }
 
 export type ToolApproval = "allow" | "always" | "deny" | boolean;
@@ -197,7 +203,7 @@ export class Agent {
    */
   private prunedTokensSinceUsage = 0;
   /** Stable per-conversation key so providers can route requests to a warm prompt cache. */
-  private readonly promptCacheKey = randomUUID();
+  private readonly promptCacheKey: string;
   /** File reads whose results are still in the transcript (see ReadLedger). */
   private readonly readLedger = new ReadLedger();
   private readonly history: Message[] = [];
@@ -239,12 +245,23 @@ export class Agent {
     this.readTextFile = cfg.readTextFile;
     this.writeTextFile = cfg.writeTextFile;
     this.enrichTurn = cfg.enrichTurn;
+    this.promptCacheKey = cfg.promptCacheKey ?? randomUUID();
     if (cfg.messages?.length) this.history.push(...cfg.messages);
   }
 
   /** The conversation so far. Useful for persistence or inspection. */
   get messages(): readonly Message[] {
     return this.history;
+  }
+
+  /** The system prompt sent with every request (persisted to resume with a warm cache). */
+  get systemPrompt(): string | undefined {
+    return this.system;
+  }
+
+  /** The conversation's prompt-cache key (persisted alongside the session). */
+  get cacheKey(): string {
+    return this.promptCacheKey;
   }
 
   /** Cumulative token usage across every turn this agent has run. */
