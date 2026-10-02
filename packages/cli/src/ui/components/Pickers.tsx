@@ -2,7 +2,8 @@
  * Bottom-chrome picker overlays (effort, model, theme). All three share the
  * same list shape from the kit: ❯ marks the cursor, ● marks the active value,
  * and a key legend explains the keys. State (selected index, open/close)
- * stays in App — these are pure render components.
+ * stays in App — these are pure render components. Model and theme lists
+ * scroll (ScrollList) so a long catalog never floods the screen.
  */
 import React from "react";
 import { Box, Text } from "../../vendor/ink-compat.js";
@@ -10,6 +11,7 @@ import { PROVIDER_CATALOG, type ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import { PickerHint } from "./PickerHint.js";
 import { OptionRow, SectionTitle } from "./kit.js";
+import { ScrollList } from "./ScrollList.js";
 
 function PickerFrame(
   props: React.PropsWithChildren<{ theme: Theme; title: string; detail?: string }>,
@@ -64,16 +66,24 @@ export function ModelPickerView({
   return (
     <PickerFrame theme={theme} title="Select model" detail={PROVIDER_CATALOG[provider].displayName}>
       {items.length > 0 ? (
-        items.map((model, idx) => (
-          <OptionRow
-            key={model}
-            theme={theme}
-            selected={idx === selectedIndex}
-            active={model === activeModel}
-            label={labels[model] ?? model}
-            {...(labels[model] ? { detail: model } : {})}
-          />
-        ))
+        <ScrollList
+          theme={theme}
+          count={items.length}
+          selectedIndex={selectedIndex}
+          renderRow={(idx) => {
+            const model = items[idx]!;
+            return (
+              <OptionRow
+                key={model}
+                theme={theme}
+                selected={idx === selectedIndex}
+                active={model === activeModel}
+                label={labels[model] ?? model}
+                {...(labels[model] ? { detail: model } : {})}
+              />
+            );
+          }}
+        />
       ) : (
         <Text color={theme.warning}>No matching model. Type /model {"<model-id>"}.</Text>
       )}
@@ -94,17 +104,25 @@ export function ThemePickerView({
   return (
     <PickerFrame theme={theme} title="Interface theme">
       {items.length > 0 ? (
-        items.map((candidate, idx) => (
-          <OptionRow
-            key={candidate.id}
-            theme={theme}
-            selected={idx === selectedIndex}
-            active={candidate.id === theme.id}
-            label={candidate.id}
-            labelWidth={16}
-            detail={candidate.name}
-          />
-        ))
+        <ScrollList
+          theme={theme}
+          count={items.length}
+          selectedIndex={selectedIndex}
+          renderRow={(idx) => {
+            const candidate = items[idx]!;
+            return (
+              <OptionRow
+                key={candidate.id}
+                theme={theme}
+                selected={idx === selectedIndex}
+                active={candidate.id === theme.id}
+                label={candidate.id}
+                labelWidth={16}
+                detail={candidate.name}
+              />
+            );
+          }}
+        />
       ) : (
         <Text color={theme.warning}>No matching theme. Type /theme.</Text>
       )}
