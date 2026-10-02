@@ -85,6 +85,12 @@ export interface GenerationConfig {
    * support it ignore the flag.
    */
   thinkingEnabled?: boolean;
+  /**
+   * Stable identifier for the conversation, so providers that route by a
+   * cache key (e.g. ChatGPT/Codex `prompt_cache_key`) keep hitting the same
+   * warm prompt cache. Providers without such a hint ignore it.
+   */
+  promptCacheKey?: string;
 }
 
 // ─── Responses ───────────────────────────────────────────────────────────────

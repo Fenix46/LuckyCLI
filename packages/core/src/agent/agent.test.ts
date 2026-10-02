@@ -754,6 +754,128 @@ describe("Agent loop", () => {
     expect(seen[2]?.at(-1)).toMatchObject({ role: "tool" });
   });
 
+  it("compacts on a model with an unknown window once maxContextTokens is reached", async () => {
+    // A local model without a configured window used to never compact.
+    let turn = 0;
+    class UnknownWindowProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        turn += 1;
+        yield { textDelta: "ok", finishReason: "stop", usage: { inputTokens: turn * 600, outputTokens: 5 } };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [{ type: "text", text: "summary of earlier turns" }], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const agent = new Agent({
+      provider: new UnknownWindowProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+      compaction: { keepRecentTurns: 1, maxContextTokens: 1_000 },
+    });
+
+    await collect(agent.send("one"));
+    await collect(agent.send("two"));
+    const events = await collect(agent.send("three"));
+
+    expect(events.some((event) => event.type === "context_compacted")).toBe(true);
+    expect(agent.messages[0]).toMatchObject({ role: "system" });
+  });
+
+  it("clears old tool results during a long tool loop, keeping the recent ones", async () => {
+    const bulky = defineTool({
+      name: "bulky",
+      description: "Returns a lot of text.",
+      schema: z.object({ n: z.number() }),
+      async execute({ n }) {
+        return { content: `result ${n} ${"x".repeat(5_000)}` };
+      },
+    });
+    const steps = 14;
+    let call = 0;
+    const seen: Message[][] = [];
+    class LoopProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(messages: Message[]): AsyncGenerator<StreamChunk> {
+        seen.push(messages);
+        call += 1;
+        if (call > steps) {
+          yield { textDelta: "done", finishReason: "stop", usage: { inputTokens: 900, outputTokens: 5 } };
+          return;
+        }
+        yield { toolCall: { type: "tool_call", id: `c${call}`, name: "bulky", arguments: { n: call } } };
+        yield { finishReason: "tool_calls", usage: { inputTokens: 900, outputTokens: 5 } };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const agent = new Agent({
+      provider: new LoopProvider(),
+      model: "mock",
+      tools: new ToolRegistry().register(bulky),
+      compaction: { maxContextTokens: 1_000 },
+    });
+
+    await collect(agent.send("go"));
+
+    const results = agent.messages.flatMap((m) => m.content).filter((p) => p.type === "tool_result");
+    expect(results).toHaveLength(steps);
+    const cleared = results.filter((p) => p.type === "tool_result" && p.content.startsWith("[Earlier bulky output"));
+    expect(cleared.length).toBeGreaterThan(0);
+    // The newest results always stay intact.
+    for (const part of results.slice(-8)) {
+      expect(part.type === "tool_result" && part.content.startsWith("result")).toBe(true);
+    }
+    // The model saw the cleared transcript on a later step.
+    const last = seen.at(-1)!.flatMap((m) => m.content).filter((p) => p.type === "tool_result");
+    expect(last.some((p) => p.type === "tool_result" && p.content.startsWith("[Earlier"))).toBe(true);
+  });
+
+  it("sends a stable prompt cache key for the whole conversation", async () => {
+    const keys: Array<string | undefined> = [];
+    class KeyProvider implements IProvider {
+      readonly info = INFO;
+      private turn = 0;
+      async *generateStream(_m: Message[], config: GenerationConfig): AsyncGenerator<StreamChunk> {
+        keys.push(config.promptCacheKey);
+        if (this.turn++ === 0) {
+          yield* toolCallStep("k1");
+          return;
+        }
+        yield { textDelta: "ok", finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const agent = new Agent({ provider: new KeyProvider(), model: "mock", tools: new ToolRegistry().register(echo) });
+    await collect(agent.send("hi"));
+    await collect(agent.send("again"));
+
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).toBeTruthy();
+    expect(new Set(keys).size).toBe(1);
+  });
+
   it("retries a transient provider error before the stream yields anything", async () => {
     // A 429 before the first token must not kill the turn: the loop retries
     // with backoff and the reply lands normally.

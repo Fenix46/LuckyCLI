@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IProvider } from "../providers/IProvider.js";
 import type {
   ContentPart,
@@ -68,6 +69,15 @@ export interface AgentConfig {
     thresholdRatio?: number;
     keepRecentTurns?: number;
     reservedOutputTokens?: number;
+    /**
+     * Absolute ceiling on the context the agent lets build up before it
+     * compacts, regardless of how large the model's window is. Every step
+     * re-sends the whole transcript, so a 1M-token window filled to 75% would
+     * re-bill ~750k input tokens per tool call. Also the trigger used when
+     * the window is unknown (e.g. a local model without a configured size).
+     * Set to 0 to rely on thresholdRatio alone.
+     */
+    maxContextTokens?: number;
   };
   /** Tool permission policy. Supports exact tool names and wildcard patterns. */
   permissions?: ToolPermissionPolicy;
@@ -130,6 +140,7 @@ interface RequiredCompactionConfig {
   enabled: boolean;
   thresholdRatio: number;
   keepRecentTurns: number;
+  maxContextTokens: number;
   reservedOutputTokens?: number;
 }
 
@@ -177,6 +188,14 @@ export class Agent {
   private readonly repeatedToolFailures = new Map<string, number>();
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   private retryCount = 0;
+  /**
+   * Tokens freed by clearing old tool results since the last observed usage.
+   * The cheap context estimate subtracts it so a just-pruned transcript isn't
+   * judged by the pre-pruning size until the next stream reports the real one.
+   */
+  private prunedTokensSinceUsage = 0;
+  /** Stable per-conversation key so providers can route requests to a warm prompt cache. */
+  private readonly promptCacheKey = randomUUID();
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -194,6 +213,7 @@ export class Agent {
       enabled: cfg.compaction?.enabled ?? true,
       thresholdRatio: cfg.compaction?.thresholdRatio ?? 0.75,
       keepRecentTurns: cfg.compaction?.keepRecentTurns ?? 6,
+      maxContextTokens: cfg.compaction?.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS,
       ...(cfg.compaction?.reservedOutputTokens !== undefined
         ? { reservedOutputTokens: cfg.compaction.reservedOutputTokens }
         : {}),
@@ -255,7 +275,8 @@ export class Agent {
    */
   private async cheapContextStatus(): Promise<ContextStatus> {
     if (this.lastUsage) {
-      return this.contextStatusFromUsage(this.lastUsage, undefined, "provider");
+      const status = this.contextStatusFromUsage(this.lastUsage, undefined, "provider");
+      return this.prunedTokensSinceUsage > 0 ? withFreedTokens(status, this.prunedTokensSinceUsage) : status;
     }
     return this.contextStatus();
   }
@@ -358,6 +379,15 @@ export class Agent {
       // long tool loop can pile on large tool results and overflow the window
       // mid-turn with no recovery. The check is free (reuses the last stream's
       // usage) and compacts only older turns, keeping the current one intact.
+      // Long tool loops are the main source of context growth, and a single
+      // user turn can't be compacted (the current turn is always kept). So
+      // once the transcript gets large, clear the bodies of old tool results:
+      // the model keeps the call and a short note, and can re-run the tool.
+      const pruneStatus = await this.cheapContextStatus();
+      if (this.shouldPruneToolResults(pruneStatus) && this.pruneOldToolResults() > 0) {
+        yield { type: "context", status: await this.cheapContextStatus() };
+      }
+
       if (!compactedThisTurn) {
         const midStatus = await this.cheapContextStatus();
         if (this.shouldCompact(midStatus)) {
@@ -814,6 +844,7 @@ export class Agent {
       ...(this.reasoningEffort ? { reasoningEffort: this.reasoningEffort } : {}),
       ...(this.thinkingEnabled !== undefined ? { thinkingEnabled: this.thinkingEnabled } : {}),
       ...(signal ? { abortSignal: signal } : {}),
+      promptCacheKey: this.promptCacheKey,
     };
   }
 
@@ -893,11 +924,72 @@ export class Agent {
     // requiring "provider" made the trigger provider-specific — e.g. it never
     // fired on the very first turn or when a provider reports usage through a
     // path the UI accepts but this gate rejected.
-    if (!status.usedTokens || !status.usableTokens) return false;
+    const trigger = this.compactionTrigger(status);
+    if (!status.usedTokens || trigger === undefined) return false;
     // Still skip on genuinely short conversations: there's nothing worth
     // summarizing until there's history older than the recent turns we keep.
     if (this.history.length <= this.compaction.keepRecentTurns * 2) return false;
-    return status.usedTokens >= status.usableTokens * this.compaction.thresholdRatio;
+    return status.usedTokens >= trigger;
+  }
+
+  /**
+   * The context size at which the agent compacts: a share of the usable
+   * window, capped by maxContextTokens. With an unknown window (typically a
+   * local model) the cap alone applies, so compaction still happens.
+   */
+  private compactionTrigger(status: ContextStatus): number | undefined {
+    const ratioTrigger = status.usableTokens ? status.usableTokens * this.compaction.thresholdRatio : undefined;
+    const cap = this.compaction.maxContextTokens > 0 ? this.compaction.maxContextTokens : undefined;
+    if (ratioTrigger === undefined) return cap;
+    return cap === undefined ? ratioTrigger : Math.min(ratioTrigger, cap);
+  }
+
+  private shouldPruneToolResults(status: ContextStatus): boolean {
+    if (!this.compaction.enabled) return false;
+    const trigger = this.compactionTrigger(status);
+    if (!status.usedTokens || trigger === undefined) return false;
+    return status.usedTokens >= trigger * PRUNE_AT_RATIO;
+  }
+
+  /**
+   * Replace the content of old, large tool results with a short note,
+   * keeping the most recent ones intact. Runs in batches (only when enough
+   * text would be freed) so the prompt-cache prefix is rewritten rarely.
+   * Returns the estimated number of tokens freed.
+   */
+  private pruneOldToolResults(): number {
+    const positions: Array<{ message: number; part: number }> = [];
+    this.history.forEach((message, m) => {
+      message.content.forEach((part, p) => {
+        if (part.type === "tool_result") positions.push({ message: m, part: p });
+      });
+    });
+    const candidates = positions.slice(0, Math.max(0, positions.length - KEEP_RECENT_TOOL_RESULTS)).filter(({ message, part }) => {
+      const block = this.history[message]?.content[part];
+      return block?.type === "tool_result" && block.content.length > PRUNE_MIN_RESULT_CHARS && !block.content.startsWith(PRUNED_PREFIX);
+    });
+    let freedChars = 0;
+    for (const { message, part } of candidates) {
+      const block = this.history[message]?.content[part];
+      if (block?.type === "tool_result") freedChars += block.content.length;
+    }
+    if (freedChars < PRUNE_MIN_BATCH_CHARS) return 0;
+
+    for (const { message, part } of candidates) {
+      const msg = this.history[message]!;
+      const block = msg.content[part];
+      if (block?.type !== "tool_result") continue;
+      const content = [...msg.content];
+      content[part] = {
+        ...block,
+        content: `${PRUNED_PREFIX} ${block.name} output (${block.content.length} chars) was cleared to save context. Call the tool again if you still need it.]`,
+      };
+      this.history[message] = { ...msg, content };
+    }
+    this.countCache = undefined;
+    const freedTokens = Math.round(freedChars / CHARS_PER_TOKEN);
+    this.prunedTokensSinceUsage += freedTokens;
+    return freedTokens;
   }
 
   /**
@@ -1041,6 +1133,7 @@ export class Agent {
 
   private recordUsage(usage: TokenUsage): void {
     this.lastUsage = usage;
+    this.prunedTokensSinceUsage = 0;
     this.totalUsage = {
       inputTokens: this.totalUsage.inputTokens + usage.inputTokens,
       outputTokens: this.totalUsage.outputTokens + usage.outputTokens,
@@ -1079,6 +1172,29 @@ function isAbortError(err: unknown): boolean {
   const e = err as { name?: string; message?: string; code?: string };
   if (e.name === "AbortError" || e.code === "ABORT_ERR") return true;
   return typeof e.message === "string" && /\baborted?\b/i.test(e.message);
+}
+
+/** Default absolute compaction ceiling (see compaction.maxContextTokens). */
+const DEFAULT_MAX_CONTEXT_TOKENS = 160_000;
+// Old tool results are cleared once the context reaches this share of the
+// compaction trigger. The newest results always stay intact, only large ones
+// are cleared, and only when the batch frees a meaningful amount of text.
+const PRUNE_AT_RATIO = 0.5;
+const KEEP_RECENT_TOOL_RESULTS = 8;
+const PRUNE_MIN_RESULT_CHARS = 2_000;
+const PRUNE_MIN_BATCH_CHARS = 20_000;
+const PRUNED_PREFIX = "[Earlier";
+/** Rough chars-per-token ratio for estimating freed context. */
+const CHARS_PER_TOKEN = 4;
+
+/** Copy of a status with `freed` tokens removed from the used count. */
+function withFreedTokens(status: ContextStatus, freed: number): ContextStatus {
+  if (status.usedTokens === undefined) return status;
+  const usedTokens = Math.max(0, status.usedTokens - freed);
+  if (!status.usableTokens) return { ...status, usedTokens };
+  const ratio = usedTokens / status.usableTokens;
+  const usedPercentage = Math.min(100, Math.max(0, Math.round(ratio * 100)));
+  return { ...status, usedTokens, ratio, usedPercentage, remainingPercentage: 100 - usedPercentage };
 }
 
 /** How many times a transient provider failure is retried per step. */
