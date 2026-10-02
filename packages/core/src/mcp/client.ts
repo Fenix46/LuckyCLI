@@ -12,6 +12,7 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import type {
   McpPromptDescriptor,
   McpResourceDescriptor,
+  McpToolCallResult,
   McpToolDescriptor,
 } from "./types.js";
 
@@ -20,7 +21,7 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 /** What every MCP client exposes to the manager, independent of transport. */
 export interface McpClient {
   listTools(): Promise<McpToolDescriptor[]>;
-  callTool(name: string, args: Record<string, unknown>): Promise<string>;
+  callTool(name: string, args: Record<string, unknown>): Promise<McpToolCallResult>;
   listPrompts(): Promise<McpPromptDescriptor[]>;
   getPrompt(name: string, args?: Record<string, string>): Promise<string>;
   listResources(): Promise<McpResourceDescriptor[]>;
@@ -30,12 +31,18 @@ export interface McpClient {
 
 /** Normalize the SDK's tool list into Lucky's descriptor shape. */
 export function toToolDescriptors(
-  tools: Array<{ name: string; description?: string; inputSchema?: unknown }>,
+  tools: Array<{
+    name: string;
+    description?: string;
+    inputSchema?: unknown;
+    annotations?: { readOnlyHint?: boolean } | undefined;
+  }>,
 ): McpToolDescriptor[] {
   return tools.map((tool) => ({
     name: tool.name,
     ...(tool.description ? { description: tool.description } : {}),
     ...(tool.inputSchema ? { inputSchema: tool.inputSchema as Record<string, unknown> } : {}),
+    ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
   }));
 }
 
@@ -69,13 +76,15 @@ export async function callClientTool(
   name: string,
   args: Record<string, unknown>,
   timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<string> {
+): Promise<McpToolCallResult> {
   const result = await withTimeout(
     client.callTool({ name, arguments: args }, CallToolResultSchema),
     timeoutMs,
     `Timed out calling MCP tool "${name}".`,
   );
-  return toToolResultText(result.content);
+  // A tool-level failure comes back as a normal result flagged isError; it
+  // must reach the model as an error, not as a successful call.
+  return { content: toToolResultText(result.content), isError: result.isError === true };
 }
 
 /** List prompts via the SDK client, normalized to Lucky descriptors. */

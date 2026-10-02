@@ -71,7 +71,7 @@ describe("McpRemoteClient", () => {
     const tools = await client.listTools();
     expect(tools.map((tool) => tool.name)).toContain("echo");
 
-    await expect(client.callTool("echo", { message: "hi" })).resolves.toBe("echo:hi");
+    await expect(client.callTool("echo", { message: "hi" })).resolves.toEqual({ content: "echo:hi", isError: false });
   });
 
   it("surfaces a clear error when the remote server is unreachable", async () => {

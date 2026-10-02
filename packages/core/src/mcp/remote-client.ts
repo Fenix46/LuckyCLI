@@ -18,6 +18,7 @@ import type {
   McpPromptDescriptor,
   McpRemoteServerConfig,
   McpResourceDescriptor,
+  McpToolCallResult,
   McpToolDescriptor,
 } from "./types.js";
 
@@ -78,7 +79,7 @@ export class McpRemoteClient implements McpClient {
     return listClientTools(this.client);
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<string> {
+  async callTool(name: string, args: Record<string, unknown>): Promise<McpToolCallResult> {
     return callClientTool(this.client, name, args);
   }
 

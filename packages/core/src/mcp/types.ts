@@ -34,6 +34,14 @@ export interface McpToolDescriptor {
   name: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
+  /** The server marked the tool read-only (annotations.readOnlyHint). */
+  readOnly?: boolean;
+}
+
+/** A tool call's outcome: its text, and whether the server reported a failure. */
+export interface McpToolCallResult {
+  content: string;
+  isError: boolean;
 }
 
 export interface McpPromptDescriptor {

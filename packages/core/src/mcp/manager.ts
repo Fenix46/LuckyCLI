@@ -187,10 +187,15 @@ export class McpManager {
             const tracked = ctx.onFilesChanged ? await trackedGraphFiles(ctx.cwd) : [];
             const before = tracked.length ? snapshotFiles(ctx.cwd, tracked) : undefined;
 
-            const content = await server.client.callTool(invocation.tool, invocation.arguments);
+            const result = await server.client.callTool(invocation.tool, invocation.arguments);
 
             if (before) reportChangedFiles(ctx, ctx.cwd, tracked, before);
-            return { content };
+            // Bounded like prompts and resources: a chatty server must not
+            // land an unbounded payload in the transcript.
+            return {
+              content: boundMcpContent(result.content, this.maxContentChars),
+              ...(result.isError ? { isError: true } : {}),
+            };
           },
           uniqueMcpToolName(name, tool.name, taken),
         ),

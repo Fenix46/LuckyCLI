@@ -78,7 +78,7 @@ describe("runMcpCommand", () => {
     const code = await runMcpCommand(["status"], { mcp, out: (l) => out.push(l) });
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("connected");
-    expect(out.join("\n")).toContain("2 tools");
+    expect(out.join("\n")).toContain("4 tools");
   });
 
   it("inspects prompts and resources for one live server", async () => {
