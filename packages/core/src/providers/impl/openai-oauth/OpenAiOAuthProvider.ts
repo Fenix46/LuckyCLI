@@ -19,21 +19,19 @@ import {
   type OpenAiOAuthTokens,
 } from "./tokens.js";
 import { ensureChatGptCa } from "./chatgpt-tls.js";
+import { fetchCodexModels, type CodexModel } from "./models.js";
+import { providerInfo } from "../../catalog.js";
 
 export type { OpenAiOAuthTokens } from "./tokens.js";
 
-const INFO: ProviderInfo = {
-  id: "openai-oauth",
-  displayName: "ChatGPT",
-  // Bootstrap list only — the live model list comes from /codex/models
-  // (fetchCodexModels) once authenticated.
-  availableModels: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-4o"],
-  defaultModel: "gpt-5.5",
-  supportsStreaming: true,
-  supportsVision: true,
-  supportsTools: true,
-  usageTokensIncludeCache: true,
-};
+const INFO: ProviderInfo = providerInfo("openai-oauth");
+
+/**
+ * Share of the advertised context window LuckyCLI plans against, as the Codex
+ * CLI does: the rest is headroom for the system prompt, tool schemas and the
+ * reply, which the backend counts against the same window.
+ */
+const EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 
 const CHATGPT_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage";
 const CHATGPT_USAGE_USER_AGENT =
@@ -155,8 +153,15 @@ interface ChatGptUsageResponse {
 }
 
 export class OpenAiOAuthProvider implements IProvider {
-  readonly info = INFO;
+  // A per-instance copy: syncLiveModels fills in the live catalog.
+  readonly info: ProviderInfo = {
+    ...INFO,
+    availableModels: [...INFO.availableModels],
+    models: { ...INFO.models },
+    usageTokensIncludeCache: true,
+  };
   private tokens: OpenAiOAuthTokens;
+  private liveModels: Promise<void> | undefined;
   private refreshPromise: Promise<OpenAiOAuthTokens> | undefined;
   // Cached from the last stream's response.completed event. No dedicated
   // counting endpoint exists, so agent.ts gets this on the next countTokens() call.
@@ -206,6 +211,7 @@ export class OpenAiOAuthProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): AsyncGenerator<StreamChunk> {
+    await this.ensureLiveModels();
     const res = await fetch(CODEX_API_ENDPOINT, {
       method: "POST",
       headers: await this.authHeaders(),
@@ -355,6 +361,52 @@ export class OpenAiOAuthProvider implements IProvider {
       ...(usage.plan_type ? { subscription: usage.plan_type, tier: usage.plan_type } : {}),
       ...(quotas.length ? { quotas } : {}),
       ...(notes.length ? { notes } : {}),
+    };
+  }
+
+  /**
+   * Learn the account's models and their context windows from /codex/models
+   * once per instance, so the context meter and compaction use the real
+   * window of whatever model is selected (the static catalog only knows the
+   * bootstrap list). Best effort: a failure keeps the static entries and is
+   * retried on the next request.
+   */
+  private async ensureLiveModels(): Promise<void> {
+    this.liveModels ??= this.ensureFreshToken()
+      .then((tokens) => fetchCodexModels(tokens))
+      .then((models) => this.syncLiveModels(models))
+      .catch(() => {
+        this.liveModels = undefined;
+      });
+    await this.liveModels;
+  }
+
+  /** Merge a live /codex/models response into this provider's info. */
+  syncLiveModels(models: CodexModel[]): void {
+    if (models.length === 0) return;
+    this.info.availableModels = models.map((model) => model.slug);
+    this.info.models = {
+      ...this.info.models,
+      ...Object.fromEntries(
+        models.map((model) => {
+          const known = this.info.models?.[model.slug];
+          const window = model.contextWindow ?? model.maxContextWindow;
+          const contextWindow =
+            window !== undefined
+              ? Math.floor((window * EFFECTIVE_CONTEXT_WINDOW_PERCENT) / 100)
+              : known?.contextWindow;
+          return [
+            model.slug,
+            {
+              ...known,
+              id: model.slug,
+              ...(contextWindow !== undefined ? { contextWindow, maxInputTokens: contextWindow } : {}),
+              ...(known?.maxOutputTokens !== undefined ? { maxOutputTokens: known.maxOutputTokens } : {}),
+              source: "provider" as const,
+            },
+          ];
+        }),
+      ),
     };
   }
 

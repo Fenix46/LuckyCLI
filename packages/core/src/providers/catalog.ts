@@ -138,31 +138,35 @@ export const PROVIDER_CATALOG: Record<ProviderId, ProviderCatalogEntry> = {
     // modelInfo(); the picker and validation use the live catalog.
     displayName: "ChatGPT",
     company: "OpenAI",
-    availableModels: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
-    models: modelEntries([
-      {
-        id: "gpt-5.5",
+    availableModels: [
+      "gpt-6-astra",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+    ],
+    // Conservative bootstrap windows; the provider replaces them with the
+    // live /codex/models values on its first request.
+    models: modelEntries(
+      [
+        "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+      ].map((id) => ({
+        id,
         contextWindow: 258_400,
         maxInputTokens: 258_400,
         maxOutputTokens: 128_000,
-        source: "provider",
-      },
-      {
-        id: "gpt-5.4",
-        contextWindow: 258_400,
-        maxInputTokens: 258_400,
-        maxOutputTokens: 128_000,
-        source: "provider",
-      },
-      {
-        id: "gpt-5.4-mini",
-        contextWindow: 258_400,
-        maxInputTokens: 258_400,
-        maxOutputTokens: 128_000,
-        source: "provider",
-      },
-    ]),
-    defaultModel: "gpt-5.5",
+        source: "provider" as const,
+      })),
+    ),
+    defaultModel: "gpt-6-astra",
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,

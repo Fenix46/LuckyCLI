@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAiOAuthProvider } from "./OpenAiOAuthProvider.js";
+import { fetchCodexModels } from "./models.js";
+
+// The provider loads the live model catalog before its first request; keep
+// that off the stubbed fetch so each test sees only its own Codex calls.
+vi.mock("./models.js", () => ({ fetchCodexModels: vi.fn(async () => []) }));
 
 /** Build a ReadableStream of SSE `data:` lines, as the Codex endpoint returns. */
 function sseStream(...lines: string[]): ReadableStream<Uint8Array> {
@@ -14,6 +19,33 @@ function sseStream(...lines: string[]): ReadableStream<Uint8Array> {
 describe("OpenAiOAuthProvider", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("learns models and context windows from the live catalog", async () => {
+    vi.mocked(fetchCodexModels).mockResolvedValueOnce([
+      { slug: "gpt-6-astra", displayName: "gpt-6-astra", contextWindow: 400_000, supportedReasoningLevels: [] },
+      { slug: "gpt-7-preview", displayName: "gpt-7-preview", supportedReasoningLevels: [] },
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: sseStream('data: {"type":"response.completed","usage":{"input_tokens":1,"output_tokens":1}}'),
+      }),
+    );
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60 * 60 * 1000,
+    });
+    expect(provider.info.defaultModel).toBe("gpt-6-astra");
+
+    await provider.generate([{ role: "user", content: [{ type: "text", text: "hi" }] }], { model: "gpt-6-astra" });
+
+    expect(provider.info.availableModels).toEqual(["gpt-6-astra", "gpt-7-preview"]);
+    expect(provider.info.models?.["gpt-6-astra"]).toMatchObject({ contextWindow: 380_000, maxOutputTokens: 128_000 });
+    expect(provider.info.models?.["gpt-7-preview"]?.contextWindow).toBeUndefined();
   });
 
   it("sends ChatGPT OAuth requests with tool history", async () => {

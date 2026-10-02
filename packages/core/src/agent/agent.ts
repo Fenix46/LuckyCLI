@@ -43,7 +43,7 @@ const INTERRUPTED_MARKER = "[Request interrupted by user]";
 // has no cheaper option.
 const SUMMARIZATION_MODEL_BY_PROVIDER: Record<string, string> = {
   claude: "claude-haiku-4-5-20251001",
-  "openai-oauth": "gpt-5.4-mini",
+  "openai-oauth": "gpt-6-luna",
   antigravity: "gemini-3.5-flash-low",
 };
 
