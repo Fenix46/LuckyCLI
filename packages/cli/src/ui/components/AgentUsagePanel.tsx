@@ -3,6 +3,7 @@ import React from "react";
 import type { Theme } from "../themes.js";
 import type { AgentUsageMap } from "../lib/requests.js";
 import { truncateSingleLine } from "../lib/format.js";
+import { SectionTitle } from "./kit.js";
 
 /**
  * Live token consumption of the sub-agents spawned during this turn, anchored in
@@ -36,22 +37,22 @@ export function AgentUsagePanel({
   const maxLabel = Math.max(20, width - 24);
 
   return (
-    <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
-      <Text color={theme.muted}>
-        Sub-agents (<Text bold>{rows.length}</Text>: {formatTokens(total)} tokens)
-      </Text>
-      <Box flexDirection="column">
+    <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
+      <SectionTitle
+        theme={theme}
+        title="Sub-agents"
+        detail={`${rows.length} · ${formatTokens(total)} tokens`}
+      />
+      <Box flexDirection="column" paddingLeft={2}>
         {rows.map((row) => (
           <Box key={row.name} flexDirection="row" gap={1}>
-            <Text color={theme.accent} bold>
-              {truncateSingleLine(`${row.name} · ${row.model}`, maxLabel)}
+            <Text color={theme.text} bold wrap="truncate-end">
+              {truncateSingleLine(row.name, maxLabel)}
             </Text>
-            <Text color={theme.muted}>{formatTokens(row.tokens)} tok</Text>
+            <Text color={theme.muted} wrap="truncate-end">{row.model}</Text>
+            <Text color={theme.accent}>{formatTokens(row.tokens)}</Text>
           </Box>
         ))}
-        <Text color={theme.muted}>
-          {"  "}total {formatTokens(total)} tok
-        </Text>
       </Box>
     </Box>
   );

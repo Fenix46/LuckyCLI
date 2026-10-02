@@ -1,4 +1,10 @@
-import { PROVIDER_CATALOG, isBaseUrlProvider, type ProviderId } from "@luckycli/core";
+import {
+  PROVIDER_CATALOG,
+  antigravityFamilyDefaultId,
+  antigravityModelFamilies,
+  isBaseUrlProvider,
+  type ProviderId,
+} from "@luckycli/core";
 import { THEMES, type Theme } from "../themes.js";
 
 export function getModelPickerState(
@@ -10,9 +16,9 @@ export function getModelPickerState(
    * (openai-oauth). When omitted, the static catalog is used.
    */
   liveModels?: string[],
-): { open: boolean; query: string; items: string[] } {
+): { open: boolean; query: string; items: string[]; labels: Record<string, string> } {
   if (input !== "/model" && !input.startsWith("/model ")) {
-    return { open: false, query: "", items: [] };
+    return { open: false, query: "", items: [], labels: {} };
   }
 
   // `/model --refresh` is a control flag, not a search query.
@@ -22,10 +28,34 @@ export function getModelPickerState(
     liveModels && liveModels.length
       ? withActive(liveModels, activeModel)
       : getAvailableModels(provider, activeModel);
+  if (provider === "antigravity") return antigravityPickerState(models, activeModel, query);
   const items = query
     ? models.filter((model) => model.toLowerCase().includes(query))
     : models;
-  return { open: true, query, items };
+  return { open: true, query, items, labels: {} };
+}
+
+/**
+ * Antigravity serves each effort level of a model as its own id; the picker
+ * shows the model once (as the active variant, else its medium one) and the
+ * effort step that follows picks the variant.
+ */
+function antigravityPickerState(
+  models: string[],
+  activeModel: string,
+  query: string,
+): { open: true; query: string; items: string[]; labels: Record<string, string> } {
+  const items: string[] = [];
+  const labels: Record<string, string> = {};
+  for (const family of antigravityModelFamilies(models)) {
+    const id = family.ids.includes(activeModel) ? activeModel : antigravityFamilyDefaultId(family);
+    if (query && !family.label.toLowerCase().includes(query) && !family.ids.some((m) => m.toLowerCase().includes(query))) {
+      continue;
+    }
+    items.push(id);
+    labels[id] = family.label;
+  }
+  return { open: true, query, items, labels };
 }
 
 function withActive(models: string[], activeModel?: string): string[] {

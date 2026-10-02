@@ -2,6 +2,7 @@ import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
 import type { AgentProfile, ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
+import { KeyHints, SectionTitle, parseHints } from "./kit.js";
 import { truncateSingleLine } from "../lib/format.js";
 
 /** Which view the /agents panel is showing. */
@@ -50,10 +51,8 @@ export function AgentsPanel({
 }): React.JSX.Element {
   const maxLabel = Math.max(24, width - 28);
   return (
-    <Box flexDirection="column" paddingLeft={2} marginBottom={1} width="100%">
-      <Text bold color={theme.accent}>
-        ▌ Sub-agents
-      </Text>
+    <Box flexDirection="column" paddingLeft={1} marginBottom={1} width="100%">
+      <SectionTitle theme={theme} title="Sub-agents" />
 
       {view === "list" ? (
         <ListView
@@ -74,7 +73,7 @@ export function AgentsPanel({
 
       {error ? (
         <Box marginTop={1}>
-          <Text color={theme.error ?? "red"}>{error}</Text>
+          <Text color={theme.error}>{error}</Text>
         </Box>
       ) : null}
     </Box>
@@ -107,24 +106,20 @@ function ListView({
               <Text color={active ? theme.accent : theme.muted}>
                 {active ? "❯" : " "}
               </Text>
-              <Text bold={active} color={active ? theme.accent : "white"}>
+              <Text bold={active} color={active ? theme.accent : theme.text}>
                 {truncateSingleLine(p.name, 16)}
               </Text>
               <Text color={theme.muted}>
                 {truncateSingleLine(`${p.provider}/${p.model}`, maxLabel)}
               </Text>
               {offline ? (
-                <Text color={theme.error ?? "red"}>(not logged in)</Text>
+                <Text color={theme.error}>(not logged in)</Text>
               ) : null}
             </Box>
           );
         })
       )}
-      <Box marginTop={1}>
-        <Text color={theme.muted} dimColor>
-          ↑↓ move · [n] new · [e] edit · [d] delete · esc close
-        </Text>
-      </Box>
+      <KeyHints theme={theme} hints={parseHints("↑↓ move · [n] new · [e] edit · [d] delete · esc close")} />
     </Box>
   );
 }
@@ -165,7 +160,7 @@ function EditView({
                 {active ? "❯" : " "}
               </Text>
               <Text color={theme.muted}>{row.label.padEnd(12)}</Text>
-              <Text bold={active} color={row.warn ? theme.error ?? "red" : active ? theme.accent : "white"}>
+              <Text bold={active} color={row.warn ? theme.error : active ? theme.accent : theme.text}>
                 {row.value}
                 {row.warn ? "  (not logged in)" : ""}
               </Text>
@@ -173,11 +168,16 @@ function EditView({
           );
         })}
       </Box>
-      <Box marginTop={1}>
-        <Text color={theme.muted} dimColor>
-          ↑↓ field · name/description: type · provider/model: ←→ to cycle · enter save · esc cancel
-        </Text>
-      </Box>
+      <KeyHints
+        theme={theme}
+        hints={[
+          ["↑↓", "field"],
+          ["type", "name/description"],
+          ["←→", "cycle provider/model"],
+          ["enter", "save"],
+          ["esc", "cancel"],
+        ]}
+      />
     </Box>
   );
 }

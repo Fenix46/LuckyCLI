@@ -22,6 +22,32 @@ server.registerTool(
   }),
 );
 
+// A read-only tool, declared through annotations.
+server.registerTool(
+  "lookup",
+  {
+    description: "Looks a key up without changing anything.",
+    inputSchema: { key: z.string() },
+    annotations: { readOnlyHint: true },
+  },
+  async ({ key }) => ({
+    content: [{ type: "text", text: `value:${key}` }],
+  }),
+);
+
+// A tool that fails at the tool level: a normal result flagged isError.
+server.registerTool(
+  "fail",
+  {
+    description: "Always reports a tool-level failure.",
+    inputSchema: {},
+  },
+  async () => ({
+    content: [{ type: "text", text: "boom: upstream unavailable" }],
+    isError: true,
+  }),
+);
+
 // A filesystem-mutating tool: writes a file relative to MCP_FIXTURE_ROOT.
 // Used to exercise graph upkeep after an opaque external edit.
 server.registerTool(

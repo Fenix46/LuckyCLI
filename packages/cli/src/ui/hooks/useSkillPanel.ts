@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   SkillCatalog,
-  discoverSkills,
+  listAvailableSkills,
   installCatalogSkill,
   setSkillEnabled,
   uninstallSkill,
   type CatalogSkill,
-  type DiscoveredSkill,
+  type AvailableSkill,
 } from "@luckycli/core";
 import { buildInstalledSkillRows, type InstalledSkillRow } from "../lib/skill-rows.js";
 import type { Item } from "../lib/items.js";
@@ -50,7 +50,7 @@ export function useSkillPanel(options: UseSkillPanelOptions): SkillPanelControll
   const { emit, onSkillsChanged } = options;
   const [isOpen, setIsOpen] = useState(false);
   const [tab, setTab] = useState<SkillPanelTab>("installed");
-  const [installed, setInstalled] = useState<DiscoveredSkill[]>([]);
+  const [installed, setInstalled] = useState<AvailableSkill[]>([]);
   const [selectedInstalledIndex, setSelectedInstalledIndex] = useState(0);
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -61,11 +61,14 @@ export function useSkillPanel(options: UseSkillPanelOptions): SkillPanelControll
 
   const installedRows = buildInstalledSkillRows(installed);
 
-  // Reload installed skills whenever the panel opens or the installed tab is shown.
+  // Reload the skills (project and global) whenever the panel opens or the
+  // installed tab is shown.
   const reloadInstalled = useCallback(() => {
-    void discoverSkills()
-      .then((skills) => setInstalled(skills))
-      .catch((e) => setError(e instanceof Error ? e.message : "failed to read installed skills"));
+    try {
+      setInstalled(listAvailableSkills(process.cwd()));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to read installed skills");
+    }
   }, []);
 
   useEffect(() => {
@@ -222,6 +225,12 @@ export function useSkillPanel(options: UseSkillPanelOptions): SkillPanelControll
           return true;
         }
         if ((input === "d" || input === "D") && selected) {
+          // Project skills belong to the repository: removing one is a file
+          // change the user makes there, not something the panel does.
+          if (selected.scope === "project") {
+            setError(`"${selected.name}" is a project skill — delete ${selected.dir} to remove it`);
+            return true;
+          }
           setPendingRemoval(selected.name);
           return true;
         }

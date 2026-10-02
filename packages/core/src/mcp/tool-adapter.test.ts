@@ -19,6 +19,21 @@ describe("mcp tool adapter", () => {
     expect(uniqueMcpToolName("docs", "api/search", taken)).toBe("docs_api_search_3");
   });
 
+  it("keeps names within the providers' 64-character limit, stable and distinct", () => {
+    const longServer = "a-very-long-server-name-from-some-registry";
+    const one = makeMcpToolName(longServer, "list_repository_collaborators");
+    const two = makeMcpToolName(longServer, "list_repository_collaborators_v2");
+    expect(one.length).toBeLessThanOrEqual(64);
+    expect(two.length).toBeLessThanOrEqual(64);
+    expect(one).not.toBe(two);
+    expect(makeMcpToolName(longServer, "list_repository_collaborators")).toBe(one);
+
+    const taken = new Set<string>([one]);
+    const suffixed = uniqueMcpToolName(longServer, "list_repository_collaborators", taken);
+    expect(suffixed.length).toBeLessThanOrEqual(64);
+    expect(suffixed.endsWith("_2")).toBe(true);
+  });
+
   it("disambiguated names all register without dropping a tool", () => {
     const taken = new Set<string>();
     const pairs: [string, string][] = [

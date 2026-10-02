@@ -60,6 +60,31 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("This project has no knowledge graph");
   });
 
+  it("never mentions graph tools in a project without a graph", () => {
+    const prompt = buildSystemPromptFromContext({
+      environment: INFO,
+      enabledTools: new Set(["read_file", "grep", "glob", "graph_query", "graph_overview"]),
+      hasGraph: false,
+      env: ENV,
+    });
+    expect(prompt).not.toContain("graph_query");
+    expect(prompt).not.toContain("graph_overview");
+    expect(prompt).not.toContain("system-reminder");
+  });
+
+  it("lists the usable skills by name and description", () => {
+    const prompt = buildSystemPromptFromContext({
+      environment: INFO,
+      skills: [
+        { name: "release-flow", description: "Cut a versioned release" },
+        { name: "pdf-tools", description: "Extract text from PDFs" },
+      ],
+      env: ENV,
+    });
+    expect(prompt).toContain("# Skills");
+    expect(prompt).toContain("Available skills:\n- release-flow: Cut a versioned release\n- pdf-tools: Extract text from PDFs");
+  });
+
   it("omits the skills blurb when no skill is installed", () => {
     const prompt = buildSystemPromptFromContext(FULL_CTX);
     expect(prompt).not.toContain("# Skills");

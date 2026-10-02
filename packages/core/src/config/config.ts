@@ -1,5 +1,5 @@
 import { PROVIDER_CATALOG } from "../providers/catalog.js";
-import { normalizeMcpServers } from "../mcp/config.js";
+import { loadProjectMcpJson, normalizeMcpServers } from "../mcp/config.js";
 import type { McpServerConfig } from "../mcp/types.js";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import { isProviderId } from "../providers/types.js";
@@ -7,6 +7,7 @@ import { DEFAULT_TOOL_PERMISSION_POLICY, parseToolPermissionPolicyEnv, type Tool
 import { buildSystemPrompt } from "../prompts/index.js";
 import { getReasoningEffort, getThinkingEnabled, loadStoredConfig, type StoredConfig } from "./store.js";
 import { loadProjectConfig } from "./project.js";
+import { isProjectTrusted } from "./project-trust.js";
 
 /**
  * The default system prompt, composed from the section files in ../prompts.
@@ -48,6 +49,23 @@ export interface ResolvedConfig {
 }
 
 /**
+ * The parts of a project's settings that only apply once the folder is
+ * trusted: its MCP servers (.mcp.json, then .lucky/config.json on top) and its
+ * tool permissions. Empty for an untrusted folder.
+ */
+export function trustedProjectSettings(
+  cwd: string,
+  stored: StoredConfig = loadStoredConfig(),
+): { mcp: Record<string, McpServerConfig>; permissions: ToolPermissionPolicy } {
+  if (!isProjectTrusted(stored, cwd)) return { mcp: {}, permissions: {} };
+  const project = loadProjectConfig(cwd);
+  return {
+    mcp: normalizeMcpServers({ ...loadProjectMcpJson(cwd), ...project.mcp }),
+    permissions: project.permissions ?? {},
+  };
+}
+
+/**
  * Resolve configuration from (in order of precedence): CLI flags, the stored
  * config file, environment variables, then built-in defaults. Nothing here
  * throws for missing credentials — that surfaces as `needsSetup`.
@@ -59,12 +77,15 @@ export function resolveConfig(
   cwd = process.cwd(),
 ): ResolvedConfig {
   const project = loadProjectConfig(cwd);
+  // A repository's own config can start processes (MCP servers) and widen
+  // tool permissions, so those parts only apply in a folder the user trusts.
+  const trustedProject = trustedProjectSettings(cwd, stored);
   const providerRaw = overrides.provider ?? project.provider ?? stored.provider ?? env.LUCKY_PROVIDER;
   let provider: ProviderId | undefined;
   if (providerRaw) {
     if (!isProviderId(providerRaw)) {
       throw new Error(
-        `Unknown provider "${providerRaw}". Valid: claude, openai, openai-oauth, gemini, antigravity, ollama.`,
+        `Unknown provider "${providerRaw}". Valid: ${Object.keys(PROVIDER_CATALOG).join(", ")}.`,
       );
     }
     provider = providerRaw;
@@ -105,7 +126,7 @@ export function resolveConfig(
       : {}),
     ...(env.LUCKY_MAX_TOKENS ? { maxTokens: Number(env.LUCKY_MAX_TOKENS) } : {}),
     ...(credentials ? { credentials } : {}),
-    mcp: normalizeMcpServers({ ...stored.mcp, ...project.mcp }),
+    mcp: normalizeMcpServers({ ...stored.mcp, ...trustedProject.mcp }),
     ...(project.checks ? { checks: project.checks } : {}),
     ...(project.graphExclusions ? { graphExclusions: project.graphExclusions } : {}),
     ...(project.skills ? { skills: project.skills } : {}),
@@ -113,7 +134,7 @@ export function resolveConfig(
     permissions: {
       ...DEFAULT_TOOL_PERMISSION_POLICY,
       ...(stored.permissions ?? {}),
-      ...(project.permissions ?? {}),
+      ...trustedProject.permissions,
       ...(envPermissions ?? {}),
     },
     needsSetup: !provider || !credentials,

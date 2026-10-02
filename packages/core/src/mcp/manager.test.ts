@@ -112,6 +112,22 @@ describe("McpManager", () => {
     expect(result).toEqual({ content: "echo:hello" });
   });
 
+  it("reports tool-level failures as errors and honors read-only hints", async () => {
+    const manager = new McpManager();
+    managers.push(manager);
+    await manager.connectAll({
+      docs: { type: "local", command: ["node", fixtureServer], timeout: 5_000 },
+    });
+    const registry = manager.tools().reduce((acc, tool) => acc.register(tool), new ToolRegistry());
+
+    await expect(registry.execute("docs_fail", {}, { cwd: "/" })).resolves.toEqual({
+      content: "boom: upstream unavailable",
+      isError: true,
+    });
+    expect(registry.get("docs_lookup")?.readonly).toBe(true);
+    expect(registry.get("docs_echo")?.readonly).toBe(false);
+  });
+
   it("lists and fetches prompts and resources from a connected server", async () => {
     const manager = new McpManager();
     managers.push(manager);

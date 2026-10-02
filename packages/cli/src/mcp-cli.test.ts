@@ -60,6 +60,25 @@ describe("runMcpCommand", () => {
     ]);
   });
 
+  it("adds and removes servers in the global config", async () => {
+    let stored: { mcp?: Record<string, unknown> } = {};
+    const io = {
+      mcp: {},
+      out: () => {},
+      err: () => {},
+      loadConfig: () => stored,
+      saveConfig: (next: typeof stored) => {
+        stored = next;
+      },
+    } as unknown as Parameters<typeof runMcpCommand>[1];
+    expect(await runMcpCommand(["add", "files", "--", "npx", "files-mcp"], io)).toBe(0);
+    expect(stored.mcp?.files).toEqual({ type: "local", command: ["npx", "files-mcp"] });
+    expect(await runMcpCommand(["remove", "files"], io)).toBe(0);
+    expect(stored.mcp?.files).toBeUndefined();
+    expect(await runMcpCommand(["remove", "files"], io)).toBe(1);
+    expect(await runMcpCommand(["add"], io)).toBe(1);
+  });
+
   it("lists configured servers from injected config", async () => {
     const out: string[] = [];
     const mcp: Record<string, McpServerConfig> = {
@@ -78,7 +97,7 @@ describe("runMcpCommand", () => {
     const code = await runMcpCommand(["status"], { mcp, out: (l) => out.push(l) });
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("connected");
-    expect(out.join("\n")).toContain("2 tools");
+    expect(out.join("\n")).toContain("4 tools");
   });
 
   it("inspects prompts and resources for one live server", async () => {

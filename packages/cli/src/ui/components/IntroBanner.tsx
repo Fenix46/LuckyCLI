@@ -4,13 +4,20 @@ import React from "react";
 import { PROVIDER_CATALOG, type ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import { firstName, prettyCwd, truncateMiddle } from "../lib/format.js";
-import { APP_VERSION, LOGO, LOGO_WIDTH } from "./constants.js";
+import { APP_VERSION } from "./constants.js";
+import { GLYPH } from "./kit.js";
+
+/** Commands worth discovering first, shown under the welcome card. */
+const STARTER_TIPS: ReadonlyArray<readonly [command: string, what: string]> = [
+  ["/model", "switch model"],
+  ["/resume", "pick up a session"],
+  ["/help", "all commands"],
+];
 
 /**
- * The opening banner shown on a fresh session: the LUCKY wordmark with a
- * vertical color gradient, followed by a compact session summary. On narrow
- * terminals (where the wordmark would wrap and shred) it degrades to a
- * one-line header carrying the same information.
+ * The opening card on a fresh session: a compact wordmark, who/where you are,
+ * and a few first commands to try. It stays small on purpose so the
+ * conversation, not the chrome, owns the screen.
  */
 export function IntroBanner({
   theme,
@@ -21,80 +28,71 @@ export function IntroBanner({
   theme: Theme;
   provider: ProviderId;
   model: string;
-  /** Available content width — caps the card so it never overflows the
-   *  terminal edge, and selects the compact layout when the wordmark
-   *  wouldn't fit. */
+  /** Available content width — caps the card so it never overflows. */
   width?: number;
 }): React.JSX.Element {
   const name = firstName(os.userInfo().username);
   const providerName = PROVIDER_CATALOG[provider].displayName;
-  // Border + paddingX consume 6 columns around the content.
-  const compact = width !== undefined && width < LOGO_WIDTH + 6;
-  // Keep the directory on one line: the "cwd   " label takes 6 more columns.
-  const cardWidth = width !== undefined ? Math.min(width, 100) : 100;
-  const cwd = truncateMiddle(prettyCwd(process.cwd()), cardWidth - 12);
+  const cardWidth = width !== undefined ? Math.min(width, 76) : 76;
+  // Border + paddingX take 6 columns; keep the directory on one line.
+  const cwd = truncateMiddle(prettyCwd(process.cwd()), Math.max(12, cardWidth - 8));
+  const narrow = width !== undefined && width < 56;
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={theme.accent}
-      paddingX={2}
-      paddingY={1}
-      flexShrink={1}
-      {...(width ? { width: Math.min(width, 100) } : {})}
-    >
-      {compact ? (
-        <Text bold color={theme.primary}>
-          ☘ LuckyCLI <Text color={theme.muted}>v{APP_VERSION}</Text>
+    <Box flexDirection="column">
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={theme.subtle}
+        paddingX={2}
+        paddingY={1}
+        width={cardWidth}
+        flexShrink={1}
+      >
+        <Text>
+          <Text bold color={theme.primary}>{GLYPH.clover} </Text>
+          <Wordmark theme={theme} text="lucky" />
+          <Text color={theme.muted}>  v{APP_VERSION}</Text>
         </Text>
-      ) : (
-        <Box flexDirection="column">
-          {LOGO.map((line, i) => (
-            <Text key={i} color={gradientColor(theme, i, LOGO.length)}>
-              {line}
-            </Text>
-          ))}
-          <Text color={theme.muted}>
-            ☘ v{APP_VERSION} · multi-provider terminal agent
-          </Text>
-        </Box>
-      )}
-
-      <Box flexDirection="column" marginTop={1}>
-        <Text bold>Welcome back, {name}</Text>
         <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.muted}>
-            {"model "}
-            <Text color={theme.primary}>
-              {providerName} · {model}
-            </Text>
+          <Text bold color={theme.text}>Welcome back, {name}.</Text>
+          <Text color={theme.muted} wrap="truncate-end">
+            {providerName} {GLYPH.dot} <Text color={theme.accent}>{model}</Text>
           </Text>
-          <Text color={theme.muted}>
-            {"cwd   "}
-            <Text color={theme.primary}>{cwd}</Text>
-          </Text>
+          <Text color={theme.muted} wrap="truncate-end">{cwd}</Text>
         </Box>
       </Box>
-
-      <Box marginTop={1}>
-        <Text color={theme.muted}>
-          / commands · shift+tab approval mode · esc interrupt · ↑ history
-        </Text>
+      <Box paddingLeft={2} marginTop={1} flexDirection={narrow ? "column" : "row"} gap={narrow ? 0 : 3}>
+        {STARTER_TIPS.map(([command, what]) => (
+          <Text key={command}>
+            <Text color={theme.accent}>{command}</Text>
+            <Text color={theme.muted}> {what}</Text>
+          </Text>
+        ))}
       </Box>
     </Box>
   );
 }
 
-/**
- * Per-line tint for the wordmark: a linear blend from primary to accent.
- * Falls back to primary when a theme uses named ANSI colors (not blendable).
- */
-function gradientColor(theme: Theme, index: number, total: number): string {
+/** The product name, bold, with a primary→accent gradient across its letters. */
+function Wordmark({ theme, text }: { theme: Theme; text: string }): React.JSX.Element {
   const from = parseHex(theme.primary);
   const to = parseHex(theme.accent);
-  if (!from || !to) return theme.primary;
-  const t = total <= 1 ? 0 : index / (total - 1);
+  if (!from || !to) {
+    return <Text bold color={theme.primary}>{text}</Text>;
+  }
+  return (
+    <Text bold>
+      {[...text].map((char, i) => (
+        <Text key={i} color={blend(from, to, text.length <= 1 ? 0 : i / (text.length - 1))}>
+          {char}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+function blend(from: [number, number, number], to: [number, number, number], t: number): string {
   const mix = (a: number, b: number) => Math.round(a + (b - a) * t);
   return (
     "#" +

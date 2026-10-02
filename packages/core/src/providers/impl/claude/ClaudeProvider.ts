@@ -9,6 +9,7 @@ import { providerInfo } from "../../catalog.js";
 import type {
   ClaudeCredentials,
   ContentPart,
+  ReasoningPart,
   FinishReason,
   GenerationConfig,
   GenerationResponse,
@@ -24,7 +25,10 @@ import {
   CLAUDE_OAUTH_BETA_HEADER,
   claudeModelSupportsAdaptiveThinking,
   normalizeClaudeEffort,
+  CLAUDE_CLI_USER_AGENT,
+  CLAUDE_CLI_VERSION,
   claudeContextWindowForModel,
+  claudeModelAcceptsSampling,
   fetchClaudeOAuthProfile,
   fetchClaudeOAuthReferralEligibility,
   fetchClaudeOAuthRoles,
@@ -47,7 +51,7 @@ const CLAUDE_CODE_BETA_HEADER = [
   "advanced-tool-use-2025-11-20",
 ].join(",");
 const CLAUDE_CODE_BILLING_SYSTEM =
-  "x-anthropic-billing-header: cc_version=2.1.220.cea; cc_entrypoint=cli; cch=d1656;";
+  `x-anthropic-billing-header: cc_version=${CLAUDE_CLI_VERSION}.cea; cc_entrypoint=cli; cch=d1656;`;
 // Fallback model for OAuth token-count probes, used only when the caller gave
 // no model. Normally the probe runs on the conversation's own model so it can
 // read that model's prompt cache — see countTokensViaProbe.
@@ -56,8 +60,9 @@ const CLAUDE_COUNT_PROBE_MODEL = "claude-haiku-4-5-20251001";
 // (system prompt + tool definitions) and on a moving breakpoint at the end of
 // the transcript so each step re-reads the prior context at cache-read price
 // (~1/10) instead of re-billing the entire prefix at full input price. The API
-// allows at most 4 cache_control blocks per request, so we use exactly 3:
-// last system block, last tool, last message block.
+// allows at most 4 cache_control blocks per request, so we use all 4:
+// last system block, last tool, last message block, and the end of the
+// previous step (see markCacheBreakpoints).
 const CACHE_CONTROL = { type: "ephemeral" } as const;
 
 export class ClaudeProvider implements IProvider {
@@ -374,7 +379,7 @@ export class ClaudeProvider implements IProvider {
           "anthropic-beta": CLAUDE_CODE_BETA_HEADER,
           "anthropic-dangerous-direct-browser-access": "true",
           "anthropic-version": "2023-06-01",
-          "User-Agent": "claude-cli/2.1.220 (external, cli)",
+          "User-Agent": CLAUDE_CLI_USER_AGENT,
           "x-app": "cli",
         },
       });
@@ -488,11 +493,14 @@ export class ClaudeProvider implements IProvider {
 function buildOptions(config: GenerationConfig, model: string) {
   const thinking = buildClaudeThinking(model, config);
   const effort = normalizeClaudeEffort(model, config.reasoningEffort);
+  // Newer models reject sampling parameters outright (400), so they are
+  // dropped there rather than failing the request.
+  const sampling = claudeModelAcceptsSampling(model);
   return {
-    ...(thinking === undefined && config.temperature !== undefined
+    ...(sampling && thinking === undefined && config.temperature !== undefined
       ? { temperature: config.temperature }
       : {}),
-    ...(config.topP !== undefined ? { top_p: config.topP } : {}),
+    ...(sampling && config.topP !== undefined ? { top_p: config.topP } : {}),
     ...(config.stopSequences ? { stop_sequences: config.stopSequences } : {}),
     ...(thinking ? { thinking } : {}),
     ...(effort ? { output_config: { effort } } : {}),
@@ -638,16 +646,16 @@ function toAnthropic(
       continue;
     }
 
-    const content = msg.content.map(toAnthropicBlock);
+    // Reasoning state belongs to the provider that produced it; Claude
+    // neither understands nor needs another provider's.
+    const content = msg.content.filter(isWirePart).map(toAnthropicBlock);
+    if (content.length === 0) continue;
     const role: "user" | "assistant" =
       msg.role === "assistant" ? "assistant" : "user";
     result.push({ role, content });
   }
 
-  // Moving cache breakpoint: mark the last block of the last message so the
-  // entire transcript up to here is cached and re-read at ~1/10 price on the
-  // next step, when this block has become part of the stable prefix.
-  markLastBlock(result);
+  markCacheBreakpoints(result);
 
   const system = systemParts.join("\n").trim();
   return system
@@ -655,8 +663,30 @@ function toAnthropic(
     : { messages: result };
 }
 
-function markLastBlock(messages: Anthropic.Messages.MessageParam[]): void {
-  const lastMessage = messages[messages.length - 1];
+/**
+ * Moving cache breakpoints. The last block of the last message caches the
+ * whole transcript for the next step. A second one sits where the previous
+ * step's request ended (the last user-side message before the newest
+ * assistant turn): the API only looks back ~20 blocks from a breakpoint for
+ * an earlier cache entry, so a step that adds many blocks at once (parallel
+ * tool calls and their results) would otherwise miss the cache and re-write
+ * the entire transcript at the cache-write rate.
+ */
+function markCacheBreakpoints(messages: Anthropic.Messages.MessageParam[]): void {
+  markLastBlock(messages[messages.length - 1]);
+  let seenAssistant = false;
+  for (let i = messages.length - 2; i >= 0; i--) {
+    const message = messages[i]!;
+    if (message.role === "assistant") {
+      seenAssistant = true;
+    } else if (seenAssistant) {
+      markLastBlock(message);
+      return;
+    }
+  }
+}
+
+function markLastBlock(lastMessage: Anthropic.Messages.MessageParam | undefined): void {
   if (!lastMessage || typeof lastMessage.content === "string") return;
   const lastBlock = lastMessage.content[lastMessage.content.length - 1];
   // Thinking/redacted-thinking blocks cannot carry cache_control; only the
@@ -666,7 +696,11 @@ function markLastBlock(messages: Anthropic.Messages.MessageParam[]): void {
   }
 }
 
-function toAnthropicBlock(part: ContentPart): Anthropic.Messages.ContentBlockParam {
+function isWirePart(part: ContentPart): part is Exclude<ContentPart, ReasoningPart> {
+  return part.type !== "reasoning";
+}
+
+function toAnthropicBlock(part: Exclude<ContentPart, ReasoningPart>): Anthropic.Messages.ContentBlockParam {
   switch (part.type) {
     case "text":
       return { type: "text", text: part.text };

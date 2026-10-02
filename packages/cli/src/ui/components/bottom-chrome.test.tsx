@@ -26,7 +26,7 @@ describe("EffortPickerView", () => {
 });
 
 describe("ModelPickerView", () => {
-  it("stars the active model and points at the selected one", () => {
+  it("marks the active model and points at the selected one", () => {
     const { screen } = renderToScreen(
       <ModelPickerView
         theme={theme}
@@ -38,7 +38,7 @@ describe("ModelPickerView", () => {
       60,
     );
     expect(scanPositions(screen, "Select model")).toHaveLength(1);
-    expect(scanPositions(screen, "★ claude-sonnet-5")).toHaveLength(1);
+    expect(scanPositions(screen, "● claude-sonnet-5")).toHaveLength(1);
     expect(scanPositions(screen, "❯")).toHaveLength(1);
   });
 
@@ -52,14 +52,14 @@ describe("ModelPickerView", () => {
 });
 
 describe("ThemePickerView", () => {
-  it("lists themes with ids and names, starring the active one", () => {
+  it("lists themes with ids and names, marking the active one", () => {
     const items = THEMES.slice(0, 2).map((t) => ({ id: t.id, name: t.name }));
     const { screen } = renderToScreen(
       <ThemePickerView theme={theme} items={items} selectedIndex={0} />,
       60,
     );
     expect(scanPositions(screen, "Interface theme")).toHaveLength(1);
-    expect(scanPositions(screen, `★ ${theme.id}`)).toHaveLength(1);
+    expect(scanPositions(screen, `● ${theme.id}`)).toHaveLength(1);
   });
 });
 
@@ -116,27 +116,27 @@ describe("StatusFooter", () => {
       <StatusFooter
         theme={theme}
         width={140}
-        permissionMode="default"
+        permissionMode="normal"
         showScrollHint={true}
         contextStatus={null}
       />,
       140,
     ).screen;
-    expect(scanPositions(wide, "shift+tab: accept edits").length).toBeGreaterThan(0);
-    expect(scanPositions(wide, "scroll to view history").length).toBeGreaterThan(0);
+    expect(scanPositions(wide, "ask before edits  shift+tab").length).toBeGreaterThan(0);
+    expect(scanPositions(wide, "scroll for history").length).toBeGreaterThan(0);
 
     const narrow = renderToScreen(
       <StatusFooter
         theme={theme}
         width={80}
-        permissionMode="default"
+        permissionMode="normal"
         showScrollHint={true}
         contextStatus={null}
-        usage="↑15k ↓540"
+        usage="15k in · 540 out"
       />,
       80,
     ).screen;
-    expect(scanPositions(narrow, "scroll to view history")).toHaveLength(0);
-    expect(scanPositions(narrow, "↑15k ↓540").length).toBeGreaterThan(0);
+    expect(scanPositions(narrow, "scroll for history")).toHaveLength(0);
+    expect(scanPositions(narrow, "15k in · 540 out").length).toBeGreaterThan(0);
   });
 });

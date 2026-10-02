@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry.js";
+import { ReadLedger } from "../read-ledger.js";
 import { listDirTool } from "./list-dir.js";
 import { readFileTool } from "./read-file.js";
 import { writeFileTool } from "./write-file.js";
@@ -75,6 +76,44 @@ describe("filesystem tools", () => {
     expect(result.content).toContain("line 1");
     expect(result.content).toContain("[read 500 lines;");
     expect(result.content).toContain("offset/limit");
+  });
+
+  it("points a repeat read of unchanged content back to the earlier result", async () => {
+    await writeFile(join(root, "a.ts"), "export const a = 1;\n", "utf8");
+    const readLedger = new ReadLedger();
+    const read = (toolCallId: string, extra: Record<string, unknown> = {}) =>
+      registry.execute("read_file", { path: "a.ts", ...extra }, { cwd: root, readLedger, toolCallId });
+
+    expect((await read("c1")).content).toContain("export const a = 1;");
+    expect((await read("c2")).content).toContain("File unchanged since your earlier read");
+    // A different range is a different read.
+    expect((await read("c3", { offset: 1, limit: 1 })).content).toContain("export const a");
+
+    // Changed content is sent again in full.
+    await writeFile(join(root, "a.ts"), "export const a = 2;\n", "utf8");
+    expect((await read("c4")).content).toContain("export const a = 2;");
+
+    // Once the earlier result is gone from the transcript, re-reads send content.
+    readLedger.forgetCalls(["c4"]);
+    expect((await read("c5")).content).toContain("export const a = 2;");
+  });
+
+  it("serves only the first page of a very large file read whole", async () => {
+    const huge = Array.from({ length: 2_500 }, (_, i) => `line ${i + 1}`).join("\n");
+    await writeFile(join(root, "huge.txt"), huge, "utf8");
+
+    const result = await registry.execute("read_file", { path: "huge.txt" }, { cwd: root });
+    expect(result.content).toContain("  2000: line 2000");
+    expect(result.content).not.toContain("line 2001");
+    expect(result.content).toContain("[showing 2000 of 2500 lines]");
+  });
+
+  it("cuts overlong lines such as minified bundles", async () => {
+    await writeFile(join(root, "min.js"), `a\n${"x".repeat(5_000)}`, "utf8");
+
+    const result = await registry.execute("read_file", { path: "min.js" }, { cwd: root });
+    expect(result.content.length).toBeLessThan(2_200);
+    expect(result.content).toContain("[line truncated, 3000 more chars]");
   });
 
   it("does not nudge a small whole-file read", async () => {

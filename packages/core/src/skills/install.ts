@@ -10,9 +10,11 @@
 import { cp, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { normalizeSkillName, parseSkillFile } from "./skill-file.js";
+import { listAvailableSkills } from "./available.js";
 import {
   SKILL_FILE_NAME,
   discoverSkills,
+  findSkillFile,
   loadDisabledSet,
   rebuildSkillGraph,
   saveDisabledSet,
@@ -35,9 +37,8 @@ async function resolveSkillSource(source: string): Promise<string> {
   const st = await stat(source).catch(() => null);
   if (!st) throw new Error(`No such path: ${source}`);
   if (st.isDirectory()) {
-    const candidate = join(source, SKILL_FILE_NAME);
-    const cst = await stat(candidate).catch(() => null);
-    if (!cst?.isFile()) throw new Error(`No ${SKILL_FILE_NAME} found in ${source}`);
+    const candidate = findSkillFile(source);
+    if (!candidate) throw new Error(`No SKILL.md or ${SKILL_FILE_NAME} found in ${source}`);
     return candidate;
   }
   return source;
@@ -99,18 +100,21 @@ export async function uninstallSkill(name: string, root = skillsRootDir()): Prom
 }
 
 /**
- * Enable or disable an installed skill (membership in disabled.json) and rebuild
- * the graph so the trigger index reflects the change. Returns false if no such
- * skill is installed.
+ * Enable or disable a skill (membership in disabled.json) and rebuild the
+ * graph so the index reflects the change. Works for global skills (SKILL.md or
+ * skill.md) and for the project skills visible from `cwd`, since the disabled
+ * set is keyed by name. Returns false if no such skill exists.
  */
 export async function setSkillEnabled(
   name: string,
   enabled: boolean,
   root = skillsRootDir(),
+  cwd = process.cwd(),
 ): Promise<boolean> {
-  const filePath = skillFilePath(name, root);
-  const exists = await stat(filePath).catch(() => null);
-  if (!exists?.isFile()) return false;
+  const exists =
+    findSkillFile(skillDirPath(name, root)) !== undefined ||
+    listAvailableSkills(cwd, root).some((skill) => skill.name === normalizeSkillName(name));
+  if (!exists) return false;
 
   const normalized = normalizeSkillName(name);
   const disabled = await loadDisabledSet(root);

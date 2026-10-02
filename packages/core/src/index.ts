@@ -197,6 +197,12 @@ export {
   replaceProjectMemory,
 } from "./project-memory.js";
 export type { ProjectMemory } from "./project-memory.js";
+export {
+  appendProjectInstructionsToSystemPrompt,
+  loadProjectInstructions,
+  PROJECT_INSTRUCTION_FILES,
+} from "./project-instructions.js";
+export type { ProjectInstructionFile } from "./project-instructions.js";
 
 // Native knowledge graph (schema + on-disk store).
 export {
@@ -317,7 +323,9 @@ export type {
 } from "./skills/types.js";
 export {
   SKILL_FILE_NAME,
+  SKILL_FILE_NAMES,
   buildSkillGraph,
+  findSkillFile,
   discoverSkills,
   hasInstalledSkills,
   loadDisabledSet,
@@ -332,6 +340,8 @@ export {
   tryLoadSkillGraph,
 } from "./skills/graph.js";
 export type { DiscoveredSkill } from "./skills/graph.js";
+export { listAvailableSkills, projectSkillRoots, usableSkills } from "./skills/available.js";
+export type { AvailableSkill } from "./skills/available.js";
 export {
   installSkillFromPath,
   setSkillEnabled,
@@ -360,6 +370,7 @@ export {
   credentialsFromEnv,
   DEFAULT_SYSTEM_PROMPT,
   resolveConfig,
+  trustedProjectSettings,
   resolveCredentials,
 } from "./config/config.js";
 export type { CliOverrides, ResolvedConfig } from "./config/config.js";
@@ -454,11 +465,13 @@ export {
   latestSession,
   listSessions,
   loadSession,
+  RESUME_CACHE_WINDOW_MS,
+  resumeCacheHints,
   saveSession,
   sessionFilePath,
   sessionsDirPath,
 } from "./session/store.js";
-export type { Session, SessionMeta } from "./session/store.js";
+export type { ResumeCacheHints, Session, SessionFilter, SessionMeta } from "./session/store.js";
 
 export {
   startOAuthFlow,
@@ -470,7 +483,12 @@ export {
 
 // MCP domain types.
 export {
+  fromMcpJsonEntry,
+  loadProjectMcpJson,
+  MCP_ADD_USAGE,
   normalizeMcpServers,
+  parseMcpAddArgs,
+  PROJECT_MCP_FILE,
   withMcpServer,
   withoutMcpServer,
 } from "./mcp/config.js";

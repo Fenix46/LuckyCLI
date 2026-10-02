@@ -15,17 +15,40 @@ export function DiffView({
   diffs,
   theme,
   width,
+  header = true,
 }: {
   diffs: FileDiff[];
   theme: Theme;
   width: number;
+  /**
+   * Per-file "path +N −M" header. A tool row already names the file and the
+   * counts, so it renders a single-file diff without one.
+   */
+  header?: boolean;
 }): React.JSX.Element {
   return (
     <Box flexDirection="column">
       {diffs.map((diff, index) => (
-        <FileDiffView key={`${index}:${diff.path}`} diff={diff} theme={theme} width={width} />
+        <FileDiffView
+          key={`${index}:${diff.path}`}
+          diff={diff}
+          theme={theme}
+          width={width}
+          header={header || diffs.length > 1}
+        />
       ))}
     </Box>
+  );
+}
+
+/** "+3 −1" change counts, colored, for headers and tool rows. */
+export function DiffStats({ diff, theme }: { diff: Pick<FileDiff, "additions" | "deletions">; theme: Theme }): React.JSX.Element {
+  return (
+    <Text>
+      {diff.additions > 0 ? <Text color={theme.success}>+{diff.additions}</Text> : null}
+      {diff.additions > 0 && diff.deletions > 0 ? " " : ""}
+      {diff.deletions > 0 ? <Text color={theme.error}>−{diff.deletions}</Text> : null}
+    </Text>
   );
 }
 
@@ -33,10 +56,12 @@ function FileDiffView({
   diff,
   theme,
   width,
+  header,
 }: {
   diff: FileDiff;
   theme: Theme;
   width: number;
+  header: boolean;
 }): React.JSX.Element {
   const deleted = !diff.created && diff.additions === 0 && diff.deletions > 0 && isFullDeletion(diff);
   const verb = diff.created ? "Created" : deleted ? "Deleted" : "Updated";
@@ -62,7 +87,7 @@ function FileDiffView({
     }
     if (hunkIndex > 0 && budget > 0) {
       rendered.push(
-        <Text key={`gap-${hunkIndex}`} color={theme.muted} dimColor>
+        <Text key={`gap-${hunkIndex}`} color={theme.subtle}>
           {" ".repeat(gutter)} ⋮
         </Text>,
       );
@@ -87,16 +112,17 @@ function FileDiffView({
 
   return (
     <Box flexDirection="column">
-      <Text color={theme.muted}>
-        ⎿ {verb} <Text color={theme.primary}>{diff.path}</Text>{" "}
-        {diff.additions > 0 ? <Text color={theme.success}>+{diff.additions}</Text> : null}
-        {diff.additions > 0 && diff.deletions > 0 ? " " : ""}
-        {diff.deletions > 0 ? <Text color={theme.error}>-{diff.deletions}</Text> : null}
-      </Text>
-      <Box flexDirection="column" paddingLeft={2}>
+      {header ? (
+        <Text>
+          <Text color={theme.accent}>{diff.path}</Text>
+          <Text color={theme.muted}>  {verb.toLowerCase()}  </Text>
+          <DiffStats diff={diff} theme={theme} />
+        </Text>
+      ) : null}
+      <Box flexDirection="column">
         {rendered}
         {truncated > 0 ? (
-          <Text color={theme.muted} dimColor>
+          <Text color={theme.muted}>
             … +{truncated} more lines
           </Text>
         ) : null}
@@ -118,12 +144,12 @@ function DiffLineView({
 }): React.JSX.Element {
   const lineNo = line.type === "del" ? line.oldLine : line.newLine;
   const no = String(lineNo ?? "").padStart(gutter);
-  const marker = line.type === "add" ? "+" : line.type === "del" ? "-" : " ";
+  const marker = line.type === "add" ? "+" : line.type === "del" ? "−" : " ";
   const text = clip(line.text, textWidth);
   if (line.type === "context") {
     return (
       <Text>
-        <Text color={theme.muted} dimColor>{no} </Text>
+        <Text color={theme.subtle}>{no} </Text>
         <Text color={theme.muted}>{marker} {text}</Text>
       </Text>
     );
@@ -131,8 +157,12 @@ function DiffLineView({
   const bg = line.type === "add" ? theme.diffAddedBg : theme.diffRemovedBg;
   return (
     <Text>
-      <Text color={theme.muted} dimColor>{no} </Text>
-      <Text backgroundColor={bg}>{marker} {padTo(text, textWidth)}</Text>
+      <Text color={theme.subtle}>{no} </Text>
+      <Text backgroundColor={bg} color={theme.text}>
+        <Text backgroundColor={bg} color={line.type === "add" ? theme.success : theme.error}>{marker}</Text>
+        {" "}
+        {padTo(text, textWidth)}
+      </Text>
     </Text>
   );
 }

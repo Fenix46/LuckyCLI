@@ -57,7 +57,7 @@ export interface TurnSummaryInput {
   outputTokens: number;
 }
 
-/** One-line recap printed after a turn: "✓ done in 12s · 4 tools · ↑8.1k ↓420 tokens". */
+/** One-line recap printed after a turn: "✓ done in 12s · 4 tools · 8.1k in · 420 out". */
 export function formatTurnSummary(summary: TurnSummaryInput): string {
   const parts = [`✓ done in ${formatDuration(summary.elapsedMs)}`];
   if (summary.tools > 0) {
@@ -67,7 +67,7 @@ export function formatTurnSummary(summary: TurnSummaryInput): string {
   }
   if (summary.inputTokens > 0 || summary.outputTokens > 0) {
     parts.push(
-      `↑${formatCompactNumber(summary.inputTokens)} ↓${formatCompactNumber(summary.outputTokens)} tokens`,
+      `${formatCompactNumber(summary.inputTokens)} in · ${formatCompactNumber(summary.outputTokens)} out`,
     );
   }
   return parts.join(" · ");
@@ -380,6 +380,7 @@ export function liveTailLines(live: string, count = 3): string[] {
 }
 
 export function summarizeReadOutput(lines: string[]): string {
+  if (lines[0]?.startsWith("[File unchanged since your earlier read")) return "unchanged · already in context";
   const rangeLine = lines.find((line) => /^\[showing \d+ of \d+ lines\]$/.test(line));
   if (rangeLine) return rangeLine.replace(/^\[|\]$/g, "");
   const noLines = lines.find((line) => line.startsWith("[no lines"));

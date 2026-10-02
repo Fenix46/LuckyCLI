@@ -60,14 +60,19 @@ export function TrustPrompt({ cwd, onDone }: TrustPromptProps): React.JSX.Elemen
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Text bold color={theme.primary}>
-        Welcome to this project
+      <Text>
+        <Text bold color={theme.primary}>☘ </Text>
+        <Text bold color={theme.text}>Welcome to this project</Text>
       </Text>
-      <Text color={theme.muted}>{cwd}</Text>
+      <Text color={theme.accent}>{cwd}</Text>
       <Box marginTop={1} flexDirection="column">
         {step === "choose" && (
           <>
-            <Text>Lucky will read and operate on the files in this folder.</Text>
+            <Text color={theme.text}>Lucky will read and operate on the files in this folder.</Text>
+            <Text color={theme.muted}>
+              Trusting it also applies the project's own settings: MCP servers from .mcp.json or
+              .lucky/config.json, and its tool permissions.
+            </Text>
             <Text color={theme.muted}>
               The knowledge graph lets it navigate by querying instead of re-reading files — faster and
               cheaper in tokens. AST-only, no API cost, saved in .lucky/graph/.

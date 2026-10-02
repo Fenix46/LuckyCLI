@@ -15,12 +15,13 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Message, ProviderId, TokenUsage } from "../providers/types.js";
 import { CheckpointSchema, type Checkpoint } from "../workflow/types.js";
 
@@ -35,6 +36,8 @@ export interface SessionMeta {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  /** Project directory the session ran in; absent on sessions saved before 0.7. */
+  cwd?: string;
 }
 
 /** A full persisted session. */
@@ -46,12 +49,61 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   messages: Message[];
+  /**
+   * Project directory the session ran in, so sessions can be listed and
+   * resumed per project. Absent on sessions saved before it was recorded.
+   */
+  cwd?: string;
   /** Optional for backwards compatibility with sessions saved before checkpoints. */
   checkpoints?: Checkpoint[];
   /** Cumulative provider usage, optional for backwards compatibility. */
   usage?: TokenUsage;
   /** Number of transient provider retries across the session. */
   retryCount?: number;
+  /**
+   * The exact system prompt the session last ran with. Resuming soon after
+   * with the same one keeps the request prefix byte-identical, so the
+   * provider's prompt cache (if still alive) is read instead of re-written.
+   */
+  systemPrompt?: string;
+  /** The conversation's prompt-cache routing key (see AgentConfig.promptCacheKey). */
+  promptCacheKey?: string;
+}
+
+/**
+ * How long after its last save a session's stored system prompt is reused on
+ * resume. Provider prompt caches live minutes to about an hour; past that
+ * there is nothing to keep warm, so a freshly composed prompt (current date,
+ * git state, project memory) is the better choice.
+ */
+export const RESUME_CACHE_WINDOW_MS = 60 * 60 * 1000;
+
+/** What a resumed agent should reuse to hit the provider's prompt cache. */
+export interface ResumeCacheHints {
+  systemPrompt?: string;
+  promptCacheKey?: string;
+}
+
+/**
+ * Cache hints for resuming `session` on `provider`/`model`. The cache key is
+ * always kept (it only routes requests); the stored system prompt only when
+ * the session was saved recently on the same provider and model, since a
+ * different model never shares the cache anyway.
+ */
+export function resumeCacheHints(
+  session: Pick<Session, "provider" | "model" | "updatedAt" | "systemPrompt" | "promptCacheKey">,
+  provider: string,
+  model: string,
+  now = Date.now(),
+): ResumeCacheHints {
+  const fresh =
+    session.provider === provider &&
+    session.model === model &&
+    now - session.updatedAt <= RESUME_CACHE_WINDOW_MS;
+  return {
+    ...(session.promptCacheKey ? { promptCacheKey: session.promptCacheKey } : {}),
+    ...(fresh && session.systemPrompt ? { systemPrompt: session.systemPrompt } : {}),
+  };
 }
 
 export function sessionsDirPath(): string {
@@ -121,8 +173,32 @@ export function loadSession(id: string): Session | undefined {
   }
 }
 
-/** Every saved session as metadata, most recently updated first. */
-export function listSessions(): SessionMeta[] {
+/**
+ * Canonical form of a project directory, used to match sessions to the
+ * project they belong to: resolved and with symlinks followed, so the same
+ * folder reached two ways is still one project.
+ */
+function sessionProjectKey(cwd: string): string {
+  const absolute = resolve(cwd);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    return absolute;
+  }
+}
+
+export interface SessionFilter {
+  /** Only sessions that ran in this project directory. */
+  cwd?: string;
+}
+
+/**
+ * Saved sessions as metadata, most recently updated first. With a `cwd`
+ * filter, only that project's sessions; sessions saved before the project
+ * was recorded belong to no project and appear only in the unfiltered list.
+ */
+export function listSessions(filter: SessionFilter = {}): SessionMeta[] {
+  const project = filter.cwd !== undefined ? sessionProjectKey(filter.cwd) : undefined;
   const dir = sessionsDirPath();
   let files: string[];
   try {
@@ -141,6 +217,7 @@ export function listSessions(): SessionMeta[] {
         readFileSync(join(dir, name), "utf8"),
       ) as Session;
       if (session.id !== fileId || !isValidSessionId(session.id)) continue;
+      if (project !== undefined && (!session.cwd || sessionProjectKey(session.cwd) !== project)) continue;
       metas.push({
         id: session.id,
         ...(session.title ? { title: session.title } : {}),
@@ -149,6 +226,7 @@ export function listSessions(): SessionMeta[] {
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         messageCount: session.messages?.length ?? 0,
+        ...(session.cwd ? { cwd: session.cwd } : {}),
       });
     } catch {
       // skip corrupt files
@@ -158,9 +236,9 @@ export function listSessions(): SessionMeta[] {
   return metas.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-/** Metadata for the most recently updated session, if any. */
-export function latestSession(): SessionMeta | undefined {
-  return listSessions()[0];
+/** Metadata for the most recently updated session (optionally per project), if any. */
+export function latestSession(filter: SessionFilter = {}): SessionMeta | undefined {
+  return listSessions(filter)[0];
 }
 
 export function deleteSession(id: string): boolean {

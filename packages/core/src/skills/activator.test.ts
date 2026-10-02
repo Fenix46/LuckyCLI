@@ -47,7 +47,7 @@ describe("SkillActivator.activate", () => {
     const act = new SkillActivator(root);
 
     const block = await act.activate("release-flow");
-    expect(block).toContain('<skill name="release-flow">');
+    expect(block).toContain(`<skill name="release-flow" dir="${join(root, "release-flow")}">`);
     expect(block).toContain("release body");
     // related neighbors still surface for discovery.
     expect(block).toContain("npm-publish");
@@ -58,7 +58,7 @@ describe("SkillActivator.activate", () => {
     await writeSkill("release-flow", RELEASE);
     await rebuildSkillGraph(root);
     const act = new SkillActivator(root);
-    expect(await act.activate("Release-Flow")).toContain('<skill name="release-flow">');
+    expect(await act.activate("Release-Flow")).toContain(`<skill name="release-flow" dir="${join(root, "release-flow")}">`);
   });
 
   it("enforces a project skill allowlist", async () => {

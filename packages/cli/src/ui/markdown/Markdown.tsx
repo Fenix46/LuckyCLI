@@ -29,29 +29,23 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
       {blocks.map((block, blockIdx) => {
         if (block.type === "code" && block.codeLines) {
           return (
-            <Box key={blockIdx} flexDirection="column" width="100%" marginY={1}>
-              <Box flexDirection="row" paddingLeft={2} backgroundColor={theme.codeLabelBg}>
-                <Text color={theme.muted}>{block.language?.toLowerCase() || "code"}</Text>
-              </Box>
-              <Box flexDirection="column" backgroundColor={theme.codeBlockBg}>
-                {block.codeLines.map((line, lineIdx) => (
-                  <Text key={lineIdx}>
-                    <Text color={theme.muted}>  </Text>
-                    {highlightCodeLine(line, block.language || "code", theme)}
-                  </Text>
-                ))}
-              </Box>
+            <Box key={blockIdx} flexDirection="column" width="100%" marginY={1} backgroundColor={theme.codeBlockBg}>
+              <Text color={theme.muted}>{"  "}{block.language?.toLowerCase() || "code"}</Text>
+              {block.codeLines.map((line, lineIdx) => (
+                <Text key={lineIdx} color={theme.text}>
+                  {"  "}
+                  {highlightCodeLine(line, block.language || "code", theme)}
+                </Text>
+              ))}
             </Box>
           );
         }
 
         if (block.type === "header") {
           const level = block.level || 1;
-          const icon = level === 1 ? "◆ " : level === 2 ? "▹ " : "• ";
           return (
             <Box key={blockIdx} flexDirection="column" marginTop={1}>
-              <Text bold color={theme.primary}>
-                {icon}
+              <Text bold underline={level === 1} color={level >= 3 ? theme.muted : theme.text}>
                 {block.text}
               </Text>
             </Box>
@@ -59,11 +53,20 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
         }
 
         if (block.type === "list") {
+          // Hanging indent: wrapped lines align with the item text, not the
+          // bullet. Unordered markers become a muted dot.
+          const match = /^(\s*)((?:[-*+])|\d+[.)])\s+(.*)$/.exec(block.text);
+          const indent = match?.[1]?.length ?? 0;
+          const rawMarker = match?.[2] ?? "-";
+          const marker = /^\d/.test(rawMarker) ? rawMarker : "•";
           return (
-            <Box key={blockIdx} paddingLeft={2}>
-              <Text>
-                {parseInlineMarkdown(block.text, theme)}
-              </Text>
+            <Box key={blockIdx} flexDirection="row" paddingLeft={Math.min(8, indent) + 1}>
+              <Box width={marker.length + 1} flexShrink={0}>
+                <Text color={theme.muted}>{marker}</Text>
+              </Box>
+              <Box flexShrink={1}>
+                <Text color={theme.text}>{parseInlineMarkdown(match?.[3] ?? block.text, theme)}</Text>
+              </Box>
             </Box>
           );
         }
@@ -73,12 +76,15 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
         }
 
         if (!block.text.trim()) {
+          // A code block already brings its own margin: a blank line next to
+          // it would double the gap.
+          if (blocks[blockIdx - 1]?.type === "code" || blocks[blockIdx + 1]?.type === "code") return null;
           return <Box key={blockIdx} height={1} />;
         }
 
         return (
           <Box key={blockIdx}>
-            <Text>
+            <Text color={theme.text}>
               {parseInlineMarkdown(block.text, theme)}
             </Text>
           </Box>
@@ -92,7 +98,7 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
 function MarkdownHeader(props: React.PropsWithChildren<{}>) {
   const theme = React.useContext(ThemeContext);
   return (
-    <Text bold color={theme?.accent ?? "blue"}>
+    <Text bold color={theme?.text}>
       {props.children}
     </Text>
   );
@@ -106,7 +112,7 @@ function MarkdownCell(props: React.PropsWithChildren<{}>) {
 /** Theme-adapted skeleton component for the Table borders. */
 function MarkdownSkeleton(props: React.PropsWithChildren<{}>) {
     const theme = React.useContext(ThemeContext);
-  return <Text color={theme?.muted ?? "gray"}>{props.children}</Text>;
+  return <Text color={theme?.subtle}>{props.children}</Text>;
 }
 
 /** Convert parsed table block to Table component data format and render. */

@@ -14,6 +14,7 @@ import type {
 } from "../providers/types.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { askUserTool } from "../tools/builtin/ask-user.js";
+import { readFileTool } from "../tools/builtin/read-file.js";
 import { defineTool } from "../tools/types.js";
 import { fileDiff } from "../diff.js";
 import { Agent } from "./agent.js";
@@ -752,6 +753,275 @@ describe("Agent loop", () => {
     // The current turn survived compaction: the latest message is the tool
     // result that triggered the pressure.
     expect(seen[2]?.at(-1)).toMatchObject({ role: "tool" });
+  });
+
+  it("compacts on a model with an unknown window once maxContextTokens is reached", async () => {
+    // A local model without a configured window used to never compact.
+    let turn = 0;
+    class UnknownWindowProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(): AsyncGenerator<StreamChunk> {
+        turn += 1;
+        yield { textDelta: "ok", finishReason: "stop", usage: { inputTokens: turn * 600, outputTokens: 5 } };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [{ type: "text", text: "summary of earlier turns" }], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const agent = new Agent({
+      provider: new UnknownWindowProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+      compaction: { keepRecentTurns: 1, maxContextTokens: 1_000 },
+    });
+
+    await collect(agent.send("one"));
+    await collect(agent.send("two"));
+    const events = await collect(agent.send("three"));
+
+    expect(events.some((event) => event.type === "context_compacted")).toBe(true);
+    expect(agent.messages[0]).toMatchObject({ role: "system" });
+  });
+
+  it("clears old tool results during a long tool loop, keeping the recent ones", async () => {
+    const bulky = defineTool({
+      name: "bulky",
+      description: "Returns a lot of text.",
+      schema: z.object({ n: z.number() }),
+      async execute({ n }) {
+        return { content: `result ${n} ${"x".repeat(5_000)}` };
+      },
+    });
+    const steps = 14;
+    let call = 0;
+    const seen: Message[][] = [];
+    class LoopProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(messages: Message[]): AsyncGenerator<StreamChunk> {
+        seen.push(messages);
+        call += 1;
+        if (call > steps) {
+          yield { textDelta: "done", finishReason: "stop", usage: { inputTokens: 900, outputTokens: 5 } };
+          return;
+        }
+        yield { toolCall: { type: "tool_call", id: `c${call}`, name: "bulky", arguments: { n: call } } };
+        yield { finishReason: "tool_calls", usage: { inputTokens: 900, outputTokens: 5 } };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const agent = new Agent({
+      provider: new LoopProvider(),
+      model: "mock",
+      tools: new ToolRegistry().register(bulky),
+      compaction: { maxContextTokens: 1_000 },
+    });
+
+    await collect(agent.send("go"));
+
+    const results = agent.messages.flatMap((m) => m.content).filter((p) => p.type === "tool_result");
+    expect(results).toHaveLength(steps);
+    const cleared = results.filter((p) => p.type === "tool_result" && p.content.startsWith("[Earlier bulky output"));
+    expect(cleared.length).toBeGreaterThan(0);
+    // The newest results always stay intact.
+    for (const part of results.slice(-8)) {
+      expect(part.type === "tool_result" && part.content.startsWith("result")).toBe(true);
+    }
+    // The model saw the cleared transcript on a later step.
+    const last = seen.at(-1)!.flatMap((m) => m.content).filter((p) => p.type === "tool_result");
+    expect(last.some((p) => p.type === "tool_result" && p.content.startsWith("[Earlier"))).toBe(true);
+  });
+
+  it("does not re-send a file the model already read, unless that result was cleared", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "lucky-ledger-"));
+    try {
+      await writeFile(join(dir, "big.ts"), "x".repeat(6_000), "utf8");
+      const bulky = defineTool({
+        name: "bulky",
+        description: "Returns a lot of text.",
+        schema: z.object({ n: z.number() }),
+        async execute({ n }) {
+          return { content: `result ${n} ${"y".repeat(5_000)}` };
+        },
+      });
+      const read = (id: string): StreamChunk[] => [
+        { toolCall: { type: "tool_call", id, name: "read_file", arguments: { path: "big.ts" } } },
+        { finishReason: "tool_calls", usage: { inputTokens: 900, outputTokens: 5 } },
+      ];
+      const bulkyStep = (n: number): StreamChunk[] => [
+        { toolCall: { type: "tool_call", id: `b${n}`, name: "bulky", arguments: { n } } },
+        { finishReason: "tool_calls", usage: { inputTokens: 900, outputTokens: 5 } },
+      ];
+      const script: StreamChunk[][] = [
+        read("r1"),
+        read("r2"),
+        ...Array.from({ length: 12 }, (_, i) => bulkyStep(i)),
+        read("r3"),
+        [{ textDelta: "done", finishReason: "stop" }],
+      ];
+      const agent = new Agent({
+        provider: new ScriptedProvider(script),
+        model: "mock",
+        cwd: dir,
+        tools: new ToolRegistry().register(readFileTool).register(bulky),
+        compaction: { maxContextTokens: 1_000 },
+      });
+
+      await collect(agent.send("go"));
+
+      const results = new Map(
+        agent.messages
+          .flatMap((m) => m.content)
+          .filter((p): p is Extract<typeof p, { type: "tool_result" }> => p.type === "tool_result")
+          .map((p) => [p.toolCallId, p.content]),
+      );
+      expect(results.get("r2")).toContain("File unchanged since your earlier read");
+      // r1 was cleared to save context, so the later read sends the file again.
+      expect(results.get("r1")).toMatch(/^\[Earlier read_file output/);
+      expect(results.get("r3")).toContain("x".repeat(100));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps provider reasoning with the turn it produced, never on its own", async () => {
+    const reasoning = { type: "reasoning" as const, provider: "claude", data: "state" };
+    const agent = new Agent({
+      provider: new ScriptedProvider([
+        [{ reasoningPart: reasoning }, ...toolCallStep("r1")],
+        // A reasoning-only reply is not a turn: nothing is persisted for it.
+        [{ reasoningPart: reasoning }, { finishReason: "stop" }],
+      ]),
+      model: "mock",
+      tools: new ToolRegistry().register(echo),
+    });
+
+    await collect(agent.send("go"));
+
+    const assistants = agent.messages.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.content.map((p) => p.type)).toEqual(["reasoning", "tool_call"]);
+  });
+
+  it("sends a stable prompt cache key for the whole conversation", async () => {
+    const keys: Array<string | undefined> = [];
+    class KeyProvider implements IProvider {
+      readonly info = INFO;
+      private turn = 0;
+      async *generateStream(_m: Message[], config: GenerationConfig): AsyncGenerator<StreamChunk> {
+        keys.push(config.promptCacheKey);
+        if (this.turn++ === 0) {
+          yield* toolCallStep("k1");
+          return;
+        }
+        yield { textDelta: "ok", finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const agent = new Agent({ provider: new KeyProvider(), model: "mock", tools: new ToolRegistry().register(echo) });
+    await collect(agent.send("hi"));
+    await collect(agent.send("again"));
+
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).toBeTruthy();
+    expect(new Set(keys).size).toBe(1);
+  });
+
+  it("compacts a large resumed history before its first turn", async () => {
+    const seen: Message[][] = [];
+    class RecordingProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(messages: Message[]): AsyncGenerator<StreamChunk> {
+        seen.push([...messages]);
+        yield { textDelta: "ok", finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [{ type: "text", text: "summary of the old session" }], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const old: Message[] = [
+      { role: "user", content: [{ type: "text", text: "build the parser" }] },
+      { role: "assistant", content: [{ type: "text", text: "z".repeat(200_000) }] },
+    ];
+
+    const resumed = new Agent({
+      provider: new RecordingProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+      messages: old,
+      compactOnResume: true,
+    });
+    const events = await collect(resumed.send("now the lexer"));
+    expect(events.some((e) => e.type === "context_compacted")).toBe(true);
+    expect(seen[0]?.[0]).toMatchObject({
+      role: "system",
+      content: [{ type: "text", text: expect.stringContaining("summary of the old session") }],
+    });
+    expect(seen[0]?.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: "now the lexer" }] });
+
+    // A small resumed history, or a warm resume, is sent as is.
+    seen.length = 0;
+    const small = new Agent({
+      provider: new RecordingProvider(),
+      model: "mock",
+      tools: new ToolRegistry(),
+      messages: [old[0]!, { role: "assistant", content: [{ type: "text", text: "done" }] }],
+      compactOnResume: true,
+    });
+    const smallEvents = await collect(small.send("next"));
+    expect(smallEvents.some((e) => e.type === "context_compacted")).toBe(false);
+    expect(seen[0]).toHaveLength(3);
+  });
+
+  it("keeps a resumed conversation's prompt cache key", async () => {
+    const keys: Array<string | undefined> = [];
+    class KeyProvider implements IProvider {
+      readonly info = INFO;
+      async *generateStream(_m: Message[], config: GenerationConfig): AsyncGenerator<StreamChunk> {
+        keys.push(config.promptCacheKey);
+        yield { textDelta: "ok", finishReason: "stop" };
+      }
+      async generate(): Promise<GenerationResponse> {
+        return { content: [], finishReason: "stop" };
+      }
+      async countTokens(): Promise<TokenUsage | undefined> {
+        return undefined;
+      }
+      async healthCheck() {
+        return { ok: true };
+      }
+    }
+    const agent = new Agent({ provider: new KeyProvider(), model: "mock", tools: new ToolRegistry(), promptCacheKey: "conv-1" });
+    await collect(agent.send("hi"));
+    expect(keys).toEqual(["conv-1"]);
+    expect(agent.cacheKey).toBe("conv-1");
   });
 
   it("retries a transient provider error before the stream yields anything", async () => {

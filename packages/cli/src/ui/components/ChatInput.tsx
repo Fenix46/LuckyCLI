@@ -9,6 +9,7 @@ import {
   type PastedContent,
 } from "../lib/paste.js";
 import { extractImagePaths } from "../lib/image-input.js";
+import type { Theme } from "../themes.js";
 
 export function ChatInput({
   value,
@@ -22,6 +23,8 @@ export function ChatInput({
   submitEnabled,
   history = [],
   historyEnabled = false,
+  theme,
+  placeholder,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -42,6 +45,10 @@ export function ChatInput({
   history?: string[];
   /** False while a picker/menu owns the arrow keys, so recall never collides. */
   historyEnabled?: boolean;
+  /** Active theme for the prompt chevron and text. */
+  theme?: Theme;
+  /** Muted hint shown while the input is empty. */
+  placeholder?: string;
 }): React.JSX.Element {
   const [cursorOffset, setCursorOffset] = useState(value.length);
   // Arrow-up history recall: null = composing, otherwise the index into
@@ -217,6 +224,8 @@ export function ChatInput({
       width={width}
       cursorOffset={cursorOffset}
       active
+      {...(theme ? { theme } : {})}
+      {...(placeholder ? { placeholder } : {})}
     />
   );
 }

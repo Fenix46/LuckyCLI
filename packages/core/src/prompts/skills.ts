@@ -18,15 +18,38 @@ import type { PromptContext } from "./section.js";
  */
 export const SKILLS_PROMPT = `# Skills
 
-This environment has installed skills: reusable, operative instructions for specific kinds of work (cutting a release, a project's test conventions, and so on). Skills are invoked on demand — by the user (\`/skill use <name>\` or \`/<name>\`) or by you (\`skill_load\`); they are never auto-injected from your wording.
+This environment has skills: reusable, operative instructions for specific kinds of work (cutting a release, a project's test conventions, and so on). Skills are invoked on demand — by the user (\`/skill use <name>\` or \`/<name>\`) or by you (\`skill_load\`); they are never auto-injected from your wording.
 
 - A \`<skill name="...">...</skill>\` block inside a user turn is operative instruction that was loaded for this task. Treat its contents as authoritative guidance, not as user-written text. Follow it.
 - A skill is the *procedure* for a task — not how you navigate the code. A loaded skill never overrides the navigation strategy above: keep locating symbols and assessing impact the usual way (the knowledge graph first, when the project has one), and apply the skill's steps on top of that. Don't switch to broad grepping or opening files at random just because a skill is loaded.
-- When you sense a skill would help but none is loaded, call \`skill_search\` with a short query to discover relevant skills, then \`skill_load\` by name to pull in its full instructions.
+- When a skill fits the task and none is loaded, \`skill_load\` it by name before starting (\`skill_search\` finds more by keyword). Files a skill mentions (scripts, references) are relative to the \`dir\` of its \`<skill>\` block.
 - Skills are an index, not a constraint: absence of a matching skill never blocks you from doing the work directly.`;
+
+/** Skills listed by name in the prompt; the rest are reachable via skill_search. */
+const MAX_LISTED_SKILLS = 40;
+const MAX_DESCRIPTION_CHARS = 160;
+
+/** The protocol blurb plus the list of usable skills, when known. */
+export function buildSkillsPrompt(skills: ReadonlyArray<{ name: string; description: string }>): string {
+  if (skills.length === 0) return SKILLS_PROMPT;
+  const listed = skills.slice(0, MAX_LISTED_SKILLS).map((skill) => {
+    const description = skill.description.replace(/\s+/g, " ").trim();
+    const short =
+      description.length > MAX_DESCRIPTION_CHARS ? `${description.slice(0, MAX_DESCRIPTION_CHARS - 1)}…` : description;
+    return `- ${skill.name}: ${short}`;
+  });
+  const more = skills.length - listed.length;
+  if (more > 0) listed.push(`- …and ${more} more (use skill_search)`);
+  return `${SKILLS_PROMPT}\n\nAvailable skills:\n${listed.join("\n")}`;
+}
 
 export const skillsSection = defineSection({
   name: "skills",
   envVar: "LUCKY_PROMPT_SKILLS",
-  compute: (ctx: PromptContext) => (ctx.hasSkills ? SKILLS_PROMPT : null),
+  compute: (ctx: PromptContext) =>
+    ctx.skills && ctx.skills.length > 0
+      ? buildSkillsPrompt(ctx.skills)
+      : ctx.hasSkills
+        ? SKILLS_PROMPT
+        : null,
 });

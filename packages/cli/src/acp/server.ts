@@ -19,7 +19,7 @@
  * milestone lands.
  */
 import { readFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 import {
   AgentSideConnection,
@@ -48,14 +48,18 @@ import {
   listTasks,
   loadSession as loadStoredSession,
   loadStoredConfig,
+  trustedProjectSettings,
   onTasksUpdated,
   recordGraphBuilt,
   resolveCredentials,
+  resumeCacheHints,
   saveSession,
   saveStoredConfig,
   setActiveTaskListId,
   type ContextStatus,
   type Message,
+  type ResumeCacheHints,
+  type Session,
   type PlanDecision,
   type PlanProposal,
   type ProviderId,
@@ -234,6 +238,7 @@ export class LuckyAcpAgent implements Agent {
       // as the TUI's session picker does — a session started on one model
       // must not silently continue on whatever the config now says.
       { provider: stored.provider, model: stored.model },
+      stored,
     );
     // Per spec the whole history streams back as notifications before the
     // response. Text only: tool traffic is transient UI state, and replaying
@@ -262,6 +267,8 @@ export class LuckyAcpAgent implements Agent {
     messages?: Message[],
     createdAt?: number,
     resume?: { provider: ProviderId; model: string },
+    /** The saved session being resumed, for its prompt-cache hints. */
+    stored?: Pick<Session, "provider" | "model" | "updatedAt" | "systemPrompt" | "promptCacheKey">,
   ): Promise<AcpSession> {
     const config = this.requireConfig();
     // A resumed session keeps its own provider/model when we can still reach
@@ -300,7 +307,10 @@ export class LuckyAcpAgent implements Agent {
           }
         : {}),
     };
-    session.agent = (await this.buildSessionRuntime(session, messages)).agent;
+    const cacheHints = stored ? resumeCacheHints(stored, active.provider, active.model) : undefined;
+    // Back after the cache expired: compact a large history before its first turn.
+    const compactOnResume = cacheHints !== undefined && cacheHints.systemPrompt === undefined;
+    session.agent = (await this.buildSessionRuntime(session, messages, cacheHints, compactOnResume)).agent;
     this.sessions.set(sessionId, session);
     // Tell the editor which slash commands its command menu can offer. A
     // client that ignores the notification simply shows no menu; the commands
@@ -328,11 +338,19 @@ export class LuckyAcpAgent implements Agent {
   protected async buildSessionRuntime(
     session: AcpSession,
     messages?: Message[],
+    cacheHints?: ResumeCacheHints,
+    compactOnResume = false,
   ): Promise<BuiltAgentRuntime> {
     const mcpServers = session.mcpServers;
     const config = this.requireConfig();
     const sessionId = session.id;
     const cwd = session.cwd;
+    // The resolved config carries the project settings of the folder this
+    // process started in. An editor can open sessions anywhere, so a session
+    // in another folder also gets that folder's (trusted) MCP servers and
+    // permissions, layered on top.
+    const project =
+      resolve(cwd) === resolve(process.cwd()) ? undefined : trustedProjectSettings(cwd, this.store.load());
     return await this.buildRuntime({
       provider: session.provider,
       model: session.model,
@@ -341,7 +359,7 @@ export class LuckyAcpAgent implements Agent {
       // Recompose the system prompt from this session's context (graph
       // presence, tools, cwd), exactly as the TUI does per activation.
       composeSystemFromContext: true,
-      permissions: config.permissions,
+      permissions: project ? { ...config.permissions, ...project.permissions } : config.permissions,
       approveTool: (name, input) => this.requestToolPermission(sessionId, session, name, input),
       askUser: (request) => this.askUser(sessionId, request),
       presentPlan: (plan) => this.presentPlan(sessionId, plan),
@@ -360,8 +378,13 @@ export class LuckyAcpAgent implements Agent {
         : {}),
       // Editor-supplied servers extend the user's own MCP config; the local
       // config wins on a name conflict (the user's auth/pins are explicit).
-      mcp: mergeMcpServers(mapAcpMcpServers(mcpServers), config.mcp),
+      mcp: mergeMcpServers(
+        mapAcpMcpServers(mcpServers),
+        project ? { ...config.mcp, ...project.mcp } : config.mcp,
+      ),
       ...(messages?.length ? { messages } : {}),
+      ...(cacheHints ? { cacheHints } : {}),
+      ...(compactOnResume ? { compactOnResume: true } : {}),
       ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
       ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
       // Reasoning effort and the thinking toggle are provider-specific knobs
@@ -429,7 +452,9 @@ export class LuckyAcpAgent implements Agent {
     session.credentials = credentials;
     try {
       session.agent = (
-        await this.buildSessionRuntime(session, carried.length ? carried : undefined)
+        await this.buildSessionRuntime(session, carried.length ? carried : undefined, {
+          promptCacheKey: session.agent.cacheKey,
+        })
       ).agent;
     } catch (err) {
       // A provider that fails to build leaves the session on its old runtime
@@ -668,7 +693,9 @@ export class LuckyAcpAgent implements Agent {
             },
             rebuild: async () => {
               session.agent = (
-                await this.buildSessionRuntime(session, [...session.agent.messages])
+                await this.buildSessionRuntime(session, [...session.agent.messages], {
+                  promptCacheKey: session.agent.cacheKey,
+                })
               ).agent;
             },
           });
@@ -889,7 +916,10 @@ export class LuckyAcpAgent implements Agent {
         model: session.model,
         createdAt: session.createdAt,
         updatedAt: Date.now(),
+        cwd: session.cwd,
         messages,
+        ...(session.agent.systemPrompt !== undefined ? { systemPrompt: session.agent.systemPrompt } : {}),
+        promptCacheKey: session.agent.cacheKey,
       });
     } catch {
       // Persistence must never break a turn (stub agents in tests, full disk…).

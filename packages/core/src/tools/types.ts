@@ -1,3 +1,4 @@
+import type { ReadLedger } from "./read-ledger.js";
 import type { z } from "zod";
 import type { PlanDecision, PlanProposal } from "../agent/plan.js";
 import type { FileDiff } from "../diff.js";
@@ -93,6 +94,13 @@ export interface ToolContext {
    * {@link readTextFile}. A throwing host falls back to disk.
    */
   writeTextFile?: (absPath: string, content: string) => Promise<void>;
+  /**
+   * Reads already in the conversation, so a repeat read of unchanged content
+   * can point back to the earlier result instead of re-sending it.
+   */
+  readLedger?: ReadLedger;
+  /** Id of the tool call being executed, when the host knows it. */
+  toolCallId?: string;
 }
 
 /**

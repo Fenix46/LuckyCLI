@@ -50,6 +50,6 @@ describe("McpLocalClient", () => {
     clients.push(client);
 
     await client.listTools();
-    await expect(client.callTool("echo", { message: "hello" })).resolves.toBe("echo:hello");
+    await expect(client.callTool("echo", { message: "hello" })).resolves.toEqual({ content: "echo:hello", isError: false });
   });
 });

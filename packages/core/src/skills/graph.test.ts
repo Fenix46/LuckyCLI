@@ -54,10 +54,12 @@ describe("discoverSkills", () => {
     expect(skills.every((s) => s.enabled)).toBe(true);
   });
 
-  it("throws on a duplicate skill name", async () => {
+  it("keeps the first of two skills sharing a name and skips broken files", async () => {
     await writeSkill("a", RELEASE);
     await writeSkill("b", RELEASE);
-    await expect(discoverSkills(root)).rejects.toThrow(/Duplicate skill name/);
+    await writeSkill("c-broken", "no frontmatter here");
+    const skills = await discoverSkills(root);
+    expect(skills.map((s) => s.bodyPath)).toEqual([join("a", "skill.md")]);
   });
 
   it("marks disabled skills via disabled.json", async () => {

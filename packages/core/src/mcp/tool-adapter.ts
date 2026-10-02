@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { defineTool, type Tool, type ToolContext, type ToolResult } from "../tools/types.js";
 import type { McpToolDescriptor } from "./types.js";
@@ -17,8 +18,25 @@ function sanitizeNamePart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
+/**
+ * Providers reject tool names longer than 64 characters (Claude and OpenAI
+ * both cap them there), and one bad name fails every request of the session.
+ */
+export const MAX_TOOL_NAME_LENGTH = 64;
+
 export function makeMcpToolName(server: string, tool: string): string {
-  return `${sanitizeNamePart(server)}_${sanitizeNamePart(tool)}`;
+  return fitToolName(`${sanitizeNamePart(server)}_${sanitizeNamePart(tool)}`);
+}
+
+/**
+ * Shorten a too-long name to the limit, keeping its start and swapping the
+ * rest for a short hash of the full name so distinct long names stay distinct
+ * and stable across sessions.
+ */
+function fitToolName(name: string, max = MAX_TOOL_NAME_LENGTH): string {
+  if (name.length <= max) return name;
+  const hash = createHash("sha1").update(name).digest("hex").slice(0, 8);
+  return `${name.slice(0, max - hash.length - 1)}_${hash}`;
 }
 
 /**
@@ -39,7 +57,10 @@ export function uniqueMcpToolName(
 ): string {
   const base = makeMcpToolName(server, tool);
   let name = base;
-  for (let n = 2; taken.has(name); n++) name = `${base}_${n}`;
+  for (let n = 2; taken.has(name); n++) {
+    const suffix = `_${n}`;
+    name = `${fitToolName(base, MAX_TOOL_NAME_LENGTH - suffix.length)}${suffix}`;
+  }
   taken.add(name);
   return name;
 }
@@ -54,6 +75,9 @@ export function adaptMcpTool(
   return defineTool({
     name,
     description: descriptor.description ?? `MCP tool ${descriptor.name} from server ${server}.`,
+    // A tool the server declares read-only gets the same default permission
+    // as the built-in reads instead of an approval prompt on every call.
+    readonly: descriptor.readOnly === true,
     schema: z.object({}).passthrough(),
     parametersSchema: normalizeToolInputSchema(descriptor.inputSchema),
     async execute(input, ctx) {

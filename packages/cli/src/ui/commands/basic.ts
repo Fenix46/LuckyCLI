@@ -147,20 +147,20 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
     },
     {
       name: "/sessions",
-      description: "List saved sessions",
+      description: "List this project's saved sessions",
       hidden: true,
       run(args, ctx) {
         if (args) {
           unknownCommand(ctx, `/sessions ${args}`);
           return;
         }
-        const sessions = deps.listSessions().slice(0, 12);
+        const sessions = deps.listSessions({ cwd: process.cwd() }).slice(0, 12);
         ctx.emit({
           kind: "command",
           title: "Sessions",
           rows:
             sessions.length === 0
-              ? [{ label: "none", value: "no saved sessions yet" }]
+              ? [{ label: "none", value: "no saved sessions for this project yet" }]
               : sessions.map((s) => ({
                   label: s.id === ctx.state.sessionId ? "current" : s.id,
                   value: `${s.messageCount} msgs · ${s.title ?? "(untitled)"}`,

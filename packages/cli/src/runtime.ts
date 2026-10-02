@@ -1,8 +1,11 @@
 import { existsSync } from "node:fs";
 import {
   Agent,
+  type ResumeCacheHints,
   McpManager,
+  appendProjectInstructionsToSystemPrompt,
   appendProjectMemoryToSystemPrompt,
+  loadProjectInstructions,
   buildSystemPromptFromContext,
   detectProjectFacts,
   defaultToolRegistry,
@@ -10,7 +13,7 @@ import {
   getProvider,
   GraphContextEnricher,
   graphFilePath,
-  hasInstalledSkills,
+  usableSkills,
   listProfiles,
   SkillActivator,
   nonInteractiveMcpOAuthProvider,
@@ -144,6 +147,14 @@ export interface BuildAgentOptions {
    */
   composeSystemFromContext?: boolean;
   /**
+   * Resuming a saved session: reuse its exact system prompt (when still fresh)
+   * and its prompt-cache key, so the provider's cache for this conversation
+   * is read instead of re-written. See resumeCacheHints.
+   */
+  cacheHints?: ResumeCacheHints;
+  /** Compact a large resumed history before its first turn (see AgentConfig). */
+  compactOnResume?: boolean;
+  /**
    * Pre-built tool registry to use as-is. When given, `extraTools` is ignored —
    * the caller owns the registry (e.g. to register MCP tools into it later).
    */
@@ -222,14 +233,20 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const cwd = opts.cwd ?? process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
-  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills);
+  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills, cwd);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
+  // Project and global skills this session may use, listed in the prompt.
+  const skills = usableSkills(cwd, opts.allowedSkills).map(({ name, description }) => ({ name, description }));
 
   // Optionally recompose the system prompt from this session's context so the
   // conditional sections react to it. A custom LUCKY_SYSTEM always wins, so we
   // only recompose when the prebuilt prompt is the default one.
+  // A stored prompt is reused verbatim so the request prefix stays identical;
+  // LUCKY_SYSTEM still wins, as it always does.
+  const reusedSystem =
+    process.env.LUCKY_SYSTEM === undefined ? opts.cacheHints?.systemPrompt : undefined;
   const composed =
-    opts.composeSystemFromContext && process.env.LUCKY_SYSTEM === undefined
+    reusedSystem === undefined && opts.composeSystemFromContext && process.env.LUCKY_SYSTEM === undefined
       ? buildSystemPromptFromContext({
           environment: {
             cwd,
@@ -240,7 +257,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
           enabledTools: new Set(tools.definitions().map((d) => d.name)),
           hasGraph: existsSync(graphFilePath(cwd)),
           hasSubAgents: listProfiles().length > 0,
-          hasSkills: hasInstalledSkills(),
+          hasSkills: skills.length > 0,
+          skills,
           project: detectProjectFacts(cwd),
           env: process.env,
         })
@@ -251,7 +269,14 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     model: opts.model,
     cwd,
     tools,
-    system: appendProjectMemoryToSystemPrompt(composed, projectMemory),
+    system:
+      reusedSystem ??
+      appendProjectMemoryToSystemPrompt(
+        appendProjectInstructionsToSystemPrompt(composed, loadProjectInstructions(cwd)),
+        projectMemory,
+      ),
+    ...(opts.cacheHints?.promptCacheKey ? { promptCacheKey: opts.cacheHints.promptCacheKey } : {}),
+    ...(opts.compactOnResume ? { compactOnResume: true } : {}),
     permissions: opts.permissions,
     ...(opts.allowedSkills ? { allowedSkills: opts.allowedSkills } : {}),
     approveTool: opts.approveTool,
@@ -289,7 +314,7 @@ export async function buildAgentRuntime(
   // are picked up without rebuilding. This keeps session startup instant even
   // when a server is slow (e.g. first-run `npx` downloads) or wedged.
   const registry = createRuntimeToolRegistry(opts.extraTools);
-  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills);
+  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills, cwd);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
   const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator, graphEnricher });
 

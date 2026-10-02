@@ -9,6 +9,7 @@ import { inputString, truncateSingleLine, wrapText } from "../lib/format.js";
 import { previewToolDiffs, PREVIEWABLE_TOOLS } from "../../approval-preview.js";
 import { describeAlwaysScope } from "../../approval.js";
 import { DiffView } from "./DiffView.js";
+import { KeyHints, OptionRow, SectionTitle } from "./kit.js";
 
 export function ApprovalRequestView({
   request,
@@ -31,13 +32,10 @@ export function ApprovalRequestView({
   const alwaysDescription = describeAlwaysScope(request.name, request.input, request.risky === true);
   return (
     <Box flexDirection="column" width={panelWidth}>
-      <Box flexDirection="row">
-        <Text bold color={theme.warning}>Permission required</Text>
-        <Text color={theme.muted}> · {request.name}</Text>
-      </Box>
+      <SectionTitle theme={theme} tone="warning" title="Permission required" detail={request.name} />
 
       <Box marginTop={1}>
-        <Text bold color="white">{detail.question}</Text>
+        <Text bold color={theme.text}>{detail.question}</Text>
       </Box>
 
       {request.reason ? (
@@ -49,7 +47,7 @@ export function ApprovalRequestView({
       {detail.target ? (
         <Box marginTop={1} flexDirection="row">
           <Text color={theme.muted}>target  </Text>
-          <Text color={theme.primary}>{detail.target}</Text>
+          <Text color={theme.accent}>{detail.target}</Text>
         </Box>
       ) : null}
 
@@ -61,7 +59,7 @@ export function ApprovalRequestView({
         <Box flexDirection="column" marginTop={1}>
           {detail.preview.map((line, index) => (
             <Box key={index} flexDirection="row">
-              <Text color={theme.muted} dimColor>│ </Text>
+              <Text color={theme.subtle}>│ </Text>
               <Text color={line.color === "added" ? theme.success : line.color === "removed" ? theme.error : theme.muted}>
                 {line.text}
               </Text>
@@ -82,9 +80,14 @@ export function ApprovalRequestView({
         ))}
       </Box>
 
-      <Box marginTop={1}>
-        <Text color={theme.muted} dimColor>↑↓ move · enter select · esc reject</Text>
-      </Box>
+      <KeyHints
+        theme={theme}
+        hints={[
+          ["↑↓", "move"],
+          ["enter", "select"],
+          ["esc", "reject"],
+        ]}
+      />
     </Box>
   );
 }
@@ -108,15 +111,16 @@ function ApprovalOptionView({
       : option === "always"
         ? alwaysDescription
         : "Don't run it and stop the turn";
-  const color = option === "deny" ? theme.error : option === "always" ? theme.accent : theme.success;
+  const tone = option === "deny" ? theme.error : option === "always" ? theme.accent : theme.success;
   return (
-    <Box flexDirection="row">
-      <Text bold={selected} color={selected ? color : theme.muted}>
-        {selected ? "❯ " : "  "}
-        {label.padEnd(14)}
-      </Text>
-      <Text color={selected ? "white" : theme.muted} dimColor={!selected}>{description}</Text>
-    </Box>
+    <OptionRow
+      theme={theme}
+      selected={selected}
+      label={label}
+      labelWidth={14}
+      detail={description}
+      tone={tone}
+    />
   );
 }
 

@@ -1,4 +1,4 @@
-import type { DiscoveredSkill } from "@luckycli/core";
+import type { AvailableSkill } from "@luckycli/core";
 
 /** A row in the /skill "Installed" tab. */
 export interface InstalledSkillRow {
@@ -6,12 +6,16 @@ export interface InstalledSkillRow {
   enabled: boolean;
   /** One-line summary shown next to the name. */
   summary: string;
-  /** Keywords that trigger it, for the detail line. */
+  /** Search keywords, for the detail line. */
   keywords: string[];
+  /** Project skills live in the repository; global ones in ~/.luckycli/skills. */
+  scope: AvailableSkill["scope"];
+  /** The skill's directory. */
+  dir: string;
 }
 
-/** Shape discovered skills into installed-tab rows, sorted by name. */
-export function buildInstalledSkillRows(skills: DiscoveredSkill[]): InstalledSkillRow[] {
+/** Shape the available skills (project and global) into installed-tab rows, sorted by name. */
+export function buildInstalledSkillRows(skills: AvailableSkill[]): InstalledSkillRow[] {
   return [...skills]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((s) => ({
@@ -19,5 +23,7 @@ export function buildInstalledSkillRows(skills: DiscoveredSkill[]): InstalledSki
       enabled: s.enabled,
       summary: s.description || "(no description)",
       keywords: s.keywords,
+      scope: s.scope,
+      dir: s.dir,
     }));
 }

@@ -12,85 +12,29 @@ import type { PromptContext } from "./section.js";
  * knowledge graph doesn't get told to use one. Override with LUCKY_PROMPT_TOOL_USE.
  */
 
-const GRAPH_GUIDANCE = `# Knowledge graph: primary navigation layer
+const GRAPH_GUIDANCE = `# Navigation: the knowledge graph
 
-The project has a knowledge graph in .lucky/graph. Treat it as the default navigation layer.
+The project has a knowledge graph in .lucky/graph. It is your primary index: use it to locate symbols and files, see who calls what, gauge the blast radius of a change, and learn which external libraries a file depends on (library nodes are marked external). Treat it as a fast index, not ground truth — confirm in the source before editing — and fall back to grep or glob when it has no answer.
 
-Use it first for:
-- locating symbols
-- understanding file/module ownership
-- understanding who calls what
-- estimating the impact of a change
-- orienting in an unfamiliar area of the codebase
-- seeing which external libraries and frameworks a file depends on
-
-The graph separates the project's own code from external libraries. Library nodes (e.g. a UI framework, an HTTP client, a media player engine) are marked external. Use a file's import edges to external nodes to learn which dependency it relies on — read the dependency off the graph instead of guessing or grepping for it.
-
-Operational rules:
-- Start broad analysis with graph_overview when the area is unclear; it lists the project's most connected symbols and its most-used external libraries separately.
-- Use graph_query find to locate a symbol or file-level target.
-- Use graph_query impact before changing a shared function, type or module: it lists everything that transitively depends on it and the files to review. Use callers for just the direct call sites.
-- Use graph_query callees or neighbors when you need to understand local flow or adjacent abstractions.
-- After the graph identifies the likely target, read the exact file and relevant lines to confirm.
-- Treat the graph as a fast index, not ground truth: confirm in source before editing.
-- If the graph has no answer, fall back to grep or glob.
-- Do not begin by broadly grepping or opening many files at random.
-
-# Graph-first task protocols
-
-## For analysis / repository orientation
-1. Use graph_overview if the request is broad.
-2. Use graph_query to narrow to the relevant symbols or files.
-3. Read only the files that the graph indicates are relevant.
-4. Summarize findings with concrete paths and relations.
-
-## For bug fixing
-1. Locate the likely code path with graph_query.
-2. Check callers/callees to understand impact and entrypoints.
-3. Read the target implementation and minimal surrounding context.
-4. Change only the code needed for the fix.
-5. Run the smallest meaningful verification.
-
-## For feature work or refactors
-1. Find the target symbols/files with graph_query.
-2. Run graph_query impact on shared abstractions before editing them; inspect callers, callees, and neighbors for local flow.
-3. Read interfaces, implementations, and affected entrypoints.
-4. Keep edits scoped to the requested behavior.
-5. Verify the changed flow, not just the edited file.`;
-
-const GRAPH_LIFECYCLE = `# Graph lifecycle
-
-- The graph updates itself after your file edits, and picks up changes made outside your tools (the user's editor, git pull, codegen) at the start of each turn; you do not need to rebuild it.
-- A user turn may end with an auto-generated <graph-context> block: graph matches for symbols or files the message mentions (location, callers, callees). Treat it as a head start — go straight to the cited locations instead of re-running graph_query find for the same names. It is navigation metadata, not file contents: still read the source before editing.`;
+- Unclear area or broad request: start with graph_overview (most connected symbols and most-used libraries).
+- A named symbol, module or file: graph_query find, then read only the files it points to.
+- Before changing a shared function, type or module: graph_query impact (everything that transitively depends on it); callers for just the direct call sites; callees or neighbors for local flow.
+- Don't begin by broadly grepping or opening many files at random.
+- The graph updates itself after your edits and picks up outside changes (the user's editor, git pull, codegen) at the start of each turn; you never need to rebuild it.
+- A user turn may end with an auto-generated <graph-context> block: graph matches for symbols or files the message mentions. Use it as a head start instead of re-running graph_query find for the same names; it is navigation metadata, not file contents.`;
 
 const NO_GRAPH_GUIDANCE = `# Navigation
 
-This project has no knowledge graph. Locate code with grep and glob: grep for symbols and text, glob for filenames and path patterns. Read the exact file before reasoning about or changing it. You may suggest \`/graph\` or \`lucky graph build\` to index the project, but do not build it unprompted.`;
+This project has no knowledge graph. Locate code with grep and glob: grep for symbols and text, glob for filenames and path patterns, then read the exact file before reasoning about or changing it. Don't open many files at random. You may suggest \`/graph\` or \`lucky graph build\` to index the project, but do not build it unprompted.`;
 
 const COMMON_GUIDANCE = `# Working with tools
 
-- Run independent tool calls together when they can run in parallel; run dependent calls in sequence. Reads, searches, directory listings, graph queries and fetches issued in the same response execute concurrently, so gather everything you need to look at in one batch instead of one call per step.
-- Read before editing so you change the exact current text.
+- Run independent tool calls together; run dependent calls in sequence. Reads, searches, directory listings, graph queries and fetches issued in the same response execute concurrently, so gather what you need in one batch instead of one call per step.
+- Read narrowly: the exact file and line range a search pointed at, not whole files, unless the task needs full-file understanding. Read before editing so you change the exact current text, and re-read changed regions afterwards.
+- Check callers before an impact-bearing edit to shared code, and never claim completion without checking the resulting code or validation output.`;
 
-# File reading discipline
-
-- Prefer reading the exact file and line range the graph or a search pointed at.
-- Read narrowly before reading broadly. Don't open many similar files just to "look around" once the target is known, and don't read whole files unless the task needs full-file understanding.
-- Re-read changed regions after editing.
-
-# Anti-patterns to avoid
-
-- Do not invent project structure instead of locating it.
-- Do not treat README claims as stronger evidence than source code.
-- Do not make impact-bearing edits to shared code without checking callers/callees first.
-- Do not ask the user questions the codebase can answer.
-- Do not claim completion without checking the resulting code or validation output.`;
-
-/** Compose the tool-use strategy, swapping graph vs. no-graph guidance. */
 export function buildToolUsePrompt(hasGraph: boolean | undefined): string {
-  const navigation = hasGraph ? GRAPH_GUIDANCE : NO_GRAPH_GUIDANCE;
-  const lifecycle = hasGraph ? GRAPH_LIFECYCLE : "";
-  return [navigation, COMMON_GUIDANCE, lifecycle].filter(Boolean).join("\n\n");
+  return [hasGraph ? GRAPH_GUIDANCE : NO_GRAPH_GUIDANCE, COMMON_GUIDANCE].join("\n\n");
 }
 
 /**

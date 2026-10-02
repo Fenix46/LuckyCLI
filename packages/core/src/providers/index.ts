@@ -113,12 +113,17 @@ export {
   runClaudeBrowserOAuthFlow,
 } from "./impl/claude/oauth.js";
 export type { ClaudeEffortLevel, ClaudeOAuthTokens } from "./impl/claude/oauth.js";
+export type { AntigravityEffort, AntigravityModelFamily } from "./impl/antigravity/models.js";
 export {
   startAntigravityOAuthFlow,
   refreshAntigravityAccessToken,
 } from "./impl/gemini/GoogleAuthHelper.js";
 export {
   ANTIGRAVITY_VISIBLE_MODEL_IDS,
+  antigravityEffortLevels,
+  antigravityFamilyDefaultId,
+  antigravityModelFamilies,
+  antigravityModelFamily,
   antigravityModelInfo,
   antigravityModelLabel,
   antigravityVisibleModelIds,

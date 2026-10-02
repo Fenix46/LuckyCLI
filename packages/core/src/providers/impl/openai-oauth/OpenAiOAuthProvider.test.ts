@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAiOAuthProvider } from "./OpenAiOAuthProvider.js";
+import { fetchCodexModels } from "./models.js";
+
+// The provider loads the live model catalog before its first request; keep
+// that off the stubbed fetch so each test sees only its own Codex calls.
+vi.mock("./models.js", () => ({ fetchCodexModels: vi.fn(async () => []) }));
 
 /** Build a ReadableStream of SSE `data:` lines, as the Codex endpoint returns. */
 function sseStream(...lines: string[]): ReadableStream<Uint8Array> {
@@ -14,6 +19,33 @@ function sseStream(...lines: string[]): ReadableStream<Uint8Array> {
 describe("OpenAiOAuthProvider", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("learns models and context windows from the live catalog", async () => {
+    vi.mocked(fetchCodexModels).mockResolvedValueOnce([
+      { slug: "gpt-6-astra", displayName: "gpt-6-astra", contextWindow: 400_000, supportedReasoningLevels: [] },
+      { slug: "gpt-7-preview", displayName: "gpt-7-preview", supportedReasoningLevels: [] },
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: sseStream('data: {"type":"response.completed","usage":{"input_tokens":1,"output_tokens":1}}'),
+      }),
+    );
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60 * 60 * 1000,
+    });
+    expect(provider.info.defaultModel).toBe("gpt-6-astra");
+
+    await provider.generate([{ role: "user", content: [{ type: "text", text: "hi" }] }], { model: "gpt-6-astra" });
+
+    expect(provider.info.availableModels).toEqual(["gpt-6-astra", "gpt-7-preview"]);
+    expect(provider.info.models?.["gpt-6-astra"]).toMatchObject({ contextWindow: 380_000, maxOutputTokens: 128_000 });
+    expect(provider.info.models?.["gpt-7-preview"]?.contextWindow).toBeUndefined();
   });
 
   it("sends ChatGPT OAuth requests with tool history", async () => {
@@ -89,6 +121,83 @@ describe("OpenAiOAuthProvider", () => {
       },
     ]);
     expect(response.content).toEqual([{ type: "text", text: "done" }]);
+  });
+
+  it("captures encrypted reasoning and replays it to the same model only", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      body: sseStream(
+        'data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"ENC"}}',
+        'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"read_file","arguments":"{}"}}',
+        'data: {"type":"response.completed"}',
+      ),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "t",
+      refresh: "r",
+      expires: Date.now() + 3_600_000,
+    });
+
+    const chunks = [];
+    for await (const chunk of provider.generateStream([{ role: "user", content: [{ type: "text", text: "hi" }] }], {
+      model: "gpt-5.5",
+    })) {
+      chunks.push(chunk);
+    }
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).include).toEqual(["reasoning.encrypted_content"]);
+    const part = chunks.find((c) => c.reasoningPart)?.reasoningPart;
+    expect(part).toMatchObject({ type: "reasoning", provider: "openai-oauth" });
+
+    const history = [
+      { role: "user" as const, content: [{ type: "text" as const, text: "hi" }] },
+      {
+        role: "assistant" as const,
+        content: [part!, { type: "tool_call" as const, id: "c1", name: "read_file", arguments: {} }],
+      },
+      {
+        role: "tool" as const,
+        content: [{ type: "tool_result" as const, toolCallId: "c1", name: "read_file", content: "ok" }],
+      },
+    ];
+    await provider.generate(history, { model: "gpt-5.5" });
+    const replayed = JSON.parse(fetchMock.mock.calls[1][1].body).input;
+    expect(replayed[1]).toEqual({
+      type: "reasoning",
+      summary: [{ type: "summary_text", text: "plan" }],
+      encrypted_content: "ENC",
+    });
+    expect(replayed[2]).toMatchObject({ type: "function_call", call_id: "c1" });
+
+    // Encrypted reasoning is bound to its model: a model switch drops it.
+    await provider.generate(history, { model: "gpt-5.4-mini" });
+    const switched = JSON.parse(fetchMock.mock.calls[2][1].body).input;
+    expect(switched.some((item: { type?: string }) => item.type === "reasoning")).toBe(false);
+  });
+
+  it("pins the conversation to a prompt cache and reports cached input", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      body: sseStream(
+        'data: {"type":"response.completed","response":{"usage":{"input_tokens":1200,"output_tokens":5,"input_tokens_details":{"cached_tokens":1000}}}}',
+      ),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OpenAiOAuthProvider({
+      type: "openai-oauth",
+      access: "t",
+      refresh: "r",
+      expires: Date.now() + 3_600_000,
+    });
+
+    const response = await provider.generate([{ role: "user", content: [{ type: "text", text: "hi" }] }], {
+      model: "gpt-5.5",
+      promptCacheKey: "conv-1",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).prompt_cache_key).toBe("conv-1");
+    expect(response.usage).toEqual({ inputTokens: 1200, outputTokens: 5, cacheReadTokens: 1000 });
   });
 
   it("sends reasoning.effort when set, and omits it when not", async () => {
@@ -328,7 +437,7 @@ describe("OpenAiOAuthProvider", () => {
           accept: "*/*",
           Authorization: "Bearer access-token",
           "User-Agent":
-            "codex-tui/0.135.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.135.0)",
+            "codex-tui/0.160.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.160.0)",
           "chatgpt-account-id": "account-1",
         }),
       }),

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { resolveExistingInsideCwd } from "../path.js";
@@ -5,6 +6,11 @@ import { defineTool, type ToolContext } from "../types.js";
 
 const MAX_BYTES = 256 * 1024;
 const MAX_RANGE_LINES = 2_000;
+const UNCHANGED_NOTE =
+  "[File unchanged since your earlier read of this same range in this conversation; " +
+  "that result is still current, so refer to it instead of re-reading.]";
+/** Longer lines (minified bundles, data blobs) are cut to this many chars. */
+const MAX_LINE_CHARS = 2_000;
 /**
  * A whole-file read past this many lines gets a trailing nudge to read a
  * targeted range instead. Reading entire large files is the main token sink
@@ -19,7 +25,8 @@ export const readFileTool = defineTool({
     "line range (offset + limit) over reading the whole file — when the graph " +
     "or a search has pointed you at a symbol, read just its definition plus a " +
     "little surrounding context. Read whole files only when you genuinely need " +
-    "full-file understanding. Returns up to 256KB of UTF-8 text; 1-based line " +
+    "full-file understanding. Returns up to 256KB of UTF-8 text and at most " +
+    `${MAX_RANGE_LINES} lines per call (use offset to read further); 1-based line ` +
     "numbers with offset and limit.",
   readonly: true,
   concurrencySafe: true,
@@ -42,8 +49,20 @@ export const readFileTool = defineTool({
   async execute({ path, offset, limit }, ctx) {
     const abs = await resolveExistingInsideCwd(ctx.cwd, path);
     const { text, truncated } = await readCapped(ctx, abs);
+    const lineCount = countLines(text);
 
-    if (offset !== undefined || limit !== undefined) {
+    // The same read of the same content is already in the conversation:
+    // point back to it rather than paying for the whole file again.
+    const readKey = `${abs}\0${offset ?? ""}:${limit ?? ""}`;
+    const hash = createHash("sha1").update(text).digest("hex");
+    if (ctx.readLedger?.has(readKey, hash)) {
+      return { content: UNCHANGED_NOTE };
+    }
+    if (ctx.readLedger && ctx.toolCallId) ctx.readLedger.record(readKey, hash, ctx.toolCallId);
+
+    // An unbounded read of a huge file would land tens of thousands of tokens
+    // in the transcript, re-sent on every later step: serve the first page.
+    if (offset !== undefined || limit !== undefined || lineCount > MAX_RANGE_LINES) {
       return {
         content: formatLineRange(text, offset ?? 1, limit ?? MAX_RANGE_LINES, truncated),
       };
@@ -51,7 +70,6 @@ export const readFileTool = defineTool({
 
     // Whole-file read: serve it, but on a large file nudge toward a targeted
     // range next time so the model doesn't keep pulling entire files.
-    const lineCount = countLines(text);
     const notes: string[] = [];
     if (truncated) notes.push(`[truncated at ${MAX_BYTES} bytes]`);
     if (lineCount > LARGE_READ_LINES) {
@@ -59,7 +77,7 @@ export const readFileTool = defineTool({
         `[read ${lineCount} lines; for a large file, prefer read_file with offset/limit on the relevant range]`,
       );
     }
-    return { content: [text, ...notes].join("\n\n") };
+    return { content: [capLineLengths(text), ...notes].join("\n\n") };
   },
 });
 
@@ -89,6 +107,17 @@ async function readCapped(
   };
 }
 
+function capLine(line: string): string {
+  if (line.length <= MAX_LINE_CHARS) return line;
+  return `${line.slice(0, MAX_LINE_CHARS)}… [line truncated, ${line.length - MAX_LINE_CHARS} more chars]`;
+}
+
+function capLineLengths(text: string): string {
+  return text.split("\n").some((line) => line.length > MAX_LINE_CHARS)
+    ? text.split("\n").map(capLine).join("\n")
+    : text;
+}
+
 /** Line count of already-decoded text (one more than the newline count). */
 function countLines(text: string): number {
   if (text === "") return 0;
@@ -107,7 +136,7 @@ export function formatLineRange(
   const startIndex = offset - 1;
   const selected = allLines.slice(startIndex, startIndex + limit);
   const body = selected
-    .map((line, index) => `${String(startIndex + index + 1).padStart(6)}: ${line}`)
+    .map((line, index) => `${String(startIndex + index + 1).padStart(6)}: ${capLine(line)}`)
     .join("\n");
 
   const notes: string[] = [];

@@ -23,7 +23,10 @@ import {
   createSessionId,
   setActiveTaskListId,
   cleanupOrphanTaskLists,
+  isProjectTrusted,
   listSessions,
+  resumeCacheHints,
+  type ResumeCacheHints,
   getProfile,
   resolveCredentials,
   runSubAgent as runSubAgentCore,
@@ -83,6 +86,21 @@ export function resolveActivationMcp(
  * Top-level component. Decides between the setup dialog and the chat UI, and
  * rebuilds the agent when setup completes.
  */
+/**
+ * How to rebuild an agent for a saved session: its prompt-cache hints, and
+ * whether to compact it first. A session coming back after its cache expired
+ * (no stored prompt to reuse) would re-send the whole history at full price,
+ * so a large one is compacted before its first turn instead.
+ */
+function resumeOptions(
+  session: Session,
+  provider: ProviderId,
+  model: string,
+): { cacheHints: ResumeCacheHints; compactOnResume: boolean } {
+  const cacheHints = resumeCacheHints(session, provider, model);
+  return { cacheHints, compactOnResume: cacheHints.systemPrompt === undefined };
+}
+
 export function Root({
   config,
   forceSetup,
@@ -140,6 +158,9 @@ export function Root({
   const [pendingMessages, setPendingMessages] = useState<Message[] | null>(null);
   const [setupFallbackRuntime, setSetupFallbackRuntime] = useState<ActiveRuntime | null>(null);
   const [mcpConfig, setMcpConfig] = useState<Record<string, McpServerConfig>>(config.mcp);
+  // Tool permissions can change once the folder is trusted (project rules
+  // only apply in trusted folders), so activations read the latest value.
+  const permissionsRef = useRef(config.permissions);
   const [booting, setBooting] = useState<boolean>(() =>
     !forceSetup && !config.needsSetup && !!config.provider && !!config.model && !!config.credentials,
   );
@@ -278,7 +299,9 @@ export function Root({
         task: request.task,
         ...(request.files ? { writableFiles: request.files } : {}),
         cwd: process.cwd(),
-        system: config.system,
+        // A custom LUCKY_SYSTEM prompt is honored verbatim; otherwise core
+        // composes a smaller prompt sized to the sub-agent's own tools.
+        ...(process.env.LUCKY_SYSTEM !== undefined ? { system: config.system } : {}),
         resolveCredentials: (provider) =>
           resolveCredentials(provider, loadStoredConfig(), process.env),
         onUsage: (usage) =>
@@ -316,6 +339,10 @@ export function Root({
     messages?: Message[];
     initialUsage?: import("@luckycli/core").TokenUsage;
     initialRetryCount?: number;
+    /** Prompt-cache hints when resuming or rebuilding a conversation. */
+    cacheHints?: ResumeCacheHints;
+    /** Compact a large resumed history before its first turn. */
+    compactOnResume?: boolean;
     /**
      * MCP servers to load. Defaults to the current state, but callers that have
      * just changed the config must pass the next value explicitly: the state
@@ -333,7 +360,7 @@ export function Root({
       // Recompose the system prompt from this session's context (enabled tools,
       // graph presence, sub-agent profiles) so conditional sections react to it.
       composeSystemFromContext: true,
-      permissions: config.permissions,
+      permissions: permissionsRef.current,
       ...(config.skills ? { allowedSkills: config.skills } : {}),
       approveTool,
       askUser,
@@ -355,6 +382,8 @@ export function Root({
       ...(next.messages?.length ? { messages: next.messages } : {}),
       ...(next.initialUsage ? { initialUsage: next.initialUsage } : {}),
       ...(next.initialRetryCount !== undefined ? { initialRetryCount: next.initialRetryCount } : {}),
+      ...(next.cacheHints ? { cacheHints: next.cacheHints } : {}),
+      ...(next.compactOnResume ? { compactOnResume: true } : {}),
     });
 
     if (activationId !== activationIdRef.current) {
@@ -394,6 +423,7 @@ export function Root({
       ...(resume?.messages?.length ? { messages: resume.messages } : {}),
       ...(resume?.usage ? { initialUsage: resume.usage } : {}),
       ...(resume?.retryCount !== undefined ? { initialRetryCount: resume.retryCount } : {}),
+      ...(resume ? resumeOptions(resume, config.provider, config.model) : {}),
     });
   // Intentionally one-shot for initial boot config.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -409,6 +439,8 @@ export function Root({
       ...(carriedMessages.length ? { messages: carriedMessages } : {}),
       ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
       ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
+      // Only the untouched resumed conversation matches what the session stored.
+      ...(pendingMessages ? {} : resumeOptions(resumeSession, result.provider, result.model)),
     });
     setPendingMessages(null);
     setSetupFallbackRuntime(null);
@@ -446,6 +478,7 @@ export function Root({
       ...(session.messages.length ? { messages: session.messages } : {}),
       ...(session.usage ? { initialUsage: session.usage } : {}),
       ...(session.retryCount !== undefined ? { initialRetryCount: session.retryCount } : {}),
+      ...resumeOptions(session, resolved.provider, resolved.model),
     });
   }
 
@@ -467,6 +500,7 @@ export function Root({
       ...(carried.length ? { messages: carried } : {}),
       initialUsage: runtime.agent.totalTokenUsage,
       initialRetryCount: runtime.agent.totalRetryCount,
+      cacheHints: { promptCacheKey: runtime.agent.cacheKey },
     });
   }
 
@@ -493,8 +527,24 @@ export function Root({
         ...(carriedMessages.length ? { messages: carriedMessages } : {}),
         ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
         ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
+        ...resumeOptions(resumeSession, config.provider, config.model),
       });
     }
+  }
+
+  /**
+   * The trust decision is in. A trusted folder's own MCP servers and
+   * permissions now apply, so re-resolve them and rebuild the runtime.
+   */
+  function onTrustDone() {
+    setTrustNeeded(false);
+    if (!isProjectTrusted(loadStoredConfig(), process.cwd())) return;
+    const fresh = resolveConfig();
+    const changed =
+      JSON.stringify(fresh.permissions) !== JSON.stringify(permissionsRef.current) ||
+      JSON.stringify(fresh.mcp) !== JSON.stringify(mcpConfig);
+    permissionsRef.current = fresh.permissions;
+    if (changed) onMcpConfigChange(fresh.mcp);
   }
 
   function onMcpConfigChange(nextMcpConfig: Record<string, McpServerConfig>) {
@@ -507,6 +557,7 @@ export function Root({
       messages: [...runtime.agent.messages],
       initialUsage: runtime.agent.totalTokenUsage,
       initialRetryCount: runtime.agent.totalRetryCount,
+      cacheHints: { promptCacheKey: runtime.agent.cacheKey },
       // Pass the new config explicitly: setMcpConfig above hasn't applied yet,
       // so the closure's mcpConfig still holds the previous servers.
       mcp: nextMcpConfig,
@@ -537,7 +588,7 @@ export function Root({
   }
 
   if (trustNeeded) {
-    return <TrustPrompt cwd={process.cwd()} onDone={() => setTrustNeeded(false)} />;
+    return <TrustPrompt cwd={process.cwd()} onDone={onTrustDone} />;
   }
 
   return (

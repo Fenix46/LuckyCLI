@@ -1,11 +1,12 @@
 /**
- * Slash-command completion menu, extracted from App.tsx's render (the deferred
- * follow-up in APP_REFACTOR_PLAN.md). Sits just below the prompt (Claude Code
- * style); filtering/selection state stays in App.
+ * Slash-command completion menu. Sits just below the prompt; filtering and
+ * selection state stay in App. Command names line up in a column so the
+ * descriptions read as a second column.
  */
 import React from "react";
-import { Box, Text } from "../../vendor/ink-compat.js";
+import { Box } from "../../vendor/ink-compat.js";
 import type { Theme } from "../themes.js";
+import { OptionRow } from "./kit.js";
 
 export function SlashMenu({
   theme,
@@ -16,18 +17,18 @@ export function SlashMenu({
   commands: Array<{ name: string; desc: string }>;
   selectedIndex: number;
 }): React.JSX.Element {
+  const labelWidth = Math.max(12, ...commands.map((cmd) => cmd.name.length + 2));
   return (
-    <Box flexDirection="column" paddingLeft={2} marginTop={1} width="100%">
+    <Box flexDirection="column" paddingLeft={1} marginTop={1} width="100%">
       {commands.map((cmd, idx) => (
-        <Box key={cmd.name} flexDirection="row">
-          <Text color={idx === selectedIndex ? theme.accent : "gray"}>
-            {idx === selectedIndex ? "❯ " : "  "}
-          </Text>
-          <Text bold color={idx === selectedIndex ? theme.primary : "white"}>
-            {cmd.name.padEnd(12)}
-          </Text>
-          <Text color={idx === selectedIndex ? "white" : theme.muted}>{cmd.desc}</Text>
-        </Box>
+        <OptionRow
+          key={cmd.name}
+          theme={theme}
+          selected={idx === selectedIndex}
+          label={cmd.name}
+          labelWidth={labelWidth}
+          detail={cmd.desc}
+        />
       ))}
     </Box>
   );

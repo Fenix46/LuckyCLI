@@ -113,7 +113,7 @@ describe("renderSkillInjection", () => {
     const block = await renderSkillInjection(act!, root);
     expect(block).toBe(
       [
-        '<skill name="release-flow">',
+        `<skill name="release-flow" dir="${join(root, "release-flow")}">`,
         "release body",
         "",
         "Related skills available (use skill_load): npm-publish",
@@ -130,7 +130,7 @@ describe("renderSkillInjection", () => {
     const block = await renderSkillInjection(act!, root);
     expect(block).toBe(
       [
-        '<skill name="release-flow">',
+        `<skill name="release-flow" dir="${join(root, "release-flow")}">`,
         "release body",
         "",
         SKILL_NAVIGATION_REMINDER,

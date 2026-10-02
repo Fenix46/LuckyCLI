@@ -42,11 +42,12 @@ On first run, lucky asks you to pick a provider and enter its key, then
 remembers your choice in ~/.luckycli/config.json. No .env required.
 
 Options:
-  -p, --provider  claude | openai | openai-oauth | gemini | antigravity | ollama
+  -p, --provider  claude | openai | openai-oauth | gemini | antigravity | ollama |
+                  llamacpp | vllm | openai-compatible | openrouter | opencode-zen
   -m, --model     model id (provider-specific)
-  -c, --continue  resume the most recent session
+  -c, --continue  resume this project's most recent session
       --resume [id]  resume a session; with no id, pick one interactively
-      --sessions  list saved sessions and exit
+      --sessions  list this project's saved sessions and exit
       --setup     force the provider switcher
   -h, --help      show this help
 
@@ -58,6 +59,10 @@ Commands:
   graph impact <query>  show a symbol's graph dependencies and what transitively
                         depends on it (--depth N, default 3)
   mcp list              list configured MCP servers
+  mcp add <name> -- <command> [args]
+                        add a local MCP server (--env KEY=VALUE before --)
+  mcp add <name> <url>  add a remote MCP server (--header 'Name: value')
+  mcp remove <name>     remove an MCP server from your config
   mcp status            connect to each MCP server and report status
   mcp inspect <name>    show prompts and resources exposed by a server
   mcp login <name>      authorize a remote MCP server via OAuth
@@ -72,10 +77,16 @@ Commands:
   review [head]         review the current project diff
 `;
 
+/** `lucky --sessions`: this project's sessions, plus a count of the rest. */
 function printSessions(): void {
-  const sessions = listSessions();
+  const sessions = listSessions({ cwd: process.cwd() });
+  const elsewhere = listSessions().length - sessions.length;
+  const others =
+    elsewhere > 0
+      ? `${elsewhere} more in other projects — run lucky from that folder, or /resume and press tab.\n`
+      : "";
   if (sessions.length === 0) {
-    process.stdout.write("No saved sessions yet.\n");
+    process.stdout.write(`No saved sessions for this project yet.\n${others}`);
     return;
   }
   for (const s of sessions) {
@@ -85,6 +96,7 @@ function printSessions(): void {
       `${s.id}  ${when}  ${s.provider}/${s.model}  ${s.messageCount} msgs  ${title}\n`,
     );
   }
+  process.stdout.write(others);
 }
 
 /** `lucky graph view [path]` — render the existing graph to interactive HTML. */
@@ -294,9 +306,10 @@ function main(): void {
     }
     pickResume = true;
   } else if (values.continue) {
-    const latest = latestSession();
+    // Continue means "where I left off here": the latest session of this project.
+    const latest = latestSession({ cwd: process.cwd() });
     if (!latest) {
-      process.stderr.write("No saved sessions to continue.\n");
+      process.stderr.write("No saved sessions to continue in this project.\n");
       process.exit(1);
     }
     resume = loadSession(latest.id);

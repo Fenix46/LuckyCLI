@@ -1,6 +1,7 @@
 import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
 import type { Theme } from "../themes.js";
+import { GLYPH } from "./kit.js";
 
 export function PromptBlock({
   text,
@@ -8,6 +9,7 @@ export function PromptBlock({
   cursorOffset,
   active = false,
   theme,
+  placeholder,
 }: {
   text: string;
   width: number;
@@ -15,50 +17,65 @@ export function PromptBlock({
   active?: boolean;
   /** Active theme; sent-message colors fall back to lucky-dark values. */
   theme?: Theme;
+  /** Muted hint shown in an empty live input. */
+  placeholder?: string;
 }): React.JSX.Element {
   const lineWidth = Math.max(18, width);
 
-  // Active = the live input line. Keep it clean: a chevron prompt and the typed
-  // text in the terminal's default foreground, with no "you" badge and no
-  // background fill. The full highlight is reserved for sent messages so they
-  // stand out in the transcript.
+  // Active = the live input line: a brand-colored chevron and the typed text
+  // in the theme's body color, no background. An empty prompt shows a muted
+  // placeholder after the cursor so a fresh session invites typing.
   if (active) {
-    const lines = promptBlockLines(text, cursorOffset, lineWidth, "› ");
+    const marker = `${GLYPH.user} `;
+    const lines = promptBlockLines(text, cursorOffset, lineWidth, marker);
+    const chevron = theme?.primary;
+    const body = theme?.text;
+    const showPlaceholder = text.length === 0 && placeholder;
     return (
       <Box flexDirection="column" width="100%">
         {lines.map((line, index) => (
-          <Text key={`${index}-${line.text}`}>
-            {line.beforeCursor}
+          <Text key={`${index}-${line.text}`} color={body}>
+            {index === 0 ? (
+              <Text bold color={chevron}>{line.beforeCursor.slice(0, marker.length)}</Text>
+            ) : (
+              line.beforeCursor.slice(0, marker.length)
+            )}
+            {line.beforeCursor.slice(marker.length)}
             {line.cursor ? <Text inverse>{line.cursor}</Text> : null}
-            {line.afterCursor}
+            {showPlaceholder ? <Text color={theme?.muted}>{placeholder}</Text> : line.afterCursor}
           </Text>
         ))}
       </Box>
     );
   }
 
-  // Sent user message: a "you ›" badge over a full-width highlight, so the
-  // user's own turns stay instantly distinguishable in the scrollback. The
-  // colors come from the theme so a light palette gets a light block.
-  const bg = theme?.userBg ?? "#223246";
-  const fg = theme?.userFg ?? "#f2f5f8";
-  const pad = theme?.muted ?? "#9ba6b8";
-  const lines = promptBlockLines(text, cursorOffset, lineWidth, "you › ");
+  // Sent user message: the chevron over a faint full-width band, so the
+  // user's own turns stay easy to find in the scrollback without shouting.
+  const bg = theme?.userBg ?? "#1c222b";
+  const fg = theme?.userFg ?? "#eef1f5";
+  const chevron = theme?.primary ?? "#3ddc97";
+  const marker = `${GLYPH.user} `;
+  const lines = promptBlockLines(text, cursorOffset, lineWidth, marker);
 
   return (
     <Box flexDirection="column" width="100%">
       {lines.map((line, index) => (
-        <Text key={`${index}-${line.text}`} backgroundColor={bg} color={fg} bold={index === 0}>
-          {line.beforeCursor}
+        <Text key={`${index}-${line.text}`} backgroundColor={bg} color={fg}>
+          {index === 0 ? (
+            <Text bold backgroundColor={bg} color={chevron}>
+              {line.beforeCursor.slice(0, marker.length)}
+            </Text>
+          ) : (
+            line.beforeCursor.slice(0, marker.length)
+          )}
+          {line.beforeCursor.slice(marker.length)}
           {line.cursor ? (
             <Text inverse backgroundColor={bg} color={fg}>
               {line.cursor}
             </Text>
           ) : null}
           {line.afterCursor}
-          <Text backgroundColor={bg} color={pad}>
-            {line.pad}
-          </Text>
+          <Text backgroundColor={bg}>{line.pad}</Text>
         </Text>
       ))}
     </Box>

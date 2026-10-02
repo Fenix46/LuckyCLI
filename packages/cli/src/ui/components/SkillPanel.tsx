@@ -2,6 +2,7 @@ import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
 import type { CatalogSkill } from "@luckycli/core";
 import type { Theme } from "../themes.js";
+import { KeyHints, SectionTitle, Tabs, parseHints } from "./kit.js";
 import type { InstalledSkillRow } from "../lib/skill-rows.js";
 import { truncateSingleLine } from "../lib/format.js";
 
@@ -40,16 +41,17 @@ export function SkillPanel({
 }): React.JSX.Element {
   const selected = installedRows[selectedInstalledIndex];
   return (
-    <Box flexDirection="column" paddingLeft={2} marginBottom={1} width="100%">
-      <Text bold color={theme.accent}>▌ Skills</Text>
-      <Box flexDirection="row" marginTop={1}>
-        <Text bold color={tab === "installed" ? theme.primary : theme.muted}>
-          {tab === "installed" ? "❯ " : "  "}Installed
-        </Text>
-        <Text color={theme.muted}>   </Text>
-        <Text bold color={tab === "search" ? theme.primary : theme.muted}>
-          {tab === "search" ? "❯ " : "  "}Search
-        </Text>
+    <Box flexDirection="column" paddingLeft={1} marginBottom={1} width="100%">
+      <SectionTitle theme={theme} title="Skills" />
+      <Box marginTop={1}>
+        <Tabs
+          theme={theme}
+          current={tab}
+          tabs={[
+            { id: "installed", label: "Installed" },
+            { id: "search", label: "Search" },
+          ]}
+        />
       </Box>
 
       {tab === "installed" ? (
@@ -61,17 +63,20 @@ export function SkillPanel({
           ) : (
             installedRows.map((row, idx) => (
               <Box key={row.name} flexDirection="row">
-                <Text color={idx === selectedInstalledIndex ? theme.accent : "gray"}>
+                <Text color={idx === selectedInstalledIndex ? theme.accent : theme.muted}>
                   {idx === selectedInstalledIndex ? "❯ " : "  "}
                 </Text>
                 <Text color={row.enabled ? theme.primary : theme.muted}>
                   {row.enabled ? "● " : "○ "}
                 </Text>
-                <Text bold color={idx === selectedInstalledIndex ? theme.primary : "white"}>
+                <Text bold color={idx === selectedInstalledIndex ? theme.accent : theme.text}>
                   {row.name.padEnd(22)}
                 </Text>
-                <Text color={idx === selectedInstalledIndex ? "white" : theme.muted}>
-                  {truncateSingleLine(row.summary, Math.max(20, width - 34))}
+                <Text color={row.scope === "project" ? theme.accent : theme.subtle}>
+                  {(row.scope === "project" ? "project" : "global").padEnd(9)}
+                </Text>
+                <Text color={idx === selectedInstalledIndex ? theme.text : theme.muted}>
+                  {truncateSingleLine(row.summary, Math.max(20, width - 43))}
                 </Text>
               </Box>
             ))
@@ -79,7 +84,7 @@ export function SkillPanel({
           {selected && selected.keywords.length > 0 ? (
             <Box marginTop={1}>
               <Text color={theme.muted}>
-                keywords: <Text color="white">{truncateSingleLine(selected.keywords.join(", "), Math.max(20, width - 14))}</Text>
+                keywords: <Text color={theme.text}>{truncateSingleLine(selected.keywords.join(", "), Math.max(20, width - 14))}</Text>
               </Text>
             </Box>
           ) : null}
@@ -92,16 +97,14 @@ export function SkillPanel({
                 remove "{pendingRemoval}" from disk? y / n
               </Text>
             ) : (
-              <Text color={theme.muted} dimColor>
-                enter toggle · d remove · tab switch · esc close
-              </Text>
+              <KeyHints theme={theme} marginTop={0} hints={parseHints("enter toggle · d remove · tab switch · esc close")} />
             )}
           </Box>
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>
           <Text color={theme.muted}>
-            query: <Text color="white">{query || "(type to search the skill catalog)"}</Text>
+            query: <Text color={theme.text}>{query || "(type to search the skill catalog)"}</Text>
           </Text>
           {loading ? (
             <Text color={theme.accent}>Searching skill catalog...</Text>
@@ -112,21 +115,19 @@ export function SkillPanel({
           ) : (
             results.map((item, idx) => (
               <Box key={item.name} flexDirection="row">
-                <Text color={idx === selectedSearchIndex ? theme.accent : "gray"}>
+                <Text color={idx === selectedSearchIndex ? theme.accent : theme.muted}>
                   {idx === selectedSearchIndex ? "❯ " : "  "}
                 </Text>
-                <Text bold color={idx === selectedSearchIndex ? theme.primary : "white"}>
+                <Text bold color={idx === selectedSearchIndex ? theme.accent : theme.text}>
                   {truncateSingleLine(item.name, 28)}
                 </Text>
-                <Text color={idx === selectedSearchIndex ? "white" : theme.muted}>
+                <Text color={idx === selectedSearchIndex ? theme.text : theme.muted}>
                   {truncateSingleLine(item.description || "no description", Math.max(20, width - 38))}
                 </Text>
               </Box>
             ))
           )}
-          <Box marginTop={1}>
-            <Text color={theme.muted} dimColor>type to search · enter install · tab switch · esc close</Text>
-          </Box>
+          <KeyHints theme={theme} hints={parseHints("type to search · enter install · tab switch · esc close")} />
         </Box>
       )}
     </Box>

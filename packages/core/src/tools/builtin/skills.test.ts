@@ -52,7 +52,7 @@ const ctx = { cwd: process.cwd() };
 describe("skill_search", () => {
   it("reports when no skills are installed", async () => {
     const res = await skillSearchTool.execute({ query: "anything" }, ctx);
-    expect(res.content).toMatch(/No skills are installed/);
+    expect(res.content).toMatch(/No skills are available/);
   });
 
   it("matches by keyword and never returns bodies", async () => {
@@ -88,7 +88,7 @@ describe("skill_load", () => {
     await writeSkill("npm-publish", PUBLISH);
     await rebuildSkillGraph(root);
     const res = await skillLoadTool.execute({ name: "release-flow" }, ctx);
-    expect(res.content).toContain('<skill name="release-flow">');
+    expect(res.content).toContain('<skill name="release-flow" dir="');
     expect(res.content).toContain("Bump, tag, push.");
     expect(res.content).toContain("Related skills available (use skill_load): npm-publish");
   });
@@ -113,5 +113,30 @@ describe("skill_load", () => {
     const onSkillLoaded = vi.fn();
     await skillLoadTool.execute({ name: "Release-Flow" }, { ...ctx, onSkillLoaded });
     expect(onSkillLoaded).toHaveBeenCalledWith("release-flow");
+  });
+});
+
+describe("project skills", () => {
+  it("finds standard SKILL.md skills in the project and lets them shadow global ones", async () => {
+    const project = await mkdtemp(join(tmpdir(), "skills-project-"));
+    try {
+      await writeSkill("release-flow", RELEASE);
+      const local = join(project, ".claude", "skills", "release-flow");
+      await mkdir(local, { recursive: true });
+      await writeFile(
+        join(local, "SKILL.md"),
+        "---\nname: release-flow\ndescription: this repo's release steps\nlicense: MIT\n---\nRun scripts/release.sh.",
+        "utf8",
+      );
+
+      const search = await skillSearchTool.execute({ query: "release" }, { cwd: project });
+      expect(search.content).toContain("release-flow — this repo's release steps");
+
+      const load = await skillLoadTool.execute({ name: "release-flow" }, { cwd: project });
+      expect(load.content).toContain("Run scripts/release.sh.");
+      expect(load.content).toContain(`dir="${local}"`);
+    } finally {
+      await rm(project, { recursive: true, force: true });
+    }
   });
 });

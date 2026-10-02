@@ -13,31 +13,30 @@ import type {
 } from "../../types.js";
 import {
   CODEX_API_ENDPOINT,
+  CODEX_CLIENT_VERSION,
   isExpired,
   refreshAccessToken,
   tokensToOAuth,
   type OpenAiOAuthTokens,
 } from "./tokens.js";
 import { ensureChatGptCa } from "./chatgpt-tls.js";
+import { fetchCodexModels, type CodexModel } from "./models.js";
+import { providerInfo } from "../../catalog.js";
 
 export type { OpenAiOAuthTokens } from "./tokens.js";
 
-const INFO: ProviderInfo = {
-  id: "openai-oauth",
-  displayName: "ChatGPT",
-  // Bootstrap list only — the live model list comes from /codex/models
-  // (fetchCodexModels) once authenticated.
-  availableModels: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-4o"],
-  defaultModel: "gpt-5.5",
-  supportsStreaming: true,
-  supportsVision: true,
-  supportsTools: true,
-  usageTokensIncludeCache: true,
-};
+const INFO: ProviderInfo = providerInfo("openai-oauth");
+
+/**
+ * Share of the advertised context window LuckyCLI plans against, as the Codex
+ * CLI does: the rest is headroom for the system prompt, tool schemas and the
+ * reply, which the backend counts against the same window.
+ */
+const EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 
 const CHATGPT_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage";
 const CHATGPT_USAGE_USER_AGENT =
-  "codex-tui/0.135.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.135.0)";
+  `codex-tui/${CODEX_CLIENT_VERSION} (Mac OS; arm64) Apple_Terminal (codex-tui; ${CODEX_CLIENT_VERSION})`;
 
 type ResponsesInputItem =
   | {
@@ -54,7 +53,29 @@ type ResponsesInputItem =
       type: "function_call_output";
       call_id: string;
       output: string;
-    };
+    }
+  | ResponsesReasoningItem;
+
+/**
+ * A reasoning item as replayed to the Responses API. With `store: false` the
+ * server keeps nothing between requests, so the encrypted reasoning it
+ * returned is sent back verbatim (without its id) to let the model continue
+ * its chain of thought across tool calls instead of starting over.
+ */
+interface ResponsesReasoningItem {
+  type: "reasoning";
+  summary: Array<{ type: "summary_text"; text: string }>;
+  encrypted_content: string;
+}
+
+/** What a ReasoningPart from this provider carries in `data`. */
+interface StoredReasoning {
+  model: string;
+  summary: Array<{ type: "summary_text"; text: string }>;
+  encrypted_content: string;
+}
+
+const PROVIDER_ID = "openai-oauth";
 
 interface ResponsesTool {
   type: "function";
@@ -71,6 +92,14 @@ interface ResponsesRequest {
   stream: boolean;
   reasoning?: { effort: string };
   tools?: ResponsesTool[];
+  prompt_cache_key?: string;
+  include?: string[];
+}
+
+interface ResponsesUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  input_tokens_details?: { cached_tokens?: number } | null;
 }
 
 interface ResponsesStreamEvent {
@@ -81,10 +110,12 @@ interface ResponsesStreamEvent {
     name?: string;
     call_id?: string;
     arguments?: string;
+    summary?: Array<{ type: "summary_text"; text: string }>;
+    encrypted_content?: string | null;
   };
-  usage?: { input_tokens: number; output_tokens: number };
+  usage?: ResponsesUsage;
   response?: {
-    usage?: { input_tokens?: number; output_tokens?: number } | null;
+    usage?: ResponsesUsage | null;
   };
 }
 
@@ -123,8 +154,15 @@ interface ChatGptUsageResponse {
 }
 
 export class OpenAiOAuthProvider implements IProvider {
-  readonly info = INFO;
+  // A per-instance copy: syncLiveModels fills in the live catalog.
+  readonly info: ProviderInfo = {
+    ...INFO,
+    availableModels: [...INFO.availableModels],
+    models: { ...INFO.models },
+    usageTokensIncludeCache: true,
+  };
   private tokens: OpenAiOAuthTokens;
+  private liveModels: Promise<void> | undefined;
   private refreshPromise: Promise<OpenAiOAuthTokens> | undefined;
   // Cached from the last stream's response.completed event. No dedicated
   // counting endpoint exists, so agent.ts gets this on the next countTokens() call.
@@ -174,6 +212,7 @@ export class OpenAiOAuthProvider implements IProvider {
     messages: Message[],
     config: GenerationConfig,
   ): AsyncGenerator<StreamChunk> {
+    await this.ensureLiveModels();
     const res = await fetch(CODEX_API_ENDPOINT, {
       method: "POST",
       headers: await this.authHeaders(),
@@ -223,6 +262,19 @@ export class OpenAiOAuthProvider implements IProvider {
           yield { reasoning: true };
         }
 
+        if (
+          event.type === "response.output_item.done" &&
+          event.item?.type === "reasoning" &&
+          event.item.encrypted_content
+        ) {
+          const stored: StoredReasoning = {
+            model: config.model || INFO.defaultModel,
+            summary: event.item.summary ?? [],
+            encrypted_content: event.item.encrypted_content,
+          };
+          yield { reasoningPart: { type: "reasoning", provider: PROVIDER_ID, data: JSON.stringify(stored) } };
+        }
+
         if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
           hasToolCalls = true;
           yield {
@@ -238,9 +290,11 @@ export class OpenAiOAuthProvider implements IProvider {
         if (event.type === "response.completed") {
           const eventUsage = event.usage ?? event.response?.usage ?? undefined;
           if (eventUsage) {
+            const cached = eventUsage.input_tokens_details?.cached_tokens;
             usage = {
               inputTokens: eventUsage.input_tokens ?? 0,
               outputTokens: eventUsage.output_tokens ?? 0,
+              ...(cached != null ? { cacheReadTokens: cached } : {}),
             };
             this._lastUsage = usage;
           }
@@ -308,6 +362,52 @@ export class OpenAiOAuthProvider implements IProvider {
       ...(usage.plan_type ? { subscription: usage.plan_type, tier: usage.plan_type } : {}),
       ...(quotas.length ? { quotas } : {}),
       ...(notes.length ? { notes } : {}),
+    };
+  }
+
+  /**
+   * Learn the account's models and their context windows from /codex/models
+   * once per instance, so the context meter and compaction use the real
+   * window of whatever model is selected (the static catalog only knows the
+   * bootstrap list). Best effort: a failure keeps the static entries and is
+   * retried on the next request.
+   */
+  private async ensureLiveModels(): Promise<void> {
+    this.liveModels ??= this.ensureFreshToken()
+      .then((tokens) => fetchCodexModels(tokens))
+      .then((models) => this.syncLiveModels(models))
+      .catch(() => {
+        this.liveModels = undefined;
+      });
+    await this.liveModels;
+  }
+
+  /** Merge a live /codex/models response into this provider's info. */
+  syncLiveModels(models: CodexModel[]): void {
+    if (models.length === 0) return;
+    this.info.availableModels = models.map((model) => model.slug);
+    this.info.models = {
+      ...this.info.models,
+      ...Object.fromEntries(
+        models.map((model) => {
+          const known = this.info.models?.[model.slug];
+          const window = model.contextWindow ?? model.maxContextWindow;
+          const contextWindow =
+            window !== undefined
+              ? Math.floor((window * EFFECTIVE_CONTEXT_WINDOW_PERCENT) / 100)
+              : known?.contextWindow;
+          return [
+            model.slug,
+            {
+              ...known,
+              id: model.slug,
+              ...(contextWindow !== undefined ? { contextWindow, maxInputTokens: contextWindow } : {}),
+              ...(known?.maxOutputTokens !== undefined ? { maxOutputTokens: known.maxOutputTokens } : {}),
+              source: "provider" as const,
+            },
+          ];
+        }),
+      ),
     };
   }
 
@@ -411,6 +511,22 @@ function usageNotes(usage: ChatGptUsageResponse): string[] {
   return notes;
 }
 
+/** Decode a stored reasoning part into a replayable item, if it fits this model. */
+function replayableReasoning(data: string, model: string): ResponsesReasoningItem | undefined {
+  try {
+    const stored = JSON.parse(data) as Partial<StoredReasoning>;
+    // Encrypted reasoning is bound to the model that produced it.
+    if (stored.model !== model || typeof stored.encrypted_content !== "string") return undefined;
+    return {
+      type: "reasoning",
+      summary: Array.isArray(stored.summary) ? stored.summary : [],
+      encrypted_content: stored.encrypted_content,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function buildRequestBody(
   messages: Message[],
   config: GenerationConfig,
@@ -429,6 +545,13 @@ function buildRequestBody(
     }
 
     if (msg.role === "assistant") {
+      // Reasoning first: the API expects it ahead of the message and calls it
+      // led to. Only state produced by this provider for this model is valid.
+      for (const part of msg.content) {
+        if (part.type !== "reasoning" || part.provider !== PROVIDER_ID) continue;
+        const item = replayableReasoning(part.data, config.model || INFO.defaultModel);
+        if (item) input.push(item);
+      }
       const text = textOf(msg.content);
       if (text) input.push({ role: "assistant", content: text });
       for (const part of msg.content) {
@@ -466,6 +589,11 @@ function buildRequestBody(
     // The Codex endpoint rejects max_output_tokens ("Unsupported parameter"),
     // so config.maxTokens (e.g. from compaction) must not be forwarded.
     ...(config.reasoningEffort ? { reasoning: { effort: config.reasoningEffort } } : {}),
+    // Ask for the encrypted reasoning so it can be replayed next step.
+    include: ["reasoning.encrypted_content"],
+    // Without a cache key the backend may route each step to a cold cache and
+    // re-bill the whole transcript; the key pins a conversation to one cache.
+    ...(config.promptCacheKey ? { prompt_cache_key: config.promptCacheKey } : {}),
     ...(config.tools?.length
       ? {
           tools: config.tools.map((tool) => ({

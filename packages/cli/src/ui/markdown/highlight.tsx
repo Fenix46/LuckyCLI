@@ -13,13 +13,13 @@ export function parseInlineMarkdown(text: string, theme: Theme): React.ReactNode
 
     if (token.startsWith("**") && token.endsWith("**")) {
       parts.push(
-        <Text key={i} bold color={theme.accent}>
+        <Text key={i} bold color={theme.text}>
           {token.slice(2, -2)}
         </Text>
       );
     } else if (token.startsWith("`") && token.endsWith("`")) {
       parts.push(
-        <Text key={i} color="yellow">
+        <Text key={i} color={theme.accent}>
           {token.slice(1, -1)}
         </Text>
       );
@@ -66,7 +66,7 @@ export function highlightCodeCode(code: string, language: string, theme: Theme):
     if ((token.startsWith('"') && token.endsWith('"')) ||
         (token.startsWith("'") && token.endsWith("'")) ||
         (token.startsWith("`") && token.endsWith("`"))) {
-      elements.push(<Text key={`str-${idx}`} color="green">{token}</Text>);
+      elements.push(<Text key={`str-${idx}`} color={theme.success}>{token}</Text>);
     } else {
       const subTokens = token.split(/(\s+|\b)/);
       subTokens.forEach((subToken, subIdx) => {
@@ -76,7 +76,7 @@ export function highlightCodeCode(code: string, language: string, theme: Theme):
         } else if (subToken.match(builtins)) {
           elements.push(<Text key={key} color={theme.accent}>{subToken}</Text>);
         } else if (subToken.match(numbers)) {
-          elements.push(<Text key={key} color="magenta">{subToken}</Text>);
+          elements.push(<Text key={key} color={theme.warning}>{subToken}</Text>);
         } else {
           elements.push(<Text key={key}>{subToken}</Text>);
         }

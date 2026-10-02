@@ -122,3 +122,35 @@ describe("setSkillEnabled / toggleSkillEnabled", () => {
     expect(await toggleSkillEnabled("ghost", root)).toBeNull();
   });
 });
+
+describe("standard skills and project skills", () => {
+  it("installs a folder whose skill file is SKILL.md and can toggle it", async () => {
+    const src = await mkdtemp(join(tmpdir(), "skills-std-"));
+    try {
+      await writeFile(join(src, "SKILL.md"), "---\nname: pdf-tools\ndescription: work with PDFs\n---\nUse scripts/x.py", "utf8");
+      await mkdir(join(src, "scripts"));
+      await writeFile(join(src, "scripts", "x.py"), "print(1)", "utf8");
+      const res = await installSkillFromPath(src, { root });
+      expect(res.name).toBe("pdf-tools");
+      expect((await stat(join(res.dir, "scripts", "x.py"))).isFile()).toBe(true);
+      expect(await setSkillEnabled("pdf-tools", false, root)).toBe(true);
+      expect((await loadDisabledSet(root)).has("pdf-tools")).toBe(true);
+    } finally {
+      await rm(src, { recursive: true, force: true });
+    }
+  });
+
+  it("toggles a project skill by name", async () => {
+    const project = await mkdtemp(join(tmpdir(), "skills-proj-"));
+    try {
+      const dir = join(project, ".lucky", "skills", "deploy");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "SKILL.md"), "---\nname: deploy\ndescription: ship it\n---\nsteps", "utf8");
+      expect(await setSkillEnabled("deploy", false, root, project)).toBe(true);
+      expect((await loadDisabledSet(root)).has("deploy")).toBe(true);
+      expect(await setSkillEnabled("nope", false, root, project)).toBe(false);
+    } finally {
+      await rm(project, { recursive: true, force: true });
+    }
+  });
+});

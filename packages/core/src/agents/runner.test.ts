@@ -63,10 +63,15 @@ describe("subAgentToolRegistry", () => {
     expect(child).not.toContain("spawn_agent");
     expect(child).not.toContain("ask_user");
     expect(child).not.toContain("present_plan");
-    expect(all.filter((n) => !child.includes(n))).toEqual([
-      "present_plan",
-      "spawn_agent",
+    expect(all.filter((n) => !child.includes(n)).sort()).toEqual([
       "ask_user",
+      "present_plan",
+      "project_memory",
+      "spawn_agent",
+      "task_create",
+      "task_get",
+      "task_list",
+      "task_update",
     ]);
   });
 });
@@ -122,6 +127,35 @@ describe("runSubAgent", () => {
     // The rest of the toolset is still there — this is a filter, not a lockdown.
     expect(seen).toContain("read_file");
     expect(seen).toContain("write_file");
+  });
+
+  it("composes a prompt for the sub-agent's own tools when no system is given", async () => {
+    let system = "";
+    class SystemRecordingProvider extends ReportingProvider {
+      override async *generateStream(
+        _messages: unknown,
+        config: { systemPrompt?: string },
+      ): AsyncGenerator<StreamChunk> {
+        system = config.systemPrompt ?? "";
+        yield { textDelta: "done" };
+        yield { finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1 } };
+      }
+    }
+    registerProviderFactory("claude", () => new SystemRecordingProvider());
+
+    await runSubAgent({
+      profile: PROFILE,
+      task: "do the work",
+      cwd: process.cwd(),
+      resolveCredentials: () => FAKE_CREDS,
+    });
+
+    expect(system).toContain('You are the "tester" sub-agent');
+    expect(system).toContain("# Environment");
+    // No tool guide (the schemas cover it), so no delegation or task advice.
+    expect(system).not.toContain("# Your tools");
+    expect(system).not.toContain("spawn_agent");
+    expect(system).not.toContain("task_create");
   });
 
   it("errors when the provider has no credentials", async () => {

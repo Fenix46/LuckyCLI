@@ -25,15 +25,18 @@ import { writeFileTool } from "./write-file.js";
 import { verifyTool } from "./verify.js";
 
 /** A registry pre-loaded with the built-in tools. */
-export function defaultToolRegistry(): ToolRegistry {
-  return new ToolRegistry()
+export function defaultToolRegistry(platform: NodeJS.Platform = process.platform): ToolRegistry {
+  const registry = new ToolRegistry()
     .register(readFileTool)
     .register(writeFileTool)
     .register(editFileTool)
     .register(applyPatchTool)
     .register(execTool)
-    .register(processTool)
-    .register(powerShellTool)
+    .register(processTool);
+  // PowerShell is only useful on Windows; elsewhere its definition would just
+  // add tokens to every request.
+  if (platform === "win32") registry.register(powerShellTool);
+  return registry
     .register(listDirTool)
     .register(globTool)
     .register(grepTool)

@@ -1,6 +1,6 @@
-import { Box, Text } from "../../vendor/ink-compat.js";
 import React from "react";
 import type { Theme } from "../themes.js";
+import { KeyHints } from "./kit.js";
 
 export function PickerHint({
   theme,
@@ -10,8 +10,13 @@ export function PickerHint({
   selectLabel?: string;
 }): React.JSX.Element {
   return (
-    <Box marginTop={1}>
-      <Text color={theme.muted} dimColor>↑↓ move · enter {selectLabel} · esc close</Text>
-    </Box>
+    <KeyHints
+      theme={theme}
+      hints={[
+        ["↑↓", "move"],
+        ["enter", selectLabel],
+        ["esc", "close"],
+      ]}
+    />
   );
 }

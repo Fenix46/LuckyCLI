@@ -4,6 +4,7 @@ import React from "react";
 import type { AuthMethod, ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import { visibleSteps, type CredentialSubStep, type Step } from "../lib/setup-steps.js";
+import { GLYPH, KeyHints } from "./kit.js";
 
 /** Step dots plus the progress bar shown at the top of the wizard. */
 export function SetupProgress({
@@ -18,22 +19,18 @@ export function SetupProgress({
   const steps = visibleSteps(mode);
   const current = steps.findIndex((item) => item.key === step);
   return (
-    <Box flexDirection="column">
-      <Box flexDirection="row" gap={1}>
-        {steps.map((item, index) => (
+    <Box flexDirection="row" flexWrap="wrap">
+      {steps.map((item, index) => (
+        <Text key={item.key}>
+          {index > 0 ? <Text color={index <= current ? theme.success : theme.subtle}> ── </Text> : null}
           <Text
-            key={item.key}
             bold={index === current}
             color={index === current ? theme.accent : index < current ? theme.success : theme.muted}
           >
-            {index < current ? "✓" : index === current ? "●" : "○"} {item.label}
+            {index < current ? GLYPH.ok : index === current ? GLYPH.active : "○"} {item.label}
           </Text>
-        ))}
-      </Box>
-      <Box marginTop={1}>
-        <Text color={theme.accent}>{"█".repeat((current + 1) * 6)}</Text>
-        <Text color={theme.muted}>{"░".repeat((steps.length - current - 1) * 6)}</Text>
-      </Box>
+        </Text>
+      ))}
     </Box>
   );
 }
@@ -51,7 +48,7 @@ export function SetupSection({
 }): React.JSX.Element {
   return (
     <Box flexDirection="column">
-      <Text bold color={theme.primary}>{title}</Text>
+      <Text bold color={theme.text}>{title}</Text>
       <Text color={theme.muted}>{subtitle}</Text>
       <Box flexDirection="column" marginTop={1}>{children}</Box>
     </Box>
@@ -134,9 +131,7 @@ export function CredentialView({
             <Text color={theme.error}>{oauthError}</Text>
           </Box>
         ) : null}
-        <Box marginTop={1}>
-          <Text color={theme.muted}>Esc to go back</Text>
-        </Box>
+        <KeyHints theme={theme} hints={[["esc", "go back"]]} />
       </Box>
     );
   }
@@ -231,14 +226,23 @@ export function SetupInput({
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
-        <Text bold color={theme.accent}>{label}: </Text>
+        <Text bold color={theme.text}>{label}  </Text>
+        <Text bold color={theme.primary}>{GLYPH.user} </Text>
         <TextField value={value} onChange={onChange} onSubmit={onSubmit} {...(mask ? { mask } : {})} />
       </Box>
-      <Box marginTop={1}>
-        <Text color={theme.muted} dimColor>
-          {hint ? `${hint} · ` : ""}enter continue · esc go back
-        </Text>
-      </Box>
+      {hint ? (
+        <Box marginTop={1}>
+          <Text color={theme.muted}>{hint}</Text>
+        </Box>
+      ) : null}
+      <KeyHints
+        theme={theme}
+        marginTop={hint ? 0 : 1}
+        hints={[
+          ["enter", "continue"],
+          ["esc", "go back"],
+        ]}
+      />
     </Box>
   );
 }
@@ -253,8 +257,13 @@ export function SetupNavigationHint({
   escapeLabel?: string;
 }): React.JSX.Element {
   return (
-    <Box marginTop={1}>
-      <Text color={theme.muted} dimColor>↑↓ move · enter {selectLabel} · esc {escapeLabel}</Text>
-    </Box>
+    <KeyHints
+      theme={theme}
+      hints={[
+        ["↑↓", "move"],
+        ["enter", selectLabel],
+        ["esc", escapeLabel],
+      ]}
+    />
   );
 }
