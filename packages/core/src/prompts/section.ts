@@ -37,6 +37,12 @@ export interface PromptContext {
   hasSubAgents?: boolean;
   /** Whether any skill is installed (gates the skills protocol blurb). */
   hasSkills?: boolean;
+  /**
+   * The skills usable this session (name + one-line description), listed in
+   * the prompt so the model knows what it can skill_load without guessing a
+   * search query. Implies hasSkills when non-empty.
+   */
+  skills?: ReadonlyArray<{ name: string; description: string }>;
   /** Toolchain, commands and git state detected in the working directory. */
   project?: ProjectFacts;
   /** Environment variables, for per-section overrides (LUCKY_PROMPT_*). */

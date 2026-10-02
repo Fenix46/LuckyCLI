@@ -13,7 +13,7 @@ import {
   getProvider,
   GraphContextEnricher,
   graphFilePath,
-  hasInstalledSkills,
+  usableSkills,
   listProfiles,
   SkillActivator,
   nonInteractiveMcpOAuthProvider,
@@ -233,8 +233,10 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const cwd = opts.cwd ?? process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
-  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills);
+  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills, cwd);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
+  // Project and global skills this session may use, listed in the prompt.
+  const skills = usableSkills(cwd, opts.allowedSkills).map(({ name, description }) => ({ name, description }));
 
   // Optionally recompose the system prompt from this session's context so the
   // conditional sections react to it. A custom LUCKY_SYSTEM always wins, so we
@@ -255,7 +257,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
           enabledTools: new Set(tools.definitions().map((d) => d.name)),
           hasGraph: existsSync(graphFilePath(cwd)),
           hasSubAgents: listProfiles().length > 0,
-          hasSkills: hasInstalledSkills(),
+          hasSkills: skills.length > 0,
+          skills,
           project: detectProjectFacts(cwd),
           env: process.env,
         })
@@ -311,7 +314,7 @@ export async function buildAgentRuntime(
   // are picked up without rebuilding. This keeps session startup instant even
   // when a server is slow (e.g. first-run `npx` downloads) or wedged.
   const registry = createRuntimeToolRegistry(opts.extraTools);
-  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills);
+  const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills, cwd);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
   const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator, graphEnricher });
 

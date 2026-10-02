@@ -18,7 +18,7 @@ import {
   createSessionId,
   defaultEffortFor,
   deriveTitle,
-  discoverSkills,
+  listAvailableSkills,
   effortLevelsFor,
   getReasoningEffort,
   getActiveTaskListId,
@@ -389,7 +389,9 @@ export function App({
   const [skillCommandNames, setSkillCommandNames] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
-    discoverSkills()
+    // Project skills (.lucky/skills, .claude/skills) and global ones alike.
+    Promise.resolve()
+      .then(() => listAvailableSkills(process.cwd()))
       .then((skills) => {
         if (cancelled) return;
         setSkillCommandNames(skills.filter((s) => s.enabled).map((s) => s.name));
