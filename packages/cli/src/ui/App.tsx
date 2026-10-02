@@ -14,6 +14,9 @@ import {
   type TokenUsage,
   type TokenCostRates,
   type ToolResultMetadata,
+  antigravityEffortLevels,
+  antigravityModelFamily,
+  antigravityModelLabel,
   claudeEffortLevelsForModel,
   createSessionId,
   defaultEffortFor,
@@ -40,6 +43,7 @@ import { appendLiveOutput, collectDiffs, messagesToItems, patchLastTool, restart
 import { formatToolAction } from "./lib/format.js";
 import { formatUsageFooter } from "./lib/status.js";
 import {
+  getAvailableModels,
   getModelPickerState,
   getThemePickerState,
   validateModel,
@@ -442,7 +446,13 @@ export function App({
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
 
   // Second step of the openai-oauth picker: choose a reasoning effort.
-  const [effortPicker, setEffortPicker] = useState<{ model: string; levels: string[] } | null>(null);
+  // `variants` (Antigravity) maps each level to its own model id instead of
+  // a reasoning-effort setting.
+  const [effortPicker, setEffortPicker] = useState<{
+    model: string;
+    levels: string[];
+    variants?: Partial<Record<string, string>>;
+  } | null>(null);
   const [selectedEffortIndex, setSelectedEffortIndex] = useState(0);
 
   const themePicker = getThemePickerState(input, activeTheme.id);
@@ -604,7 +614,9 @@ export function App({
         }
         if (key.return) {
           const effort = effortPicker.levels[selectedEffortIndex];
-          if (effort) applyEffort(effortPicker.model, effort);
+          const variant = effort ? effortPicker.variants?.[effort] : undefined;
+          if (effort && variant) selectVariant(variant, effort);
+          else if (effort) applyEffort(effortPicker.model, effort);
           return true;
         }
         return true; // swallow other keys while the effort step is open
@@ -766,6 +778,32 @@ export function App({
     [meta.provider, onChangeModel],
   );
 
+  // An Antigravity effort variant is its own model, so picking a level just
+  // switches to that id.
+  const selectVariant = useCallback(
+    (model: string, effort: string) => {
+      try {
+        onChangeModel(model);
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "assistant",
+            text: `Model changed to ${meta.provider} / ${antigravityModelLabel(model)} (effort: ${effort})`,
+          },
+        ]);
+      } catch (error) {
+        setItems((prev) => [
+          ...prev,
+          { kind: "error", text: error instanceof Error ? error.message : "failed to change model" },
+        ]);
+      }
+      setEffortPicker(null);
+      setSelectedEffortIndex(0);
+      setInput("");
+    },
+    [meta.provider, onChangeModel],
+  );
+
   const selectModel = useCallback(
     (model: string) => {
       const validation = validateModel(meta.provider, model, liveModels);
@@ -773,6 +811,22 @@ export function App({
         setItems((prev) => [...prev, { kind: "error", text: validation.message }]);
         setInput("");
         return;
+      }
+
+      if (meta.provider === "antigravity") {
+        const family = antigravityModelFamily(
+          liveModels?.length ? liveModels : getAvailableModels("antigravity"),
+          model,
+        );
+        const levels = family ? antigravityEffortLevels(family) : [];
+        if (family && levels.length > 1) {
+          const current = levels.find((level) => family.variants[level] === meta.model);
+          const seed = current ?? levels.find((level) => family.variants[level] === model) ?? levels[0]!;
+          setEffortPicker({ model: family.label, levels, variants: family.variants });
+          setSelectedEffortIndex(Math.max(0, levels.indexOf(seed)));
+          setInput("");
+          return;
+        }
       }
 
       const levels =
@@ -812,7 +866,7 @@ export function App({
       }
       setInput("");
     },
-    [meta.provider, onChangeModel, liveModels, codexModels],
+    [meta.provider, meta.model, onChangeModel, liveModels, codexModels],
   );
 
   const selectTheme = useCallback(
@@ -1127,6 +1181,7 @@ export function App({
           provider={meta.provider}
           activeModel={meta.model}
           items={modelPicker.items}
+          labels={modelPicker.labels}
           selectedIndex={selectedModelIndex}
         />
       ) : themePicker.open ? (

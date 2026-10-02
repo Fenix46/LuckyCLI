@@ -6,7 +6,7 @@
  */
 import React from "react";
 import { Box, Text } from "../../vendor/ink-compat.js";
-import { PROVIDER_CATALOG, antigravityModelLabel, type ProviderId } from "@luckycli/core";
+import { PROVIDER_CATALOG, type ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import { PickerHint } from "./PickerHint.js";
 import { OptionRow, SectionTitle } from "./kit.js";
@@ -50,12 +50,15 @@ export function ModelPickerView({
   provider,
   activeModel,
   items,
+  labels = {},
   selectedIndex,
 }: {
   theme: Theme;
   provider: ProviderId;
   activeModel: string;
   items: string[];
+  /** Display names by model id, for providers whose ids aren't readable. */
+  labels?: Record<string, string>;
   selectedIndex: number;
 }): React.JSX.Element {
   return (
@@ -67,8 +70,8 @@ export function ModelPickerView({
             theme={theme}
             selected={idx === selectedIndex}
             active={model === activeModel}
-            label={provider === "antigravity" ? antigravityModelLabel(model) : model}
-            {...(provider === "antigravity" ? { detail: model } : {})}
+            label={labels[model] ?? model}
+            {...(labels[model] ? { detail: model } : {})}
           />
         ))
       ) : (

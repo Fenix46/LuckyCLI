@@ -83,3 +83,27 @@ describe("validateModel", () => {
     }
   });
 });
+
+describe("getModelPickerState for antigravity", () => {
+  it("shows each model once, as the active variant or its medium one", () => {
+    const state = getModelPickerState("/model", "antigravity", "gemini-3-flash-agent", [
+      "gemini-3.5-flash-low",
+      "gemini-3-flash-agent",
+      "gemini-3.5-flash-extra-low",
+      "claude-sonnet-4-6",
+    ]);
+    expect(state.items).toEqual(["gemini-3-flash-agent", "claude-sonnet-4-6"]);
+    expect(state.labels).toEqual({
+      "gemini-3-flash-agent": "Gemini 3.5 Flash",
+      "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
+    });
+  });
+
+  it("filters by display name as well as id", () => {
+    const state = getModelPickerState("/model sonnet", "antigravity", "gemini-3.5-flash-low", [
+      "gemini-3.5-flash-low",
+      "claude-sonnet-4-6",
+    ]);
+    expect(state.items).toEqual(["claude-sonnet-4-6"]);
+  });
+});
