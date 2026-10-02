@@ -149,7 +149,7 @@ describe("/sessions", () => {
     h.run("/sessions");
     const item = h.emitted[0]!;
     if (item.kind !== "command") throw new Error("expected command item");
-    expect(item.rows).toEqual([{ label: "none", value: "no saved sessions yet" }]);
+    expect(item.rows).toEqual([{ label: "none", value: "no saved sessions for this project yet" }]);
   });
 
   it("marks the current session and caps at 12", () => {

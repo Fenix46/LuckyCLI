@@ -889,6 +889,7 @@ export class LuckyAcpAgent implements Agent {
         model: session.model,
         createdAt: session.createdAt,
         updatedAt: Date.now(),
+        cwd: session.cwd,
         messages,
       });
     } catch {

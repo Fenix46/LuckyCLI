@@ -212,6 +212,7 @@ export function App({
         model: meta.model,
         createdAt: sessionCreatedAtRef.current,
         updatedAt: Date.now(),
+        cwd: process.cwd(),
         messages,
         usage: agent.totalTokenUsage,
         retryCount: agent.totalRetryCount,
