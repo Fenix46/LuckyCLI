@@ -307,7 +307,9 @@ export class LuckyAcpAgent implements Agent {
         : {}),
     };
     const cacheHints = stored ? resumeCacheHints(stored, active.provider, active.model) : undefined;
-    session.agent = (await this.buildSessionRuntime(session, messages, cacheHints)).agent;
+    // Back after the cache expired: compact a large history before its first turn.
+    const compactOnResume = cacheHints !== undefined && cacheHints.systemPrompt === undefined;
+    session.agent = (await this.buildSessionRuntime(session, messages, cacheHints, compactOnResume)).agent;
     this.sessions.set(sessionId, session);
     // Tell the editor which slash commands its command menu can offer. A
     // client that ignores the notification simply shows no menu; the commands
@@ -336,6 +338,7 @@ export class LuckyAcpAgent implements Agent {
     session: AcpSession,
     messages?: Message[],
     cacheHints?: ResumeCacheHints,
+    compactOnResume = false,
   ): Promise<BuiltAgentRuntime> {
     const mcpServers = session.mcpServers;
     const config = this.requireConfig();
@@ -371,6 +374,7 @@ export class LuckyAcpAgent implements Agent {
       mcp: mergeMcpServers(mapAcpMcpServers(mcpServers), config.mcp),
       ...(messages?.length ? { messages } : {}),
       ...(cacheHints ? { cacheHints } : {}),
+      ...(compactOnResume ? { compactOnResume: true } : {}),
       ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
       ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
       // Reasoning effort and the thinking toggle are provider-specific knobs

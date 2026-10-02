@@ -85,6 +85,21 @@ export function resolveActivationMcp(
  * Top-level component. Decides between the setup dialog and the chat UI, and
  * rebuilds the agent when setup completes.
  */
+/**
+ * How to rebuild an agent for a saved session: its prompt-cache hints, and
+ * whether to compact it first. A session coming back after its cache expired
+ * (no stored prompt to reuse) would re-send the whole history at full price,
+ * so a large one is compacted before its first turn instead.
+ */
+function resumeOptions(
+  session: Session,
+  provider: ProviderId,
+  model: string,
+): { cacheHints: ResumeCacheHints; compactOnResume: boolean } {
+  const cacheHints = resumeCacheHints(session, provider, model);
+  return { cacheHints, compactOnResume: cacheHints.systemPrompt === undefined };
+}
+
 export function Root({
   config,
   forceSetup,
@@ -320,6 +335,8 @@ export function Root({
     initialRetryCount?: number;
     /** Prompt-cache hints when resuming or rebuilding a conversation. */
     cacheHints?: ResumeCacheHints;
+    /** Compact a large resumed history before its first turn. */
+    compactOnResume?: boolean;
     /**
      * MCP servers to load. Defaults to the current state, but callers that have
      * just changed the config must pass the next value explicitly: the state
@@ -360,6 +377,7 @@ export function Root({
       ...(next.initialUsage ? { initialUsage: next.initialUsage } : {}),
       ...(next.initialRetryCount !== undefined ? { initialRetryCount: next.initialRetryCount } : {}),
       ...(next.cacheHints ? { cacheHints: next.cacheHints } : {}),
+      ...(next.compactOnResume ? { compactOnResume: true } : {}),
     });
 
     if (activationId !== activationIdRef.current) {
@@ -399,7 +417,7 @@ export function Root({
       ...(resume?.messages?.length ? { messages: resume.messages } : {}),
       ...(resume?.usage ? { initialUsage: resume.usage } : {}),
       ...(resume?.retryCount !== undefined ? { initialRetryCount: resume.retryCount } : {}),
-      ...(resume ? { cacheHints: resumeCacheHints(resume, config.provider, config.model) } : {}),
+      ...(resume ? resumeOptions(resume, config.provider, config.model) : {}),
     });
   // Intentionally one-shot for initial boot config.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -416,7 +434,7 @@ export function Root({
       ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
       ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
       // Only the untouched resumed conversation matches what the session stored.
-      ...(pendingMessages ? {} : { cacheHints: resumeCacheHints(resumeSession, result.provider, result.model) }),
+      ...(pendingMessages ? {} : resumeOptions(resumeSession, result.provider, result.model)),
     });
     setPendingMessages(null);
     setSetupFallbackRuntime(null);
@@ -454,7 +472,7 @@ export function Root({
       ...(session.messages.length ? { messages: session.messages } : {}),
       ...(session.usage ? { initialUsage: session.usage } : {}),
       ...(session.retryCount !== undefined ? { initialRetryCount: session.retryCount } : {}),
-      cacheHints: resumeCacheHints(session, resolved.provider, resolved.model),
+      ...resumeOptions(session, resolved.provider, resolved.model),
     });
   }
 
@@ -503,7 +521,7 @@ export function Root({
         ...(carriedMessages.length ? { messages: carriedMessages } : {}),
         ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
         ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
-        cacheHints: resumeCacheHints(resumeSession, config.provider, config.model),
+        ...resumeOptions(resumeSession, config.provider, config.model),
       });
     }
   }

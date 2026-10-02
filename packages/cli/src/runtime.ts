@@ -150,6 +150,8 @@ export interface BuildAgentOptions {
    * is read instead of re-written. See resumeCacheHints.
    */
   cacheHints?: ResumeCacheHints;
+  /** Compact a large resumed history before its first turn (see AgentConfig). */
+  compactOnResume?: boolean;
   /**
    * Pre-built tool registry to use as-is. When given, `extraTools` is ignored —
    * the caller owns the registry (e.g. to register MCP tools into it later).
@@ -264,6 +266,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     tools,
     system: reusedSystem ?? appendProjectMemoryToSystemPrompt(composed, projectMemory),
     ...(opts.cacheHints?.promptCacheKey ? { promptCacheKey: opts.cacheHints.promptCacheKey } : {}),
+    ...(opts.compactOnResume ? { compactOnResume: true } : {}),
     permissions: opts.permissions,
     ...(opts.allowedSkills ? { allowedSkills: opts.allowedSkills } : {}),
     approveTool: opts.approveTool,
