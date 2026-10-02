@@ -35,6 +35,8 @@ import { loadStoredConfig, saveStoredConfig } from "../../../config/store.js";
 import { CodeAssistClient, type CodeAssistClientOptions } from "./CodeAssistClient.js";
 import { CodeAssistRequestError } from "./CodeAssistErrors.js";
 import {
+  antigravityFamilyDefaultId,
+  antigravityModelFamilies,
   antigravityModelInfo,
   antigravityModelLabel,
   antigravityVisibleModelIds,
@@ -142,6 +144,12 @@ export class GeminiProvider implements IProvider {
     const visibleIds = antigravityVisibleModelIds(models);
     if (visibleIds.length === 0) return;
     this.info.availableModels = visibleIds;
+    // The static default may be retired; fall back to the first (newest)
+    // model the account offers, at its medium effort.
+    if (!visibleIds.includes(this.info.defaultModel)) {
+      const [first] = antigravityModelFamilies(visibleIds);
+      if (first) this.info.defaultModel = antigravityFamilyDefaultId(first);
+    }
     this.info.models = {
       ...(this.info.models ?? {}),
       ...Object.fromEntries(
