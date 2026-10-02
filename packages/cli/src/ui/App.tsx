@@ -87,12 +87,13 @@ import { AgentsPanel } from "./components/AgentsPanel.js";
 import { ApprovalRequestView } from "./components/Approval.js";
 import { UserQuestionRequestView } from "./components/UserQuestion.js";
 import { QueuedPromptsView, type QueuedPrompt } from "./components/QueuedPrompts.js";
-import type {
-  ApprovalRequest,
-  UserQuestionRequest,
-  PlanRequest,
-  PermissionMode,
-  AgentUsageMap,
+import {
+  QUESTION_SKIPPED,
+  type ApprovalRequest,
+  type UserQuestionRequest,
+  type PlanRequest,
+  type PermissionMode,
+  type AgentUsageMap,
 } from "./lib/requests.js";
 
 interface AppMeta {
@@ -575,9 +576,10 @@ export function App({
           return true;
         }
         if (key.escape) {
-          userQuestionRequest.resolve("User skipped the question.");
+          // Skip just this question; the turn goes on (Ctrl+C above stops it).
+          userQuestionRequest.resolve(QUESTION_SKIPPED);
           setUserQuestionRequest(null);
-          abort();
+          setInput("");
         }
         return true; // swallow everything else while the question is open
       },

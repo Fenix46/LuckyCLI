@@ -41,7 +41,7 @@ import {
   requiresApprovalInAutoMode,
   shellCommandVerdict,
 } from "../approval.js";
-import { nextPermissionMode, verificationModeFor } from "./lib/requests.js";
+import { nextPermissionMode, QUESTION_SKIPPED, verificationModeFor } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
@@ -256,7 +256,9 @@ export function Root({
       ).trim();
 
       if (answer === ACCEPT) return { action: "accept" };
-      if (answer === REJECT || /^(reject|no|cancel|annulla|rifiuta)$/i.test(answer)) {
+      // Esc on the plan question skips it: treat that as a rejection rather
+      // than as modification feedback.
+      if (answer === REJECT || answer === QUESTION_SKIPPED || /^(reject|no|cancel|annulla|rifiuta)$/i.test(answer)) {
         return { action: "reject" };
       }
       if (answer === MODIFY) return { action: "modify" };
