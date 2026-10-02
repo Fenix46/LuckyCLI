@@ -13,6 +13,7 @@ import type {
 } from "../../types.js";
 import {
   CODEX_API_ENDPOINT,
+  CODEX_CLIENT_VERSION,
   isExpired,
   refreshAccessToken,
   tokensToOAuth,
@@ -35,7 +36,7 @@ const EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 
 const CHATGPT_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage";
 const CHATGPT_USAGE_USER_AGENT =
-  "codex-tui/0.135.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.135.0)";
+  `codex-tui/${CODEX_CLIENT_VERSION} (Mac OS; arm64) Apple_Terminal (codex-tui; ${CODEX_CLIENT_VERSION})`;
 
 type ResponsesInputItem =
   | {

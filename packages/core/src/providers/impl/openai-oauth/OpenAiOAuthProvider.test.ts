@@ -437,7 +437,7 @@ describe("OpenAiOAuthProvider", () => {
           accept: "*/*",
           Authorization: "Bearer access-token",
           "User-Agent":
-            "codex-tui/0.135.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.135.0)",
+            "codex-tui/0.160.0 (Mac OS; arm64) Apple_Terminal (codex-tui; 0.160.0)",
           "chatgpt-account-id": "account-1",
         }),
       }),

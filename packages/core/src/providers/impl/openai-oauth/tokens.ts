@@ -6,7 +6,7 @@ export const CODEX_API_ENDPOINT = "https://chatgpt.com/backend-api/codex/respons
 export const CODEX_MODELS_ENDPOINT = "https://chatgpt.com/backend-api/codex/models";
 export const OAUTH_CALLBACK_PORT = 1455;
 /** Codex client version advertised to the backend (User-Agent + ?client_version=). */
-export const CODEX_CLIENT_VERSION = "0.135.0";
+export const CODEX_CLIENT_VERSION = "0.160.0";
 
 export interface TokenResponse {
   id_token: string;
