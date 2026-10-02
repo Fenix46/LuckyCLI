@@ -59,7 +59,8 @@ over the Agent Client Protocol.
   and project settings that only apply in folders you trust.
 - **Self-checking.** In auto mode the agent runs the project's quickest check
   before finishing a turn that edited files, and fixes what it broke.
-- **Parallel sub-agents** on disjoint files, each on its own provider and model.
+- **Parallel sub-agents** on disjoint files, each on its own provider and model,
+  with a leaner prompt and tool set than the main agent.
 - **Sessions per project**, checkpoints with undo, `/diff` review, and an
   embeddable engine (`@luckycli/core`).
 
@@ -167,8 +168,8 @@ trust it and offers to build the knowledge graph.
 
 ```bash
 lucky                                   # interactive: pick provider + model
-lucky -p claude -m claude-sonnet-5      # Claude
-lucky -p openai-oauth -m gpt-5.5        # ChatGPT (browser login)
+lucky -p claude -m claude-sonnet-5-5    # Claude
+lucky -p openai-oauth -m gpt-6-astra    # ChatGPT (browser login)
 lucky -p gemini -m gemini-2.5-pro       # Gemini
 lucky -p ollama -m qwen2.5              # a local model via Ollama
 lucky -c                                # continue this project's latest session
@@ -243,17 +244,26 @@ without bound.
 
 Defaults in **bold**. Use `/model` in the REPL or `-m` on the CLI to switch.
 
-- **ChatGPT** (`openai-oauth`): fetched **live** from the Codex backend once you
-  sign in — `/model` lists exactly what your account can use. Picking a model also
-  sets a **reasoning effort**; `/model --refresh` re-fetches the catalog.
-- **Claude** (`claude`): claude-fable-5, claude-opus-5, **claude-sonnet-5**,
-  claude-haiku-4-5. `/thinking on|off` toggles adaptive thinking.
+- **ChatGPT** (`openai-oauth`): **gpt-6-astra**, gpt-6-sol, gpt-6-luna,
+  gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5. Once you sign in the list
+  and each model's context window come **live** from the Codex backend, so
+  `/model` shows exactly what your account can use. Picking a model also sets a
+  **reasoning effort**; `/model --refresh` re-fetches the catalog.
+- **Claude** (`claude`): claude-opus-5-5, **claude-sonnet-5-5**,
+  claude-fable-5-1, claude-haiku-4-5, claude-sonnet-5, claude-opus-5,
+  claude-fable-5, claude-opus-4-8, claude-opus-4-7, claude-opus-4-6,
+  claude-sonnet-4-6. Picking a model asks for the effort levels it supports
+  (low → max; xhigh on Opus 4.7+, Sonnet 5.x and Fable). `/thinking on|off`
+  toggles adaptive thinking.
 - **Gemini** (`gemini`): gemini-3.1-pro-preview, gemini-3.1-flash-lite,
   gemini-3-pro-preview, gemini-3-flash-preview, **gemini-2.5-pro**,
   gemini-2.5-flash, gemma-4-31b-it, gemma-4-26b-a4b-it
-- **Antigravity** (`antigravity`): **gemini-3.5-flash-low**, gemini-3-flash-agent,
-  gemini-3.1-pro-low, gemini-pro-agent, gemini-2.5-pro/flash, claude-sonnet-4-6,
-  claude-opus-4-6-thinking, gpt-oss-120b-medium, …
+- **Antigravity** (`antigravity`): the models your account offers, read live —
+  newer Gemini Flash releases first, then Gemini 3.1 Pro, Claude Sonnet 4.6
+  (Thinking), Claude Opus 4.6 (Thinking) and GPT-OSS 120B. Models served in
+  Low/Medium/High variants appear once in `/model`, and the effort is chosen in
+  the next step (default **Gemini 3.5 Flash, medium** until the live catalog
+  says otherwise).
 - **OpenAI** (`openai`): **gpt-4o**, gpt-4o-mini, gpt-4.1, o4-mini
 - **OpenRouter, opencode Zen, Ollama, llama.cpp, vLLM, OpenAI-compatible**: the
   models the service or server reports (Ollama suggests llama3.1, qwen2.5,
@@ -417,12 +427,12 @@ Per-project settings live in `.lucky/config.json`:
 ```json
 {
   "provider": "claude",
-  "model": "claude-sonnet-5",
+  "model": "claude-sonnet-5-5",
   "checks": ["typecheck", "test"],
   "graph": { "exclude": ["vendor"] },
   "skills": ["release-flow"],
   "permissions": { "exec": "ask" },
-  "costs": { "claude/claude-sonnet-5": { "inputPerMillion": 3, "outputPerMillion": 15 } },
+  "costs": { "claude/claude-sonnet-5-5": { "inputPerMillion": 2, "outputPerMillion": 10 } },
   "mcp": { "docs": { "type": "remote", "url": "https://docs.example/mcp" } }
 }
 ```
@@ -482,8 +492,9 @@ are accepted and ignored.
 
 ### Managing skills
 
-`/skill` opens a panel with two tabs: **Installed** (toggle with `enter`, remove
-with `d`) and **Search** (a remote catalog; `enter` installs). Or:
+`/skill` opens a panel with two tabs: **Installed** (project and global skills,
+each tagged; toggle with `enter`, remove a global one with `d`) and **Search** (a
+remote catalog; `enter` installs). Or:
 
 ```
 /skill list                 # installed skills and their state
@@ -599,7 +610,9 @@ in an ACP plugin such as CodeCompanion or avante.nvim. **VS Code**: community AC
 extensions can launch `lucky acp` the same way.
 
 `lucky acp -p <provider> -m <model>` overrides the stored default. The protocol
-runs on stdout; logs go to stderr.
+runs on stdout; logs go to stderr. Each session uses the folder the editor opens
+it in: a trusted folder's `.mcp.json` servers and permissions apply to it, even
+when that isn't the folder `lucky acp` started in.
 
 ### In-editor features
 
@@ -729,7 +742,7 @@ translates it to and from its own wire protocol; nothing outside
 ```ts
 import { Agent, defaultToolRegistry, getProvider, resolveConfig } from "@luckycli/core";
 
-const config = resolveConfig({ provider: "claude", model: "claude-sonnet-5" });
+const config = resolveConfig({ provider: "claude", model: "claude-sonnet-5-5" });
 const provider = getProvider(config.provider!, config.credentials!);
 
 const agent = new Agent({
