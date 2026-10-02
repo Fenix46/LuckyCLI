@@ -370,6 +370,7 @@ export {
   credentialsFromEnv,
   DEFAULT_SYSTEM_PROMPT,
   resolveConfig,
+  trustedProjectSettings,
   resolveCredentials,
 } from "./config/config.js";
 export type { CliOverrides, ResolvedConfig } from "./config/config.js";
