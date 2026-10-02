@@ -13,18 +13,20 @@
  * unit-testable and the UI only calls {@link activate}, {@link markActive}, and
  * {@link onCompacted}.
  */
-import { skillsRootDir, tryLoadSkillGraph } from "./graph.js";
+import { listAvailableSkills } from "./available.js";
+import { skillsRootDir } from "./graph.js";
 import { normalizeSkillName } from "./skill-file.js";
 import { renderSkillInjection, type SkillActivation } from "./matcher.js";
-import type { SkillNode } from "./types.js";
 
 export class SkillActivator {
   private readonly active = new Set<string>();
   private readonly root: string;
   private readonly allowed: Set<string> | undefined;
+  private readonly cwd: string;
 
-  constructor(root = skillsRootDir(), allowedSkills?: readonly string[]) {
+  constructor(root = skillsRootDir(), allowedSkills?: readonly string[], cwd = process.cwd()) {
     this.root = root;
+    this.cwd = cwd;
     this.allowed = allowedSkills ? new Set(allowedSkills.map(normalizeSkillName)) : undefined;
   }
 
@@ -39,26 +41,21 @@ export class SkillActivator {
    * exist, is disabled, or has no readable body — the caller surfaces the error.
    */
   async activate(name: string): Promise<string | null> {
-    const graph = await tryLoadSkillGraph(this.root);
-    if (!graph) return null;
-
     const id = normalizeSkillName(name);
     if (this.allowed && !this.allowed.has(id)) return null;
-    const node = graph.nodes.find(
-      (n): n is SkillNode => n.kind === "skill" && n.id === id,
-    );
-    if (!node || !node.attrs || node.attrs.enabled === false) return null;
+    const skills = listAvailableSkills(this.cwd, this.root);
+    const skill = skills.find((s) => s.name === id);
+    if (!skill || !skill.enabled) return null;
 
-    const related = graph.edges
-      .filter((e) => e.relation === "related_to" && e.source === id)
-      .map((e) => e.target);
+    const available = new Set(skills.filter((s) => s.enabled).map((s) => s.name));
     const activation: SkillActivation = {
       id,
-      name: node.label,
-      description: node.attrs.description ?? "",
-      bodyPath: node.attrs.bodyPath,
+      name: skill.name,
+      description: skill.description,
+      // Absolute: project skills live outside the global root.
+      bodyPath: skill.file,
       matched: [],
-      related,
+      related: skill.related.filter((r) => available.has(r)),
     };
     const block = await renderSkillInjection(activation, this.root);
     if (!block) return null;

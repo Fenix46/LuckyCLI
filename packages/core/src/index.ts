@@ -323,7 +323,9 @@ export type {
 } from "./skills/types.js";
 export {
   SKILL_FILE_NAME,
+  SKILL_FILE_NAMES,
   buildSkillGraph,
+  findSkillFile,
   discoverSkills,
   hasInstalledSkills,
   loadDisabledSet,
@@ -338,6 +340,8 @@ export {
   tryLoadSkillGraph,
 } from "./skills/graph.js";
 export type { DiscoveredSkill } from "./skills/graph.js";
+export { listAvailableSkills, projectSkillRoots, usableSkills } from "./skills/available.js";
+export type { AvailableSkill } from "./skills/available.js";
 export {
   installSkillFromPath,
   setSkillEnabled,

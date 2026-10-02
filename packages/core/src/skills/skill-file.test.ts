@@ -80,14 +80,38 @@ b`;
     expect(() => parseSkillFile("---\nname: x\n")).toThrow(/closing '---'/);
   });
 
-  it("rejects empty keywords", () => {
+  it("accepts a standard Agent Skills file: no keywords, extra fields, nested maps", () => {
+    const src = `---
+name: pdf-tools
+description: >
+  Extract text and tables from PDF files,
+  fill forms and merge documents.
+license: Apache-2.0
+allowed-tools: Bash, Read
+metadata:
+  author: someone
+  version: "1.2"
+---
+Run scripts/extract.py on the file.`;
+    const { frontmatter, body } = parseSkillFile(src);
+    expect(frontmatter).toEqual({
+      name: "pdf-tools",
+      description: "Extract text and tables from PDF files, fill forms and merge documents.",
+      keywords: [],
+      related: [],
+    });
+    expect(body).toBe("Run scripts/extract.py on the file.");
+  });
+
+  it("keeps a literal block description's line breaks", () => {
     const src = `---
 name: x
-description: d
-keywords: []
+description: |
+  line one
+  line two
 ---
 b`;
-    expect(() => parseSkillFile(src)).toThrow(ZodError);
+    expect(parseSkillFile(src).frontmatter.description).toBe("line one\nline two");
   });
 
   it("rejects an empty name", () => {

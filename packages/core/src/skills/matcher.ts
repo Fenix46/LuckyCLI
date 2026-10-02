@@ -16,7 +16,7 @@
  * - A skill already in the session's active set is skipped (rule #2).
  */
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { normalizeSkillName } from "./skill-file.js";
 import { skillsRootDir } from "./graph.js";
 import type { SkillGraph, SkillNode } from "./types.js";
@@ -139,13 +139,15 @@ export async function renderSkillInjection(
 ): Promise<string | null> {
   let body: string;
   try {
-    body = (await readFile(join(root, activation.bodyPath), "utf8")).trim();
+    // bodyPath is relative to the root for graph entries, absolute otherwise.
+    body = (await readFile(resolve(root, activation.bodyPath), "utf8")).trim();
   } catch {
     return null;
   }
   // Strip the frontmatter block so only the operative body is injected.
   const stripped = stripFrontmatter(body);
-  const lines = [`<skill name="${activation.name}">`, stripped];
+  const dir = dirname(resolve(root, activation.bodyPath));
+  const lines = [`<skill name="${activation.name}" dir="${dir}">`, stripped];
   if (activation.related.length > 0) {
     lines.push("", `Related skills available (use skill_load): ${activation.related.join(", ")}`);
   }

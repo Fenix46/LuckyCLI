@@ -44,18 +44,23 @@ export const SkillFrontmatterSchema = z
       .refine((s) => s.length > 0, "name must be non-empty"),
     /** One line describing when this skill applies. */
     description: z.string().trim().min(1, "description must be non-empty"),
-    /** Trigger tokens/phrases. Must be present and non-empty. */
+    /**
+     * Optional search terms (a lucky extension). Standard Agent Skills files
+     * carry only name + description, so they are not required.
+     */
     keywords: z
       .array(KeywordSchema)
-      .min(1, "at least one keyword is required")
-      .transform((ks) => [...new Set(ks)]),
+      .transform((ks) => [...new Set(ks)])
+      .default([]),
     /** Names of related skills; may dangle. Defaults to empty. */
     related: z
       .array(z.string().transform(normalizeSkillName).refine((s) => s.length > 0))
       .transform((rs) => [...new Set(rs)])
       .default([]),
   })
-  .strict();
+  // Other tools' fields (license, allowed-tools, metadata, …) are accepted and
+  // ignored, so skills written for them install unchanged.
+  .strip();
 export type SkillFrontmatter = z.infer<typeof SkillFrontmatterSchema>;
 
 /** A fully parsed skill file: validated frontmatter + the raw body text. */
@@ -91,13 +96,16 @@ function splitFrontmatter(source: string): { frontmatterLines: string[]; body: s
  * - `key: value` scalars
  * - `key: [a, b, c]` inline arrays
  * - `key:` followed by `- item` block-list lines
+ * - `key: >` / `key: |` folded or literal block scalars (indented lines)
  *
- * Anything else (nested maps, multi-line scalars) is rejected rather than
- * silently mis-parsed — the format is intentionally tiny.
+ * Any other indented block under a key (a nested map such as `metadata:`) is
+ * skipped as a whole: lucky doesn't use those fields, and refusing the file
+ * would make standard skills impossible to install.
  */
 function parseFrontmatterLines(lines: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   let i = 0;
+  const isIndented = (line: string | undefined) => line !== undefined && /^\s+\S/.test(line);
   while (i < lines.length) {
     const line = lines[i] ?? "";
     i++;
@@ -112,14 +120,27 @@ function parseFrontmatterLines(lines: string[]): Record<string, unknown> {
     const key = line.slice(0, colon).trim();
     const rest = line.slice(colon + 1).trim();
     if (rest === "") {
-      // Block list: consume following indented `- item` lines.
+      // Block list: consume following `- item` lines.
       const items: string[] = [];
       let listLine: string | undefined;
       while ((listLine = lines[i]) !== undefined && /^\s*-\s+/.test(listLine)) {
         items.push(stripScalar(listLine.replace(/^\s*-\s+/, "")));
         i++;
       }
-      out[key] = items;
+      if (items.length > 0) {
+        out[key] = items;
+      } else {
+        // A nested map or other block: skip it.
+        while (isIndented(lines[i]) || lines[i]?.trim() === "") i++;
+      }
+    } else if (/^[>|][+-]?$/.test(rest)) {
+      // Block scalar: gather the indented lines; folded (>) joins them.
+      const block: string[] = [];
+      while (isIndented(lines[i]) || (lines[i]?.trim() === "" && isIndented(lines[i + 1]))) {
+        block.push((lines[i] ?? "").trim());
+        i++;
+      }
+      out[key] = rest.startsWith(">") ? block.join(" ").replace(/\s+/g, " ").trim() : block.join("\n").trim();
     } else if (rest.startsWith("[") && rest.endsWith("]")) {
       // Inline array.
       const inner = rest.slice(1, -1).trim();

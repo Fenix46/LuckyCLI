@@ -13,7 +13,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { normalizeSkillName, parseSkillFile } from "./skill-file.js";
 import {
   type SkillEdge,
@@ -29,6 +29,24 @@ import {
 export const SKILL_GRAPH_DIR = "graph";
 export const SKILL_GRAPH_FILE = "graph.json";
 export const SKILL_FILE_NAME = "skill.md";
+/**
+ * File names a skill directory may use, in lookup order: the standard Agent
+ * Skills `SKILL.md` (Claude Code, Codex, …) and lucky's own `skill.md`.
+ */
+export const SKILL_FILE_NAMES = ["SKILL.md", SKILL_FILE_NAME] as const;
+
+/** The skill file inside `dir`, if it has one. */
+export function findSkillFile(dir: string): string | undefined {
+  for (const name of SKILL_FILE_NAMES) {
+    const path = join(dir, name);
+    try {
+      if (statSync(path).isFile()) return path;
+    } catch {
+      // try the next name
+    }
+  }
+  return undefined;
+}
 
 /** Absolute path of the global skills root (`~/.luckycli/skills`). */
 export function skillsRootDir(): string {
@@ -66,12 +84,7 @@ export function hasInstalledSkills(root = skillsRootDir()): boolean {
   }
   for (const entry of entries) {
     if (entry === SKILL_GRAPH_DIR) continue;
-    const filePath = join(root, entry, SKILL_FILE_NAME);
-    try {
-      if (statSync(filePath).isFile()) return true;
-    } catch {
-      // not a directory / no skill.md — keep scanning
-    }
+    if (findSkillFile(join(root, entry))) return true;
   }
   return false;
 }
@@ -115,9 +128,9 @@ export async function saveDisabledSet(names: Set<string>, root = skillsRootDir()
 }
 
 /**
- * Discover and parse every `skill.md` under the skills root. Skips the graph
- * directory and any entry without a readable, valid skill.md. Throws on a
- * duplicate skill name (the root invariant the rest of the system relies on).
+ * Discover and parse every skill file under the skills root. Skips the graph
+ * directory, entries without a skill file, files that fail to parse (one bad
+ * skill must not hide all the others) and later duplicates of a name.
  */
 export async function discoverSkills(root = skillsRootDir()): Promise<DiscoveredSkill[]> {
   let entries: string[];
@@ -133,26 +146,23 @@ export async function discoverSkills(root = skillsRootDir()): Promise<Discovered
   const found: DiscoveredSkill[] = [];
   const seen = new Set<string>();
   for (const entry of entries.sort()) {
-    const filePath = join(root, entry, SKILL_FILE_NAME);
-    let source: string;
+    const filePath = findSkillFile(join(root, entry));
+    if (!filePath) continue;
+    let frontmatter;
     try {
-      source = await readFile(filePath, "utf8");
-    } catch (err) {
-      if ((err as { code?: unknown }).code === "ENOENT") continue;
-      throw err;
+      frontmatter = parseSkillFile(await readFile(filePath, "utf8")).frontmatter;
+    } catch {
+      continue;
     }
-    const { frontmatter } = parseSkillFile(source);
     const name = frontmatter.name;
-    if (seen.has(name)) {
-      throw new Error(`Duplicate skill name '${name}' (found in directory '${entry}')`);
-    }
+    if (seen.has(name)) continue;
     seen.add(name);
     found.push({
       name,
       description: frontmatter.description,
       keywords: frontmatter.keywords,
       related: frontmatter.related,
-      bodyPath: join(entry, SKILL_FILE_NAME),
+      bodyPath: relative(root, filePath),
       enabled: !disabled.has(name),
     });
   }
