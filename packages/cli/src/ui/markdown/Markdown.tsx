@@ -3,14 +3,13 @@ import React from "react";
 import type { Theme } from "../themes.js";
 import { parseMessageIntoBlocks, type Block } from "./parse.js";
 import { highlightCodeLine, parseInlineMarkdown } from "./highlight.js";
-import Table from "./Table.js";
-
-// Context for passing theme to Table sub-components
-const ThemeContext = React.createContext<Theme | null>(null);
+import { MarkdownTable } from "./MarkdownTable.js";
 
 interface MarkdownProps {
   text: string;
   theme: Theme;
+  /** Columns available to the reply; tables reflow to fit it. */
+  width: number;
 }
 
 /**
@@ -21,7 +20,7 @@ interface MarkdownProps {
  * This matters on the streaming hot path — re-renders driven by the thinking
  * animation or unrelated state no longer re-parse the live preview.
  */
-function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
+function MarkdownInner({ text, theme, width }: MarkdownProps): React.JSX.Element {
   const blocks = parseMessageIntoBlocks(text);
 
   return (
@@ -72,7 +71,7 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
         }
 
         if (block.type === "table" && block.rows && block.colWidths) {
-          return renderMarkdownTable(block, blockIdx, theme);
+          return renderMarkdownTable(block, blockIdx, theme, width);
         }
 
         if (!block.text.trim()) {
@@ -94,31 +93,9 @@ function MarkdownInner({ text, theme }: MarkdownProps): React.JSX.Element {
   );
 }
 
-/** Theme-adapted header component for the Table. */
-function MarkdownHeader(props: React.PropsWithChildren<{}>) {
-  const theme = React.useContext(ThemeContext);
-  return (
-    <Text bold color={theme?.text}>
-      {props.children}
-    </Text>
-  );
-}
-
-/** Theme-adapted cell component for the Table. */
-function MarkdownCell(props: React.PropsWithChildren<{}>) {
-  return <Text Wrapped={true}>{props.children}</Text>;
-}
-
-/** Theme-adapted skeleton component for the Table borders. */
-function MarkdownSkeleton(props: React.PropsWithChildren<{}>) {
-    const theme = React.useContext(ThemeContext);
-  return <Text color={theme?.subtle}>{props.children}</Text>;
-}
-
-/** Convert parsed table block to Table component data format and render. */
-function renderMarkdownTable(block: Block, key: number, theme: Theme): React.JSX.Element {
+/** Render a parsed table block, reflowed to the available width. */
+function renderMarkdownTable(block: Block, key: number, theme: Theme, width: number): React.JSX.Element {
   const rows = block.rows!;
-  const colWidths = block.colWidths!;
   // rows[0] = header, rows[1] = separator, rows[2..] = body
 
   if (rows.length < 3) {
@@ -130,35 +107,7 @@ function renderMarkdownTable(block: Block, key: number, theme: Theme): React.JSX
     );
   }
 
-  // Extract column names from header row (rows[0])
-  const headers = rows[0]!;
-  const columnKeys = headers.map((_, i) => `col_${i}`) as Array<`col_${number}`>;
-
-  // Convert body rows (rows[2..]) to array of objects
-  const data: Record<string, string | number | boolean | null | undefined>[] = [];
-  for (let r = 2; r < rows.length; r++) {
-    const rowData: Record<string, string | number | boolean | null | undefined> = {};
-    const bodyRow = rows[r]!;
-    for (let c = 0; c < columnKeys.length; c++) {
-      rowData[columnKeys[c]!] = bodyRow[c] ?? "";
-    }
-    data.push(rowData);
-  }
-
-  return (
-    <ThemeContext.Provider value={theme} key={key}>
-      <Box flexDirection="column" marginTop={0} marginBottom={1}>
-        <Table<Record<string, string | number | boolean | null | undefined>>
-          data={data}
-          columns={columnKeys}
-          padding={1}
-          header={MarkdownHeader}
-          cell={MarkdownCell}
-          skeleton={MarkdownSkeleton}
-        />
-      </Box>
-    </ThemeContext.Provider>
-  );
+  return <MarkdownTable key={key} headers={rows[0]!} rows={rows.slice(2)} width={width} theme={theme} />;
 }
 
 export const Markdown = React.memo(MarkdownInner);
