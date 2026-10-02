@@ -44,7 +44,7 @@ const INTERRUPTED_MARKER = "[Request interrupted by user]";
 const SUMMARIZATION_MODEL_BY_PROVIDER: Record<string, string> = {
   claude: "claude-haiku-4-5-20251001",
   "openai-oauth": "gpt-6-luna",
-  antigravity: "gemini-3.5-flash-low",
+  antigravity: "gemini-3.8-flash-low",
 };
 
 export interface AgentConfig {

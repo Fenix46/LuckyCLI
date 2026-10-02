@@ -12,26 +12,43 @@ export interface AntigravityAvailableModel {
   };
 }
 
+/** The models Antigravity offers, in its own picker order. */
 export const ANTIGRAVITY_VISIBLE_MODEL_IDS = [
-  "gemini-3.5-flash-low",
-  "gemini-3-flash-agent",
-  "gemini-3.5-flash-extra-low",
-  "gemini-3.1-pro-low",
+  "gemini-3.8-flash-high",
+  "gemini-3.8-flash-medium",
+  "gemini-3.8-flash-low",
+  "gemini-3.7-flash-high",
+  "gemini-3.7-flash-medium",
+  "gemini-3.7-flash-low",
+  "gemini-3.6-flash-high",
+  "gemini-3.6-flash-medium",
+  "gemini-3.6-flash-low",
   "gemini-pro-agent",
+  "gemini-3.1-pro-low",
   "claude-sonnet-4-6",
   "claude-opus-4-6-thinking",
   "gpt-oss-120b-medium",
 ] as const;
 
 const ANTIGRAVITY_MODEL_LABELS: Record<string, string> = {
-  "gemini-3.5-flash-low": "Gemini 3.5 Flash (Medium)",
-  "gemini-3-flash-agent": "Gemini 3.5 Flash (High)",
-  "gemini-3.5-flash-extra-low": "Gemini 3.5 Flash (Low)",
-  "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",
+  "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
+  "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)",
+  "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)",
+  "gemini-3.7-flash-high": "Gemini 3.7 Flash (High)",
+  "gemini-3.7-flash-medium": "Gemini 3.7 Flash (Medium)",
+  "gemini-3.7-flash-low": "Gemini 3.7 Flash (Low)",
+  "gemini-3.6-flash-high": "Gemini 3.6 Flash (High)",
+  "gemini-3.6-flash-medium": "Gemini 3.6 Flash (Medium)",
+  "gemini-3.6-flash-low": "Gemini 3.6 Flash (Low)",
   "gemini-pro-agent": "Gemini 3.1 Pro (High)",
+  "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",
   "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
   "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
   "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
+  // Retired from the picker; kept so saved configs still read well.
+  "gemini-3.5-flash-low": "Gemini 3.5 Flash (Medium)",
+  "gemini-3-flash-agent": "Gemini 3.5 Flash (High)",
+  "gemini-3.5-flash-extra-low": "Gemini 3.5 Flash (Low)",
 };
 
 /**
@@ -42,12 +59,12 @@ const liveDisplayNames = new Map<string, string>();
 
 /**
  * Newer Gemini models than any in the static list, recognized by the backend
- * display name ("Gemini 3.8 Flash (High)", "Gemini 4 Pro"). Antigravity ships
+ * display name ("Gemini 3.9 Flash (High)", "Gemini 4 Pro"). Antigravity ships
  * these without LuckyCLI knowing their ids in advance; older or internal
  * entries (tab completion, lite models) stay hidden.
  */
 const NEW_GEMINI_DISPLAY_NAME = /^Gemini (\d+(?:\.\d+)?) (Flash|Pro)\b/;
-const NEWEST_KNOWN_GEMINI_VERSION = 3.5;
+const NEWEST_KNOWN_GEMINI_VERSION = 3.8;
 
 function newGeminiVersion(id: string, model: AntigravityAvailableModel | undefined): number | undefined {
   if (id in ANTIGRAVITY_MODEL_LABELS || id.startsWith("tab_")) return undefined;
