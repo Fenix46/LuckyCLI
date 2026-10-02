@@ -19,7 +19,7 @@
  * milestone lands.
  */
 import { readFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 import {
   AgentSideConnection,
@@ -48,6 +48,7 @@ import {
   listTasks,
   loadSession as loadStoredSession,
   loadStoredConfig,
+  trustedProjectSettings,
   onTasksUpdated,
   recordGraphBuilt,
   resolveCredentials,
@@ -344,6 +345,12 @@ export class LuckyAcpAgent implements Agent {
     const config = this.requireConfig();
     const sessionId = session.id;
     const cwd = session.cwd;
+    // The resolved config carries the project settings of the folder this
+    // process started in. An editor can open sessions anywhere, so a session
+    // in another folder also gets that folder's (trusted) MCP servers and
+    // permissions, layered on top.
+    const project =
+      resolve(cwd) === resolve(process.cwd()) ? undefined : trustedProjectSettings(cwd, this.store.load());
     return await this.buildRuntime({
       provider: session.provider,
       model: session.model,
@@ -352,7 +359,7 @@ export class LuckyAcpAgent implements Agent {
       // Recompose the system prompt from this session's context (graph
       // presence, tools, cwd), exactly as the TUI does per activation.
       composeSystemFromContext: true,
-      permissions: config.permissions,
+      permissions: project ? { ...config.permissions, ...project.permissions } : config.permissions,
       approveTool: (name, input) => this.requestToolPermission(sessionId, session, name, input),
       askUser: (request) => this.askUser(sessionId, request),
       presentPlan: (plan) => this.presentPlan(sessionId, plan),
@@ -371,7 +378,10 @@ export class LuckyAcpAgent implements Agent {
         : {}),
       // Editor-supplied servers extend the user's own MCP config; the local
       // config wins on a name conflict (the user's auth/pins are explicit).
-      mcp: mergeMcpServers(mapAcpMcpServers(mcpServers), config.mcp),
+      mcp: mergeMcpServers(
+        mapAcpMcpServers(mcpServers),
+        project ? { ...config.mcp, ...project.mcp } : config.mcp,
+      ),
       ...(messages?.length ? { messages } : {}),
       ...(cacheHints ? { cacheHints } : {}),
       ...(compactOnResume ? { compactOnResume: true } : {}),

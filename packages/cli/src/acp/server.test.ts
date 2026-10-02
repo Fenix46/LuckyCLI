@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -16,6 +16,7 @@ import {
   ToolRegistry,
   type IProvider,
   type ResolvedConfig,
+  withProjectTrust,
 } from "@luckycli/core";
 import type { BuiltAgentRuntime } from "../runtime.js";
 import {
@@ -374,6 +375,36 @@ describe("acp server sessions", () => {
       docs: { type: "local", command: ["user-pinned"] },
       extra: { type: "remote", url: "https://mcp.example.com" },
     });
+  });
+
+  it("loads project MCP servers from a trusted session cwd, not an untrusted one", async () => {
+    const trusted = mkdtempSync(join(tmpdir(), "lucky-acp-trusted-"));
+    const untrusted = mkdtempSync(join(tmpdir(), "lucky-acp-untrusted-"));
+    try {
+      const mcpJson = JSON.stringify({ mcpServers: { proj: { command: "proj-server", args: ["--x"] } } });
+      writeFileSync(join(trusted, ".mcp.json"), mcpJson);
+      writeFileSync(join(untrusted, ".mcp.json"), mcpJson);
+      const buildRuntime = vi.fn(async () => fakeRuntime()) as unknown as RuntimeBuilder & {
+        mock: { calls: [Parameters<RuntimeBuilder>[0]][] };
+      };
+      const stored = withProjectTrust({}, trusted, true);
+      const { editor } = connect({
+        config: fakeConfig(),
+        buildRuntime,
+        store: { load: () => stored, save: () => undefined },
+      });
+
+      await editor.newSession({ cwd: trusted, mcpServers: [] });
+      await editor.newSession({ cwd: untrusted, mcpServers: [] });
+
+      expect(buildRuntime.mock.calls[0]![0].mcp).toEqual({
+        proj: { type: "local", command: ["proj-server", "--x"] },
+      });
+      expect(buildRuntime.mock.calls[1]![0].mcp).toEqual({});
+    } finally {
+      rmSync(trusted, { recursive: true, force: true });
+      rmSync(untrusted, { recursive: true, force: true });
+    }
   });
 
 });
