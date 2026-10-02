@@ -58,6 +58,10 @@ Commands:
   graph impact <query>  show a symbol's graph dependencies and what transitively
                         depends on it (--depth N, default 3)
   mcp list              list configured MCP servers
+  mcp add <name> -- <command> [args]
+                        add a local MCP server (--env KEY=VALUE before --)
+  mcp add <name> <url>  add a remote MCP server (--header 'Name: value')
+  mcp remove <name>     remove an MCP server from your config
   mcp status            connect to each MCP server and report status
   mcp inspect <name>    show prompts and resources exposed by a server
   mcp login <name>      authorize a remote MCP server via OAuth

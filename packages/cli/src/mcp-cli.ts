@@ -7,7 +7,12 @@ import {
   McpManager,
   authorizeMcpServer,
   clearMcpAuthEntry,
+  loadStoredConfig,
+  parseMcpAddArgs,
   resolveConfig,
+  saveStoredConfig,
+  withMcpServer,
+  withoutMcpServer,
   type McpConnectionStatus,
   type McpPromptDescriptor,
   type McpResourceDescriptor,
@@ -20,6 +25,9 @@ export interface McpCommandIO {
   mcp?: Record<string, McpServerConfig>;
   out?: (line: string) => void;
   err?: (line: string) => void;
+  /** Global config access for add/remove, injectable for tests. */
+  loadConfig?: typeof loadStoredConfig;
+  saveConfig?: typeof saveStoredConfig;
 }
 
 /** Lines for `lucky mcp list` — what's configured, without connecting. */
@@ -103,6 +111,40 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
 
   if (sub === "list") {
     mcpListLines(mcp).forEach(out);
+    return 0;
+  }
+
+  if (sub === "add") {
+    const parsed = parseMcpAddArgs(args.slice(1));
+    if ("error" in parsed) {
+      err(parsed.error);
+      return 1;
+    }
+    const load = io.loadConfig ?? loadStoredConfig;
+    const save = io.saveConfig ?? saveStoredConfig;
+    const existed = Boolean(load().mcp?.[parsed.name]);
+    save(withMcpServer(load(), parsed.name, parsed.server));
+    const target = parsed.server.type === "local" ? parsed.server.command.join(" ") : parsed.server.url;
+    out(`${existed ? "Updated" : "Added"} MCP server "${parsed.name}" (${parsed.server.type}): ${target}`);
+    out(`Check it with: lucky mcp status`);
+    return 0;
+  }
+
+  if (sub === "remove") {
+    const name = args[1];
+    if (!name) {
+      err("Usage: lucky mcp remove <server-name>");
+      return 1;
+    }
+    const load = io.loadConfig ?? loadStoredConfig;
+    const save = io.saveConfig ?? saveStoredConfig;
+    const cfg = load();
+    if (!cfg.mcp?.[name]) {
+      err(`No MCP server named "${name}" in your global config.`);
+      return 1;
+    }
+    save(withoutMcpServer(cfg, name));
+    out(`Removed MCP server "${name}".`);
     return 0;
   }
 

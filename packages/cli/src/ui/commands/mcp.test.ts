@@ -120,6 +120,20 @@ describe("/mcp", () => {
   });
 });
 
+describe("/mcp add with a custom server", () => {
+  it("adds a local command or a remote URL without the registry", async () => {
+    const saved: Array<{ mcp?: Record<string, unknown> }> = [];
+    const deps = fakeDeps({ saveConfig: vi.fn((next) => saved.push(next)) as McpCommandDeps["saveConfig"] });
+    const h = harness(deps);
+    await h.run("add files -- npx -y files-mcp");
+    await h.run("add docs https://docs.example/mcp");
+    expect(saved[0]?.mcp?.files).toEqual({ type: "local", command: ["npx", "-y", "files-mcp"] });
+    expect(saved[1]?.mcp?.docs).toEqual({ type: "remote", url: "https://docs.example/mcp" });
+    expect(h.ui.setMcpConfig).toHaveBeenCalledTimes(2);
+    expect(h.emitted.every((item) => item.kind === "command")).toBe(true);
+  });
+});
+
 describe("installCatalogServer", () => {
   it("propagates the merged config to the live manager", async () => {
     const saved: unknown[] = [];

@@ -3,6 +3,7 @@ import {
   OfficialMcpRegistryCatalog,
   catalogDetailToPreset,
   loadStoredConfig,
+  parseMcpAddArgs,
   saveStoredConfig,
   withMcpServer,
   type McpServerConfig,
@@ -99,9 +100,37 @@ export function mcpCommands(deps: McpCommandDeps = defaultDeps): Command[] {
           return;
         }
         if (args === "add" || args.startsWith("add ")) {
-          const name = args.slice("add".length).trim();
+          const tokens = args.slice("add".length).trim().split(/\s+/).filter(Boolean);
+          const name = tokens[0];
           if (!name) {
-            ctx.emit({ kind: "error", text: "usage: /mcp add <server-name>" });
+            ctx.emit({
+              kind: "error",
+              text: "usage: /mcp add <registry-name> · /mcp add <name> <url> · /mcp add <name> -- <command> [args]",
+            });
+            return;
+          }
+          // More than a name: a custom server (a URL, or a command line).
+          if (tokens.length > 1) {
+            const parsed = parseMcpAddArgs(tokens);
+            if ("error" in parsed) {
+              ctx.emit({ kind: "error", text: parsed.error });
+              return;
+            }
+            const next = withMcpServer(deps.loadConfig(), parsed.name, parsed.server);
+            deps.saveConfig(next);
+            ctx.ui.setMcpConfig(next.mcp ?? {});
+            ctx.emit({
+              kind: "command",
+              title: "MCP Added",
+              rows: [
+                { label: "server", value: parsed.name },
+                { label: "type", value: parsed.server.type },
+                {
+                  label: parsed.server.type === "local" ? "command" : "url",
+                  value: parsed.server.type === "local" ? parsed.server.command.join(" ") : parsed.server.url,
+                },
+              ],
+            });
             return;
           }
           try {

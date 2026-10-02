@@ -23,6 +23,7 @@ import {
   createSessionId,
   setActiveTaskListId,
   cleanupOrphanTaskLists,
+  isProjectTrusted,
   listSessions,
   resumeCacheHints,
   type ResumeCacheHints,
@@ -157,6 +158,9 @@ export function Root({
   const [pendingMessages, setPendingMessages] = useState<Message[] | null>(null);
   const [setupFallbackRuntime, setSetupFallbackRuntime] = useState<ActiveRuntime | null>(null);
   const [mcpConfig, setMcpConfig] = useState<Record<string, McpServerConfig>>(config.mcp);
+  // Tool permissions can change once the folder is trusted (project rules
+  // only apply in trusted folders), so activations read the latest value.
+  const permissionsRef = useRef(config.permissions);
   const [booting, setBooting] = useState<boolean>(() =>
     !forceSetup && !config.needsSetup && !!config.provider && !!config.model && !!config.credentials,
   );
@@ -354,7 +358,7 @@ export function Root({
       // Recompose the system prompt from this session's context (enabled tools,
       // graph presence, sub-agent profiles) so conditional sections react to it.
       composeSystemFromContext: true,
-      permissions: config.permissions,
+      permissions: permissionsRef.current,
       ...(config.skills ? { allowedSkills: config.skills } : {}),
       approveTool,
       askUser,
@@ -526,6 +530,21 @@ export function Root({
     }
   }
 
+  /**
+   * The trust decision is in. A trusted folder's own MCP servers and
+   * permissions now apply, so re-resolve them and rebuild the runtime.
+   */
+  function onTrustDone() {
+    setTrustNeeded(false);
+    if (!isProjectTrusted(loadStoredConfig(), process.cwd())) return;
+    const fresh = resolveConfig();
+    const changed =
+      JSON.stringify(fresh.permissions) !== JSON.stringify(permissionsRef.current) ||
+      JSON.stringify(fresh.mcp) !== JSON.stringify(mcpConfig);
+    permissionsRef.current = fresh.permissions;
+    if (changed) onMcpConfigChange(fresh.mcp);
+  }
+
   function onMcpConfigChange(nextMcpConfig: Record<string, McpServerConfig>) {
     setMcpConfig(nextMcpConfig);
     if (!runtime) return;
@@ -567,7 +586,7 @@ export function Root({
   }
 
   if (trustNeeded) {
-    return <TrustPrompt cwd={process.cwd()} onDone={() => setTrustNeeded(false)} />;
+    return <TrustPrompt cwd={process.cwd()} onDone={onTrustDone} />;
   }
 
   return (
