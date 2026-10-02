@@ -40,8 +40,12 @@ export interface StoredConfig {
     releaseUrl?: string;
     /** How aggressively to self-update. Unset is treated as "auto". */
     autoUpdate?: AutoUpdatePolicy;
-    /** A verified new binary staged on disk, applied on the next cold start. */
-    staged?: StagedUpdate;
+    /**
+     * The release last installed by self-update, and where. A fresh launch of
+     * that binary that still reports an older version means the release is
+     * mislabeled, so the updater must not reinstall it in a loop.
+     */
+    installed?: InstalledUpdate;
   };
   /** Tool permission policy. Keys can be tool names or wildcard patterns; values are allow/ask/deny. */
   permissions?: ToolPermissionPolicy;
@@ -59,17 +63,17 @@ export interface StoredConfig {
  * Self-update aggressiveness:
  * - `off`    — never check or download.
  * - `notify` — check and show a banner; the user applies updates manually.
- * - `auto`   — download + verify in the background and apply on next launch.
+ * - `auto`   — at launch, download + verify + install the new binary; the user
+ *              restarts to run it.
  */
 export type AutoUpdatePolicy = "off" | "notify" | "auto";
 
-/** A verified binary downloaded ahead of time, waiting to replace the running one. */
-export interface StagedUpdate {
+/** A release that self-update swapped in. */
+export interface InstalledUpdate {
+  /** Release tag, e.g. `v0.8.0`. */
   version: string;
-  /** Absolute path of the staged, checksum-verified binary. */
+  /** Absolute path of the binary that was replaced. */
   path: string;
-  sha256: string;
-  stagedAt: number;
 }
 
 /** What we remember about a project folder once the agent has opened it. */

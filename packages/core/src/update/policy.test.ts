@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoredConfig } from "../config/store.js";
-import {
-  clearStagedUpdate,
-  getAutoUpdatePolicy,
-  withAutoUpdatePolicy,
-  withStagedUpdate,
-} from "./policy.js";
+import { getAutoUpdatePolicy, withAutoUpdatePolicy, withInstalledUpdate } from "./policy.js";
 
 describe("auto-update policy (pure helpers)", () => {
   it("defaults to auto when unset", () => {
@@ -26,21 +21,14 @@ describe("auto-update policy (pure helpers)", () => {
     expect(next.provider).toBe("claude");
   });
 
-  it("stages and clears a verified update immutably", () => {
-    const staged = { version: "v0.3.0", path: "/x/.lucky.staged", sha256: "abc", stagedAt: 1 };
-    const withStaged = withStagedUpdate({ update: { lastCheckedAt: 9 } }, staged);
-    expect(withStaged.update?.staged).toEqual(staged);
-    expect(withStaged.update?.lastCheckedAt).toBe(9);
-
-    const cleared = clearStagedUpdate(withStaged);
-    expect(cleared.update?.staged).toBeUndefined();
-    expect(cleared.update?.lastCheckedAt).toBe(9);
-    // original keeps its staged record
-    expect(withStaged.update?.staged).toEqual(staged);
-  });
-
-  it("clearing when nothing is staged is a no-op", () => {
-    const cfg: StoredConfig = { update: { autoUpdate: "auto" } };
-    expect(clearStagedUpdate(cfg)).toBe(cfg);
+  it("records the installed release without touching the policy", () => {
+    const cfg: StoredConfig = { update: { autoUpdate: "auto", lastCheckedAt: 9 } };
+    const next = withInstalledUpdate(cfg, { version: "v0.8.0", path: "/bin/lucky" });
+    expect(next.update).toEqual({
+      autoUpdate: "auto",
+      lastCheckedAt: 9,
+      installed: { version: "v0.8.0", path: "/bin/lucky" },
+    });
+    expect(cfg.update?.installed).toBeUndefined();
   });
 });

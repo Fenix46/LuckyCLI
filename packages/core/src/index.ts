@@ -409,21 +409,18 @@ export {
 } from "./config/store.js";
 export type {
   AutoUpdatePolicy,
+  InstalledUpdate,
   ProjectRecord,
-  StagedUpdate,
   StoredConfig,
 } from "./config/store.js";
 
 // Self-update machinery.
 export { compareVersions, versionLabel } from "./update/versions.js";
 export {
-  clearStagedUpdate,
   getAutoUpdatePolicy,
   withAutoUpdatePolicy,
-  withStagedUpdate,
+  withInstalledUpdate,
 } from "./update/policy.js";
-export { applyStagedUpdateIfAny } from "./update/startup.js";
-export type { StagedApplyResult } from "./update/startup.js";
 export {
   assetName,
   buildAssetUrls,

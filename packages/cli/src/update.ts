@@ -1,6 +1,5 @@
 import {
   buildAssetUrls,
-  clearStagedUpdate,
   compareVersions,
   detectSelfUpdate,
   downloadVerified,
@@ -9,7 +8,6 @@ import {
   saveStoredConfig,
   swapInPlace,
   versionLabel,
-  withStagedUpdate,
 } from "@luckycli/core";
 
 export { compareVersions };
@@ -59,7 +57,7 @@ export async function checkForUpdate(
   const latestVersion = release.tag_name;
   const releaseUrl = release.html_url;
   // Merge into the existing update block: it also carries the autoUpdate
-  // policy and any staged-binary record, which a check must never wipe.
+  // policy, which a check must never wipe.
   saveStoredConfig({
     ...cfg,
     update: {
@@ -205,34 +203,3 @@ export async function applyUpdateNow(
   swapInPlace(tmpPath, cap.targetPath);
   return { applied: true };
 }
-
-/**
- * Download + verify the new binary and record it as staged in the config; the
- * next cold start applies it. Used by the "auto" policy so a running session is
- * never disturbed. No-op (returns false) when self-update isn't possible.
- */
-export async function stageUpdate(
-  version: string,
-  options: DownloadOptions = {},
-): Promise<boolean> {
-  const cap = detectSelfUpdate();
-  if (!cap.ok || !cap.targetDir) return false;
-
-  const { tmpPath, sha256 } = await fetchVerifiedBinary(cap.targetDir, { ...options, version });
-  const cfg = loadStoredConfig();
-  saveStoredConfig(
-    withStagedUpdate(cfg, {
-      version: versionLabel(version),
-      path: tmpPath,
-      sha256,
-      stagedAt: Date.now(),
-    }),
-  );
-  return true;
-}
-
-/** Forget a staged update (e.g. after it's applied). */
-export function discardStagedUpdate(): void {
-  saveStoredConfig(clearStagedUpdate(loadStoredConfig()));
-}
-
