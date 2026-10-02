@@ -1163,7 +1163,6 @@ export function App({
           as the transcript grows, the whole column grows and older rows scroll
           into the terminal's scrollback. */}
       <Box flexDirection="column" flexShrink={0} width="100%">
-      <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} expanded={tasksExpanded} />
       <AgentUsagePanel usage={agentUsage} theme={activeTheme} width={messageWidth} />
       {effortPicker ? (
         <EffortPickerView
@@ -1218,6 +1217,10 @@ export function App({
           {...(compacting ? { label: "compacting" } : {})}
         />
       ) : null}
+
+      {/* The task checklist sits under the activity line so "what is running"
+          and "where the plan stands" read as one status block. */}
+      <TaskPanel tasks={tasks} theme={activeTheme} width={messageWidth} expanded={tasksExpanded} />
 
       {queuedPrompts.length > 0 && !approvalRequest && !userQuestionRequest ? (
         <QueuedPromptsView prompts={queuedPrompts} theme={activeTheme} width={messageWidth} />
