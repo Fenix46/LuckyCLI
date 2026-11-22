@@ -394,7 +394,7 @@ Add a /keys command and a compact shortcut hint to the welcome card.
 
 ## T10 — Avviso di contesto pieno una tantum
 
-**Stato:** da fare.
+**Stato:** fatto (commit di chiusura).
 
 **Scope**
 

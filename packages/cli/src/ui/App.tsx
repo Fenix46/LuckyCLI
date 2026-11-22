@@ -38,6 +38,7 @@ import {
   type Task,
 } from "@luckycli/core";
 import { THEMES, themeById, type Theme } from "./themes.js";
+import { contextWarning } from "./lib/context-warning.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { appendLiveOutput, collectDiffs, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
 import { formatToolAction } from "./lib/format.js";
@@ -277,6 +278,15 @@ export function App({
   }, []);
 
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
+  // One context-full notice per session; the footer meter stays live.
+  const contextWarnedRef = useRef(false);
+  useEffect(() => {
+    if (contextWarnedRef.current) return;
+    const warning = contextWarning(contextStatus);
+    if (!warning) return;
+    contextWarnedRef.current = true;
+    setItems((prev) => [...prev, { kind: "notice", tone: "info", text: warning }]);
+  }, [contextStatus]);
   // True while a manual /compact is summarizing. Drives a "compacting…"
   // indicator and blocks re-running /compact (which otherwise fired several
   // times because the long await gave no feedback). compactStartedAt anchors
