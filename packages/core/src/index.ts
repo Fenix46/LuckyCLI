@@ -35,6 +35,8 @@ export {
   parseCommandRulesEnv,
 } from "./tools/command-policy.js";
 export type { CommandAction, CommandRules, CommandVerdict } from "./tools/command-policy.js";
+export { FileStateLedger, contentHash } from "./tools/file-state.js";
+export type { FileStateCheck } from "./tools/file-state.js";
 export { defineTool } from "./tools/types.js";
 export type {
   AskUserRequest,

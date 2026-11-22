@@ -1,4 +1,5 @@
 import type { ReadLedger } from "./read-ledger.js";
+import type { FileStateLedger } from "./file-state.js";
 import type { z } from "zod";
 import type { PlanDecision, PlanProposal } from "../agent/plan.js";
 import type { FileDiff } from "../diff.js";
@@ -99,6 +100,13 @@ export interface ToolContext {
    * can point back to the earlier result instead of re-sending it.
    */
   readLedger?: ReadLedger;
+  /**
+   * Reads already in the conversation, by absolute path. When present, the
+   * mutation tools require a fresh read before changing an existing file and
+   * refuse when the file changed since that read. The agent always provides it;
+   * direct registry callers may omit it to keep the pre-ledger behavior.
+   */
+  fileState?: FileStateLedger;
   /** Id of the tool call being executed, when the host knows it. */
   toolCallId?: string;
 }
@@ -111,6 +119,10 @@ export interface ToolContext {
 export interface ToolResultMetadata {
   /** Structured per-file diffs for mutations (edit_file, write_file, apply_patch). */
   diff?: FileDiff[];
+  /** Full output written under `.lucky/tool-results/` when the model result was truncated. */
+  persistedOutputPath?: string;
+  /** Size in bytes of the persisted output. */
+  persistedOutputBytes?: number;
 }
 
 /** Result of running a tool. `content` is always a string fed back to the model. */

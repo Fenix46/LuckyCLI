@@ -3,8 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry.js";
+import { FileStateLedger } from "../file-state.js";
 import { defaultToolRegistry } from "./index.js";
 import { applyPatchTool } from "./apply-patch.js";
+import { readFileTool } from "./read-file.js";
 import { classifyCommandSemantics, execTool, truncateOutput } from "./exec.js";
 import { classifyPowerShellCommandSemantics, powerShellTool } from "./powershell.js";
 import { resetTaskList, setActiveTaskListId } from "../../tasks/store.js";
@@ -49,7 +51,7 @@ describe("robust built-in tools", () => {
 
   it("applies a unified diff to an existing file", async () => {
     await writeFile(join(root, "a.txt"), "one\ntwo\nthree\n", "utf8");
-    const registry = new ToolRegistry().register(applyPatchTool);
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
 
     const result = await registry.execute(
       "apply_patch",
@@ -74,7 +76,7 @@ describe("robust built-in tools", () => {
   });
 
   it("creates a file from a unified diff", async () => {
-    const registry = new ToolRegistry().register(applyPatchTool);
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
 
     const result = await registry.execute(
       "apply_patch",
@@ -97,7 +99,7 @@ describe("robust built-in tools", () => {
 
   it("deletes a file from a unified diff", async () => {
     await writeFile(join(root, "delete-me.txt"), "one\ntwo\n", "utf8");
-    const registry = new ToolRegistry().register(applyPatchTool);
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
 
     const result = await registry.execute(
       "apply_patch",
@@ -120,7 +122,7 @@ describe("robust built-in tools", () => {
 
   it("applies a Codex *** Begin Patch envelope to an existing file", async () => {
     await writeFile(join(root, "m.txt"), "one\ntwo\nthree\n", "utf8");
-    const registry = new ToolRegistry().register(applyPatchTool);
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
 
     const result = await registry.execute(
       "apply_patch",
@@ -145,7 +147,7 @@ describe("robust built-in tools", () => {
   });
 
   it("creates a file from a Codex *** Begin Patch envelope", async () => {
-    const registry = new ToolRegistry().register(applyPatchTool);
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
 
     const result = await registry.execute(
       "apply_patch",
@@ -167,7 +169,7 @@ describe("robust built-in tools", () => {
 
   it("deletes a file from a Codex *** Begin Patch envelope", async () => {
     await writeFile(join(root, "gone.txt"), "x\ny\n", "utf8");
-    const registry = new ToolRegistry().register(applyPatchTool);
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
 
     const result = await registry.execute(
       "apply_patch",
@@ -184,7 +186,7 @@ describe("robust built-in tools", () => {
   });
 
   it("rejects patch path traversal", async () => {
-    const registry = new ToolRegistry().register(applyPatchTool);
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
     const result = await registry.execute(
       "apply_patch",
       {
@@ -201,6 +203,93 @@ describe("robust built-in tools", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/escapes|failed/i);
+  });
+
+  it("requires a read before applying an update patch", async () => {
+    await writeFile(join(root, "p.txt"), "one\n", "utf8");
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
+    const fileState = new FileStateLedger();
+    const patch = ["--- a/p.txt", "+++ b/p.txt", "@@ -1,1 +1,1 @@", "-one", "+two", ""].join("\n");
+
+    const refused = await registry.execute("apply_patch", { patch }, { cwd: root, fileState, toolCallId: "patch-1" });
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toMatch(/read p\.txt with read_file/i);
+    await expect(readFile(join(root, "p.txt"), "utf8")).resolves.toBe("one\n");
+
+    await registry.execute("read_file", { path: "p.txt" }, { cwd: root, fileState, toolCallId: "read-1" });
+    const applied = await registry.execute("apply_patch", { patch }, { cwd: root, fileState, toolCallId: "patch-2" });
+    expect(applied.isError).toBeUndefined();
+    await expect(readFile(join(root, "p.txt"), "utf8")).resolves.toBe("two\n");
+  });
+
+  it("does not partially apply a multi-file patch when one target is unread", async () => {
+    await writeFile(join(root, "a.txt"), "a\n", "utf8");
+    await writeFile(join(root, "b.txt"), "b\n", "utf8");
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
+    const fileState = new FileStateLedger();
+    // Read only a.txt; b.txt remains unread.
+    await registry.execute("read_file", { path: "a.txt" }, { cwd: root, fileState, toolCallId: "read-a" });
+    const patch = [
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1,1 +1,1 @@",
+      "-a",
+      "+A",
+      "--- a/b.txt",
+      "+++ b/b.txt",
+      "@@ -1,1 +1,1 @@",
+      "-b",
+      "+B",
+      "",
+    ].join("\n");
+    const result = await registry.execute("apply_patch", { patch }, { cwd: root, fileState, toolCallId: "patch-1" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/read b\.txt with read_file/i);
+    await expect(readFile(join(root, "a.txt"), "utf8")).resolves.toBe("a\n");
+    await expect(readFile(join(root, "b.txt"), "utf8")).resolves.toBe("b\n");
+  });
+
+  it("allows a patch that creates a file without a prior read", async () => {
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
+    const fileState = new FileStateLedger();
+    const result = await registry.execute(
+      "apply_patch",
+      {
+        patch: ["--- /dev/null", "+++ b/new.txt", "@@ -0,0 +1,1 @@", "+hello", ""].join("\n"),
+      },
+      { cwd: root, fileState, toolCallId: "patch-1" },
+    );
+    expect(result.isError).toBeUndefined();
+    await expect(readFile(join(root, "new.txt"), "utf8")).resolves.toBe("hello");
+  });
+
+  it("requires a read before deleting a file with a patch", async () => {
+    await writeFile(join(root, "gone.txt"), "x\n", "utf8");
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
+    const fileState = new FileStateLedger();
+    const patch = ["--- a/gone.txt", "+++ /dev/null", "@@ -1,1 +0,0 @@", "-x", ""].join("\n");
+
+    const refused = await registry.execute("apply_patch", { patch }, { cwd: root, fileState, toolCallId: "patch-1" });
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toMatch(/read gone\.txt with read_file/i);
+    await expect(readFile(join(root, "gone.txt"), "utf8")).resolves.toBe("x\n");
+
+    await registry.execute("read_file", { path: "gone.txt" }, { cwd: root, fileState, toolCallId: "read-1" });
+    const deleted = await registry.execute("apply_patch", { patch }, { cwd: root, fileState, toolCallId: "patch-2" });
+    expect(deleted.isError).toBeUndefined();
+    await expect(stat(join(root, "gone.txt"))).rejects.toThrow();
+  });
+
+  it("refuses a patch when the file changed after the read", async () => {
+    await writeFile(join(root, "stale.txt"), "old\n", "utf8");
+    const registry = new ToolRegistry().register(readFileTool).register(applyPatchTool);
+    const fileState = new FileStateLedger();
+    await registry.execute("read_file", { path: "stale.txt" }, { cwd: root, fileState, toolCallId: "read-1" });
+    await writeFile(join(root, "stale.txt"), "external\n", "utf8");
+    const patch = ["--- a/stale.txt", "+++ b/stale.txt", "@@ -1,1 +1,1 @@", "-external", "+mine", ""].join("\n");
+    const result = await registry.execute("apply_patch", { patch }, { cwd: root, fileState, toolCallId: "patch-1" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/changed on disk/i);
   });
 
   it("refuses dangerous exec commands unless explicitly allowed", async () => {

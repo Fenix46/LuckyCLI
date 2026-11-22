@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -15,6 +15,7 @@ import type {
 import { ToolRegistry } from "../tools/registry.js";
 import { askUserTool } from "../tools/builtin/ask-user.js";
 import { readFileTool } from "../tools/builtin/read-file.js";
+import { writeFileTool } from "../tools/builtin/write-file.js";
 import { defineTool } from "../tools/types.js";
 import { fileDiff } from "../diff.js";
 import { Agent } from "./agent.js";
@@ -237,6 +238,43 @@ describe("Agent loop", () => {
       toolCallId: "t1",
       name: "echo",
     });
+  });
+
+  it("passes the read-before-write gate to the mutation tools", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "lucky-agent-file-state-"));
+    try {
+      await writeFile(join(cwd, "a.txt"), "old\n", "utf8");
+      const provider = new ScriptedProvider([
+        [
+          {
+            toolCall: {
+              type: "tool_call",
+              id: "w1",
+              name: "write_file",
+              arguments: { path: "a.txt", content: "new\n" },
+            },
+          },
+          { finishReason: "tool_calls" },
+        ],
+        [{ textDelta: "done" }, { finishReason: "stop" }],
+      ]);
+      const agent = new Agent({
+        provider,
+        model: "mock",
+        tools: new ToolRegistry().register(writeFileTool),
+        cwd,
+      });
+
+      const events = await collect(agent.send("overwrite a.txt"));
+      const toolEnd = events.find((e) => e.type === "tool_end") as
+        | { content: string; isError: boolean }
+        | undefined;
+      expect(toolEnd?.isError).toBe(true);
+      expect(toolEnd?.content).toMatch(/Read a\.txt with read_file/i);
+      await expect(readFile(join(cwd, "a.txt"), "utf8")).resolves.toBe("old\n");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("runs verification after an approved edit that reports a diff", async () => {

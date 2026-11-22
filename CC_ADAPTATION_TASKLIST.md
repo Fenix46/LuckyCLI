@@ -115,7 +115,7 @@ missing Claude Code patterns into LuckyCLI without copying its implementation.
 
 ## T2 — File state ledger: read-before-edit enforced
 
-**Stato:** da fare.
+**Stato:** fatto (commit di chiusura).
 
 **Scope**
 

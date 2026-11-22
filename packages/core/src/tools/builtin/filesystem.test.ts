@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry.js";
 import { ReadLedger } from "../read-ledger.js";
+import { FileStateLedger } from "../file-state.js";
+import { editFileTool } from "./edit-file.js";
 import { listDirTool } from "./list-dir.js";
 import { readFileTool } from "./read-file.js";
 import { writeFileTool } from "./write-file.js";
@@ -19,6 +21,7 @@ describe("filesystem tools", () => {
     registry = new ToolRegistry()
       .register(readFileTool)
       .register(writeFileTool)
+      .register(editFileTool)
       .register(listDirTool);
   });
 
@@ -226,5 +229,86 @@ describe("filesystem tools", () => {
         { cwd: root },
       ),
     ).resolves.toMatchObject({ isError: true });
+  });
+
+  it("requires a read before editing an existing file", async () => {
+    await writeFile(join(root, "src.ts"), "const a = 1;\n", "utf8");
+    const fileState = new FileStateLedger();
+    const result = await registry.execute(
+      "edit_file",
+      { path: "src.ts", oldString: "const a = 1;", newString: "const a = 2;" },
+      { cwd: root, fileState, toolCallId: "edit-1" },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/read src\.ts with read_file/i);
+    await expect(readFile(join(root, "src.ts"), "utf8")).resolves.toBe("const a = 1;\n");
+  });
+
+  it("edits after a read and remembers the new content", async () => {
+    await writeFile(join(root, "src.ts"), "const a = 1;\n", "utf8");
+    const fileState = new FileStateLedger();
+    await registry.execute("read_file", { path: "src.ts" }, { cwd: root, fileState, toolCallId: "read-1" });
+    const first = await registry.execute(
+      "edit_file",
+      { path: "src.ts", oldString: "const a = 1;", newString: "const a = 2;" },
+      { cwd: root, fileState, toolCallId: "edit-1" },
+    );
+    expect(first.isError).toBeUndefined();
+    // The write updates the ledger, so a second edit needs no new read.
+    const second = await registry.execute(
+      "edit_file",
+      { path: "src.ts", oldString: "const a = 2;", newString: "const a = 3;" },
+      { cwd: root, fileState, toolCallId: "edit-2" },
+    );
+    expect(second.isError).toBeUndefined();
+    await expect(readFile(join(root, "src.ts"), "utf8")).resolves.toBe("const a = 3;\n");
+  });
+
+  it("refuses to edit a file that changed after the read", async () => {
+    await writeFile(join(root, "src.ts"), "one\n", "utf8");
+    const fileState = new FileStateLedger();
+    await registry.execute("read_file", { path: "src.ts" }, { cwd: root, fileState, toolCallId: "read-1" });
+    await writeFile(join(root, "src.ts"), "external\n", "utf8");
+    const result = await registry.execute(
+      "edit_file",
+      { path: "src.ts", oldString: "external", newString: "mine" },
+      { cwd: root, fileState, toolCallId: "edit-1" },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/changed on disk/i);
+    await expect(readFile(join(root, "src.ts"), "utf8")).resolves.toBe("external\n");
+  });
+
+  it("requires a read before overwriting an existing file", async () => {
+    await writeFile(join(root, "notes.txt"), "old\n", "utf8");
+    const fileState = new FileStateLedger();
+    const refused = await registry.execute(
+      "write_file",
+      { path: "notes.txt", content: "new\n" },
+      { cwd: root, fileState, toolCallId: "write-1" },
+    );
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toMatch(/read notes\.txt with read_file/i);
+    await expect(readFile(join(root, "notes.txt"), "utf8")).resolves.toBe("old\n");
+
+    await registry.execute("read_file", { path: "notes.txt" }, { cwd: root, fileState, toolCallId: "read-1" });
+    const written = await registry.execute(
+      "write_file",
+      { path: "notes.txt", content: "new\n" },
+      { cwd: root, fileState, toolCallId: "write-2" },
+    );
+    expect(written.isError).toBeUndefined();
+    await expect(readFile(join(root, "notes.txt"), "utf8")).resolves.toBe("new\n");
+  });
+
+  it("creates a new file without a prior read", async () => {
+    const fileState = new FileStateLedger();
+    const result = await registry.execute(
+      "write_file",
+      { path: "fresh.txt", content: "hello\n" },
+      { cwd: root, fileState, toolCallId: "write-1" },
+    );
+    expect(result.isError).toBeUndefined();
+    await expect(readFile(join(root, "fresh.txt"), "utf8")).resolves.toBe("hello\n");
   });
 });

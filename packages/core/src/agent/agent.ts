@@ -34,6 +34,7 @@ import {
 import type { VerificationResult } from "../workflow/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 import { ReadLedger } from "../tools/read-ledger.js";
+import { FileStateLedger } from "../tools/file-state.js";
 import { ownershipOverlaps } from "../agents/ownership.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
@@ -223,6 +224,8 @@ export class Agent {
   private compactOnResume: boolean;
   /** File reads whose results are still in the transcript (see ReadLedger). */
   private readonly readLedger = new ReadLedger();
+  /** Content the model has read per path, for the read-before-edit gate. */
+  private readonly fileState = new FileStateLedger();
   private readonly history: Message[] = [];
 
   constructor(cfg: AgentConfig) {
@@ -906,6 +909,7 @@ export class Agent {
     return this.tools.execute(call.name, call.arguments, {
       cwd: this.cwd,
       readLedger: this.readLedger,
+      fileState: this.fileState,
       toolCallId: call.id,
       ...(signal ? { signal } : {}),
       ...(onOutput ? { onOutput } : {}),
@@ -1142,8 +1146,10 @@ export class Agent {
       this.history[message] = { ...msg, content };
     }
     this.countCache = undefined;
-    // A cleared read can no longer be pointed back to.
+    // A cleared read can no longer be pointed back to, and the model no
+    // longer sees the content it would be editing.
     this.readLedger.forgetCalls(clearedCalls);
+    this.fileState.forgetCalls(clearedCalls);
     // No bookkeeping needed for the context estimate: it measures the
     // transcript as it is now, so the shorter results already count.
     return Math.round(freedChars / this.charsPerToken);
@@ -1218,8 +1224,10 @@ export class Agent {
       ],
     };
     this.history.splice(0, this.history.length, summaryMessage, ...kept);
-    // Earlier reads now live only in the summary: re-reads must send content.
+    // Earlier reads now live only in the summary: re-reads must send content,
+    // and the read-before-edit gate must see the file as unread.
     this.readLedger.clear();
+    this.fileState.clear();
     // The transcript was rewritten wholesale; any memoized count is now stale.
     this.countCache = undefined;
     const after = await this.contextStatus();
