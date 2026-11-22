@@ -37,8 +37,31 @@ export const SKILL_FILE_NAMES = ["SKILL.md", SKILL_FILE_NAME] as const;
 
 /** The skill file inside `dir`, if it has one. */
 export function findSkillFile(dir: string): string | undefined {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return undefined;
+  }
+  // Exact names first, so the path we report keeps the user's casing. On a
+  // case-insensitive filesystem `statSync("SKILL.md")` also succeeds for a
+  // lowercase `skill.md`, which used to make discovery report a name that is
+  // not on disk. Fall back to a case-insensitive match only when no exact
+  // entry exists.
   for (const name of SKILL_FILE_NAMES) {
-    const path = join(dir, name);
+    if (entries.includes(name)) {
+      const path = join(dir, name);
+      try {
+        if (statSync(path).isFile()) return path;
+      } catch {
+        // try the next name
+      }
+    }
+  }
+  for (const name of SKILL_FILE_NAMES) {
+    const actual = entries.find((entry) => entry.toLowerCase() === name.toLowerCase());
+    if (actual === undefined) continue;
+    const path = join(dir, actual);
     try {
       if (statSync(path).isFile()) return path;
     } catch {
