@@ -456,12 +456,14 @@ pull model when the server advertises `diagnosticProvider`, otherwise the push
 a different config file. When a file's extension has no server, the tool reports
 exactly which extensions are configured.
 
-`browser` needs the bundled MV3 extension in `packages/chrome-extension`. Run
-`/browser` to start the loopback bridge and print its port and token, load the
-folder as an unpacked extension in `chrome://extensions`, then paste both values
-into the extension's options. The bridge listens on `127.0.0.1` only, stores its
-token in `~/.lucky/browser.json` (`0600`), and every browser action still goes
-through the normal `ask` permission.
+`browser` needs the Lucky extension, kept in the separate
+[`lucky-chrome-extension`](../lucky-chrome-extension) repository (a sibling
+checkout by default). Run `/browser` to start the loopback bridge and print its
+port and token, load that repository's root as an unpacked extension in
+`chrome://extensions`, then paste both values into the extension's options. The
+bridge listens on `127.0.0.1` only, stores its token in `~/.lucky/browser.json`
+(`0600`), and every browser action still goes through the normal `ask`
+permission.
 
 Mutation tools require a **fresh read** of an existing file: editing or
 overwriting a file the model has not read, or that changed since that read, is

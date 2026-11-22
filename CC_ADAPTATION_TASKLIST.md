@@ -431,7 +431,8 @@ save screenshots without shipping a native addon.
   `snapshot`, `click`, `type`; risultato pagina troncato a 20k caratteri.
 - Wiring runtime/TUI: `BuildAgentOptions.browser`, `AgentConfig.browser`,
   `BrowserBridge` singleton in Root, `/browser` in commands/menu.
-- Estensione MV3 `packages/chrome-extension` chiamata **Lucky**:
+- Estensione MV3 chiamata **Lucky**, ora nel repo separato
+  `lucky-chrome-extension` (non più in `packages/chrome-extension`):
   `manifest.json`, service worker con long-poll e backoff, options page per
   porta/token e test connessione; tab + scripting API.
 - Test: tool con bridge finto, bridge reale (auth, consegna, errore, timeout,
@@ -439,7 +440,8 @@ save screenshots without shipping a native addon.
 
 **Limiti**
 
-- L'estensione non è pubblicata sul Chrome Web Store: va caricata unpacked.
+- L'estensione vive in un repository separato e non è pubblicata sul Chrome
+  Web Store: va caricata unpacked dalla radice di quel repo.
 - Il service worker MV3 può essere sospeso; l'alarm/minuto e il long-poll lo
   riattivano, ma un comando in volo durante la sospensione va ritentato.
 - Niente native messaging: configurazione manuale di porta e token.
