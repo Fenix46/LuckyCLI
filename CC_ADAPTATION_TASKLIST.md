@@ -432,7 +432,7 @@ Surface the existing context meter as an actionable notice with /compact.
 
 ## T12 — Tool differiti e `tool_search` (MCP)
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `44869a3`.
 
 **Scope**
 
