@@ -68,6 +68,7 @@ export {
   globTool,
   grepTool,
   httpFetchTool,
+  webSearchTool,
   taskCreateTool,
   taskListTool,
   taskGetTool,

@@ -9,6 +9,7 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   glob: "allow",
   grep: "allow",
   http_fetch: "allow",
+  web_search: "allow",
   task_create: "allow",
   task_list: "allow",
   task_get: "allow",

@@ -352,6 +352,7 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `list_dir` · `glob` · `grep` | allow | List a directory, find files by pattern, search contents |
 | `graph_query` · `graph_overview` | allow | Query the knowledge graph: find, callers, callees, neighbors, impact |
 | `http_fetch` | allow | Fetch a public URL (private and metadata addresses are blocked) |
+| `web_search` | allow | Search the web through Brave, Tavily or a custom endpoint |
 | `task_create` · `task_update` · `task_list` · `task_get` | allow | A structured task list the user can follow |
 | `present_plan` | allow | Present a plan for approval before implementing |
 | `spawn_agent` | allow | Delegate a sub-task to a sub-agent; with `files`, several run in parallel |
@@ -367,6 +368,10 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 
 MCP tools appear next to these as `<server>_<tool>`; tools a server marks
 read-only default to allow, everything else asks.
+
+`web_search` is configured with `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, or
+`LUCKY_WEB_SEARCH_URL` + `LUCKY_WEB_SEARCH_API_KEY`; set
+`LUCKY_WEB_SEARCH_PROVIDER` to force a provider when more than one is configured.
 
 Mutation tools require a **fresh read** of an existing file: editing or
 overwriting a file the model has not read, or that changed since that read, is

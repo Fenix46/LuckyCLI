@@ -340,6 +340,30 @@ Support replace, insert and delete on .ipynb files with the same read-before-
 edit gate and diff metadata as the other mutation tools.
 ```
 
+## T15 — Web search
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- Tool `web_search` con `query`, `count`, `allowed_domains`, `blocked_domains`.
+- Provider configurabile senza nuove dipendenze:
+  - Brave (`BRAVE_SEARCH_API_KEY`);
+  - Tavily (`TAVILY_API_KEY`);
+  - endpoint custom (`LUCKY_WEB_SEARCH_URL`, `LUCKY_WEB_SEARCH_API_KEY`).
+- Normalizzazione risultati, filtro domini/subdomini, timeout, limite dimensione
+  risposta e messaggio di setup se non configurato.
+- Test con fetch iniettato: Brave, Tavily, custom, filtri, HTTP error, tool.
+
+**Commit**
+
+```text
+feat(tools): add configurable web search
+
+Search through Brave, Tavily or a custom endpoint, with bounded responses,
+domain filters and a clear setup message when no provider is configured.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:

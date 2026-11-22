@@ -25,6 +25,7 @@ import {
 } from "./tasks.js";
 import { writeFileTool } from "./write-file.js";
 import { verifyTool } from "./verify.js";
+import { webSearchTool } from "./web-search.js";
 
 /** A registry pre-loaded with the built-in tools. */
 export function defaultToolRegistry(platform: NodeJS.Platform = process.platform): ToolRegistry {
@@ -44,6 +45,7 @@ export function defaultToolRegistry(platform: NodeJS.Platform = process.platform
     .register(globTool)
     .register(grepTool)
     .register(httpFetchTool)
+    .register(webSearchTool)
     .register(taskCreateTool)
     .register(taskListTool)
     .register(taskGetTool)
@@ -75,6 +77,7 @@ export {
   globTool,
   grepTool,
   httpFetchTool,
+  webSearchTool,
   taskCreateTool,
   taskListTool,
   taskGetTool,

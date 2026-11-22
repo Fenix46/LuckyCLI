@@ -87,6 +87,7 @@ const GROUPS: ToolGroup[] = [
     intro: "",
     tools: [
       { name: "tool_search", text: "find a tool that is not in your list (MCP servers and other deferred tools); read its schema and call it in your next step." },
+      { name: "web_search", text: "search the web for current information when the answer is newer than your knowledge or outside the project." },
       { name: "http_fetch", text: "fetch external public content only when the task needs something not already in the project." },
       { name: "project_memory", text: "store durable, project-specific facts that should persist across sessions — never guesses, transient tasks, or secrets." },
       { name: "ask_user", text: "ask the human only for a genuine decision they must make, not for facts the repository can answer." },
