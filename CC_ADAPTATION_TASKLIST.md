@@ -318,6 +318,28 @@ Persist a branch as a new session and rebuild the live agent on its prefix,
 without copying checkpoints or the prompt-cache routing key.
 ```
 
+## T14 — Notebook edit
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- Nuovo tool `notebook_edit` per `.ipynb`: replace/insert/delete di una cella,
+  cell_type code/markdown, source string o array preservato, output e
+  execution_count azzerati quando cambia il codice.
+- Read-before-edit e stale detection via `FileStateLedger`; diff e
+  `onFilesChanged` come gli altri tool di scrittura.
+- Registrato nel default registry, permesso `ask`, prompt e README aggiornati.
+
+**Commit**
+
+```text
+feat(tools): add Jupyter notebook cell editing
+
+Support replace, insert and delete on .ipynb files with the same read-before-
+edit gate and diff metadata as the other mutation tools.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:

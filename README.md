@@ -361,7 +361,7 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `verify` | allow | Run the project's typecheck, test or build checks |
 | `tool_search` | allow | Find and activate tools left out of the request (MCP catalogs) |
 | `process` | allow | List, read or stop background commands this session started |
-| `write_file` · `edit_file` · `apply_patch` | ask | Write a file, replace an exact snippet, apply a unified diff |
+| `write_file` · `edit_file` · `apply_patch` · `notebook_edit` | ask | Write a file, replace a snippet, apply a diff, edit a Jupyter cell |
 | `exec` | ask | Run a shell command (2 min default, up to 10); `background: true` for servers |
 | `PowerShell` | ask | Run a PowerShell command (registered on Windows only) |
 

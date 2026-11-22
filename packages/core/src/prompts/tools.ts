@@ -34,6 +34,7 @@ const GROUPS: ToolGroup[] = [
       { name: "read_file", text: "read a file (or a line range) before reasoning about or editing it." },
       { name: "edit_file", text: "make a targeted, partial edit to an existing file by matching exact text." },
       { name: "apply_patch", text: "apply a multi-hunk diff in one call when several edits across a file go together." },
+      { name: "notebook_edit", text: "replace, insert or delete a cell in a Jupyter notebook; read it first." },
       { name: "write_file", text: "create a new file or fully rewrite one. Never use it for a small change to an unread file." },
     ],
   },

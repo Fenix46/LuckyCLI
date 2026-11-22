@@ -9,6 +9,7 @@ import { graphOverviewTool, graphQueryTool } from "./graph.js";
 import { grepTool } from "./grep.js";
 import { httpFetchTool } from "./http-fetch.js";
 import { listDirTool } from "./list-dir.js";
+import { notebookEditTool } from "./notebook-edit.js";
 import { presentPlanTool } from "./plan.js";
 import { powerShellTool } from "./powershell.js";
 import { projectMemoryTool } from "./project-memory.js";
@@ -32,6 +33,7 @@ export function defaultToolRegistry(platform: NodeJS.Platform = process.platform
     .register(writeFileTool)
     .register(editFileTool)
     .register(applyPatchTool)
+    .register(notebookEditTool)
     .register(execTool)
     .register(processTool);
   // PowerShell is only useful on Windows; elsewhere its definition would just
@@ -68,6 +70,7 @@ export {
   writeFileTool,
   editFileTool,
   applyPatchTool,
+  notebookEditTool,
   listDirTool,
   globTool,
   grepTool,

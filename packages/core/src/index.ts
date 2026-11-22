@@ -63,6 +63,7 @@ export {
   writeFileTool,
   editFileTool,
   applyPatchTool,
+  notebookEditTool,
   listDirTool,
   globTool,
   grepTool,

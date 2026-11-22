@@ -26,6 +26,7 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   write_file: "ask",
   edit_file: "ask",
   apply_patch: "ask",
+  notebook_edit: "ask",
   exec: "ask",
   PowerShell: "ask",
   project_memory: "ask",
