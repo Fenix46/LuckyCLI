@@ -122,6 +122,11 @@ Portati come comportamenti, non come copia di codice:
   comandi shell mutanti, lasciando disponibili i tool read-only e i comandi
   read-only. La TUI lo espone nel ciclo `Shift+Tab` e nel footer; ACP lo espone
   nella roster. L'accettazione del piano esce dalla modalità.
+- **Performance del loop.** Gli schema dei tool sono convertiti una volta e
+  cachati (invalidati solo da `register`); la lunghezza serializzata è cachata
+  per il calcolo del contesto; ogni step conta il transcript una sola volta per
+  pruning e compaction. `/keys` e un avviso di contesto pieno migliorano la
+  scopribilità e portano l'utente verso `/compact` prima che sia tardi.
 
 ## Prossimo focus
 

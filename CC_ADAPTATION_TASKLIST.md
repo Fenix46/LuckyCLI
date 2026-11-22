@@ -282,6 +282,20 @@ adaptations intentionally left for later.
 
 ---
 
+## Chiusura Wave 2
+
+Commit di questa wave:
+
+```text
+c0adada perf(tools): cache tool schemas and their serialized size
+4f430e4 perf(agent): count the transcript once per step
+23fb8d0 feat(cli): make keyboard shortcuts discoverable
+a8054d0 feat(cli): warn once when the context window fills up
+```
+
+Verifica finale: `npm run typecheck`, `npm test` (176 file, 1.452 test) e
+`npm run build` verdi.
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:
@@ -307,7 +321,7 @@ scopribile, senza cambiare il comportamento dell'agente.
 
 ## T7 — Cache delle definizioni tool e del loro costo in caratteri
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `c0adada`.
 
 **Scope**
 
@@ -344,7 +358,7 @@ estimate; invalidate only what a newly registered tool changes.
 
 ## T8 — Un solo conteggio del transcript per step
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `4f430e4`.
 
 **Scope**
 
@@ -370,7 +384,7 @@ only when pruning actually changes the transcript.
 
 ## T9 — Scopribilità: `/keys` e scorciatoie nell'intro
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `23fb8d0`.
 
 **Scope**
 
@@ -394,7 +408,7 @@ Add a /keys command and a compact shortcut hint to the welcome card.
 
 ## T10 — Avviso di contesto pieno una tantum
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `a8054d0`.
 
 **Scope**
 

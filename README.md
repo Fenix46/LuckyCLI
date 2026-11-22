@@ -298,7 +298,7 @@ after 30s+ of unattended work the bell rings when a turn finishes or needs you
 | `Enter` | Send the message |
 | `Option/Alt + Enter` (macOS) · `Ctrl + Enter` (Win/Linux) | Insert a newline |
 | `Esc` | Interrupt the running turn (queued prompts return to the input) |
-| `Shift + Tab` | Cycle approval mode: ask before edits → accept edits → auto |
+| `Shift + Tab` | Cycle approval mode: ask before edits → accept edits → auto → plan |
 | `Ctrl + C` | Cancel a running turn, or quit when idle |
 | `↑` / `↓` | Recall earlier prompts; navigate menus and pickers |
 | `Tab` | Complete the highlighted slash command |
@@ -334,6 +334,7 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/theme` | Choose the interface theme |
 | `/config` | Show the active configuration |
 | `/update` | Check for updates (`/update apply`, `/update auto <mode>`) |
+| `/keys` | Show keyboard shortcuts |
 | `/help` | List every command |
 | `/exit` | Quit (alias `/quit`) |
 
@@ -418,6 +419,11 @@ into cost (or, on a local model, into time). LuckyCLI keeps it small:
   This works inside a single long tool loop, which compaction can't shrink.
 - **No re-sending unchanged files.** Re-reading the same range of a file that
   hasn't changed returns a pointer to the earlier read instead of the content.
+- **Cached tool schemas.** JSON Schema is derived once per tool and reused until
+  a new tool is registered; the context estimate reuses its serialized length
+  instead of re-serializing every schema on each step.
+- **One transcript count per step.** The pruning and compaction checks share one
+  character count, recomputed only when pruning actually changes the transcript.
 - **Compaction** summarizes older turns with the provider's cheapest model at 75%
   of the usable window or 160k tokens, whichever comes first (`/compact` forces it).
 - **ChatGPT reasoning carried over.** The encrypted reasoning the model returns is
