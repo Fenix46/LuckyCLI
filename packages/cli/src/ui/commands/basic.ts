@@ -136,6 +136,26 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
       },
     },
     {
+      name: "/fork",
+      aliases: ["/branch"],
+      description: "Branch this conversation into a new session (/fork <n> keeps the first n messages)",
+      async run(args, ctx) {
+        if (args) {
+          const count = Number(args);
+          if (!Number.isInteger(count) || count < 1) {
+            ctx.emit({
+              kind: "error",
+              text: "usage: /fork [messages] — messages is a positive integer",
+            });
+            return;
+          }
+          await ctx.ui.forkSession(count);
+          return;
+        }
+        await ctx.ui.forkSession();
+      },
+    },
+    {
       name: "/agents",
       description: "Manage sub-agent profiles (provider/model per role)",
       run(args, ctx) {

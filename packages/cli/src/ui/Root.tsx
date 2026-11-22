@@ -420,6 +420,22 @@ export function Root({
     setBooting(false);
   }
 
+  /**
+   * Rebuild the agent on a forked message prefix. The new session id and
+   * persisted copy are owned by App (it resets the transcript and session
+   * refs first); this only swaps the engine.
+   */
+  async function forkConversation(messages: Message[]): Promise<void> {
+    const current = runtimeRef.current;
+    if (!current) return;
+    await activateRuntime({
+      provider: current.provider,
+      model: current.model,
+      credentials: current.credentials,
+      messages,
+    });
+  }
+
   useEffect(() => {
     if (forceSetup || config.needsSetup) {
       setBooting(false);
@@ -624,6 +640,7 @@ export function Root({
       onTriggerSetup={onTriggerProviderSetup}
       onChangeModel={onChangeModel}
       onTriggerResume={() => setPicking(true)}
+      onForkSession={forkConversation}
       permissionMode={permissionMode}
       onCyclePermissionMode={cyclePermissionMode}
       resumed={resumeSession}

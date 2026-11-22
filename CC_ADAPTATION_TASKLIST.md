@@ -296,6 +296,28 @@ a8054d0 feat(cli): warn once when the context window fills up
 Verifica finale: `npm run typecheck`, `npm test` (176 file, 1.452 test) e
 `npm run build` verdi.
 
+## T13 — Session fork / branching
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- `forkSession(sourceId, { throughMessageCount?, title? })` nel session store:
+  copia il prefisso scelto, nuovo id/timestamp, mantiene provider/modello/cwd/
+  system prompt, non copia checkpoint/usage/prompt-cache key.
+- TUI: `/fork` (alias `/branch`) e `/fork <n>` per scegliere il punto di
+  diramazione; la conversazione viene ricostruita in-place sul nuovo agent.
+- Test: store, comando, registry/menu.
+
+**Commit**
+
+```text
+feat(session): fork conversations at a message boundary
+
+Persist a branch as a new session and rebuild the live agent on its prefix,
+without copying checkpoints or the prompt-cache routing key.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:

@@ -130,6 +130,8 @@ interface AppProps {
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
   onTriggerResume: () => void;
+  /** Rebuild the agent on a forked message prefix (in-place branch). */
+  onForkSession: (messages: Message[]) => Promise<void> | void;
   /** Current tool-approval mode, displayed in the footer. */
   permissionMode: PermissionMode;
   /** Cycle the tool-approval mode (Shift+Tab). */
@@ -157,6 +159,7 @@ export function App({
   onTriggerSetup,
   onChangeModel,
   onTriggerResume,
+  onForkSession,
   permissionMode,
   onCyclePermissionMode,
   resumed,
@@ -229,6 +232,62 @@ export function App({
       // persistence is best-effort; never break the session over a write error
     }
   }, [agent, meta.provider, meta.model]);
+  const forkSession = useCallback(
+    async (throughMessageCount?: number) => {
+      const source = agent.messages;
+      const count = throughMessageCount ?? source.length;
+      if (!Number.isInteger(count) || count < 1 || count > source.length) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Fork point must be between 1 and ${source.length} messages.`,
+          },
+        ]);
+        return;
+      }
+      const messages = structuredClone(source.slice(0, count));
+      const id = createSessionId();
+      const now = Date.now();
+      const title = deriveTitle(messages);
+      sessionIdRef.current = id;
+      sessionCreatedAtRef.current = now;
+      setContextStatus(null);
+      setItems([{ kind: "intro" }, ...messagesToItems(messages)]);
+      try {
+        saveSession({
+          id,
+          ...(title ? { title } : {}),
+          provider: meta.provider,
+          model: meta.model,
+          createdAt: now,
+          updatedAt: now,
+          cwd: process.cwd(),
+          messages,
+          ...(agent.systemPrompt !== undefined ? { systemPrompt: agent.systemPrompt } : {}),
+        });
+      } catch {
+        // A read-only config must not fail the branch itself.
+      }
+      try {
+        await onForkSession(messages);
+      } catch (error) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Fork failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ]);
+        return;
+      }
+      setItems((prev) => [
+        ...prev,
+        { kind: "notice", tone: "info", text: `Forked into session ${id}.` },
+      ]);
+    },
+    [agent, meta.provider, meta.model, onForkSession],
+  );
   const [input, setInput] = useState("");
   // Large pastes are held out of the visible input behind a `[Pasted text #N]`
   // placeholder and spliced back in at submit time (see lib/paste.ts). Kept in
@@ -937,6 +996,7 @@ export function App({
           },
           ui: {
             tokenCosts,
+            forkSession,
             openMcpPanel: mcpPanel.open,
             openSkillPanel: skillPanel.open,
             openAgentsPanel: agentsPanel.open,
@@ -1000,7 +1060,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

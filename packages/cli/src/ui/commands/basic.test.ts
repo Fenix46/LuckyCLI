@@ -7,7 +7,11 @@ import type { Item } from "../lib/items.js";
 interface Harness {
   ctx: CommandContext;
   emitted: Item[];
-  ui: { applyTheme: ReturnType<typeof vi.fn>; exit: ReturnType<typeof vi.fn> };
+  ui: {
+    applyTheme: ReturnType<typeof vi.fn>;
+    exit: ReturnType<typeof vi.fn>;
+    forkSession: ReturnType<typeof vi.fn>;
+  };
   deps: BasicCommandDeps;
   run(name: string, args?: string): Promise<void> | void;
 }
@@ -20,7 +24,7 @@ function harness(overrides: {
   messages?: Message[];
 } = {}): Harness {
   const emitted: Item[] = [];
-  const ui = { applyTheme: vi.fn(), exit: vi.fn() };
+  const ui = { applyTheme: vi.fn(), exit: vi.fn(), forkSession: vi.fn(async () => {}) };
   const deps: BasicCommandDeps = {
     listSessions: vi.fn(() => []),
     listTasks: vi.fn(() => []),
@@ -72,6 +76,24 @@ describe("/theme", () => {
     h.run("/theme", "dracula");
     expect(h.ui.applyTheme).toHaveBeenCalledWith("dracula");
     expect(h.emitted).toEqual([]);
+  });
+});
+
+describe("/fork", () => {
+  it("forks the whole conversation by default", () => {
+    const h = harness();
+    h.run("/fork");
+    expect(h.ui.forkSession).toHaveBeenCalledWith();
+  });
+
+  it("passes a valid branch point and rejects an invalid one", () => {
+    const h = harness();
+    h.run("/fork", "3");
+    expect(h.ui.forkSession).toHaveBeenCalledWith(3);
+    h.ui.forkSession.mockClear();
+    h.run("/fork", "0");
+    expect(h.ui.forkSession).not.toHaveBeenCalled();
+    expect(h.emitted.at(-1)).toMatchObject({ kind: "error" });
   });
 });
 

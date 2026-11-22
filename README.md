@@ -319,6 +319,7 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/context` | Context window usage |
 | `/compact` | Summarize older chat history now |
 | `/resume` | Pick a saved session (this project first; `tab` for all projects) |
+| `/fork [n]` | Branch the conversation into a new session (alias `/branch`; `n` keeps the first `n` messages) |
 | `/sessions` | List this project's saved sessions |
 | `/diff [all]` | Review the file changes of the last turn (or the whole session) |
 | `/copy [n]` | Copy the latest reply (or the n-th from the end) to the clipboard |

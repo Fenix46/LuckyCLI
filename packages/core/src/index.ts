@@ -467,6 +467,7 @@ export {
   createSessionId,
   deleteSession,
   deriveTitle,
+  forkSession,
   isValidSessionId,
   latestSession,
   listSessions,
@@ -477,7 +478,13 @@ export {
   sessionFilePath,
   sessionsDirPath,
 } from "./session/store.js";
-export type { ResumeCacheHints, Session, SessionFilter, SessionMeta } from "./session/store.js";
+export type {
+  ForkSessionOptions,
+  ResumeCacheHints,
+  Session,
+  SessionFilter,
+  SessionMeta,
+} from "./session/store.js";
 
 export {
   startOAuthFlow,

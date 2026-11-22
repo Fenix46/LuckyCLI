@@ -23,6 +23,7 @@ const MENU_ORDER = [
   "/copy",
   "/diff",
   "/resume",
+  "/fork",
   "/provider",
   "/theme",
   "/rules",

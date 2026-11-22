@@ -149,6 +149,7 @@ describe("slashMenuEntries", () => {
       "/copy",
       "/diff",
       "/resume",
+      "/fork",
       "/provider",
       "/theme",
       "/rules",
