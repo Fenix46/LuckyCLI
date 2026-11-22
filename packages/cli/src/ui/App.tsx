@@ -137,6 +137,8 @@ interface AppProps {
   onForkSession: (messages: Message[]) => Promise<void> | void;
   /** Rebuild the agent in another directory (worktree enter/exit). */
   onSwitchWorktree: (cwd: string) => Promise<void> | void;
+  /** Start the local bridge and return the port/token the extension needs. */
+  requestBrowserInfo: () => Promise<{ port: number; token: string }>;
   /** Current tool-approval mode, displayed in the footer. */
   permissionMode: PermissionMode;
   /** Cycle the tool-approval mode (Shift+Tab). */
@@ -166,6 +168,7 @@ export function App({
   onTriggerResume,
   onForkSession,
   onSwitchWorktree,
+  requestBrowserInfo,
   permissionMode,
   onCyclePermissionMode,
   resumed,
@@ -365,6 +368,35 @@ export function App({
     },
     [agent, onSwitchWorktree],
   );
+  const showBrowserInfo = useCallback(async () => {
+    try {
+      const info = await requestBrowserInfo();
+      setItems((prev) => [
+        ...prev,
+        {
+          kind: "command",
+          title: "Lucky browser bridge",
+          rows: [
+            { label: "port", value: String(info.port) },
+            { label: "token", value: info.token },
+          ],
+        },
+        {
+          kind: "notice",
+          tone: "info",
+          text: "Load the Lucky extension, open its options, and enter this port and token. The bridge only listens on 127.0.0.1.",
+        },
+      ]);
+    } catch (error) {
+      setItems((prev) => [
+        ...prev,
+        {
+          kind: "error",
+          text: `Could not start the browser bridge: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ]);
+    }
+  }, [requestBrowserInfo]);
   const [input, setInput] = useState("");
   // Large pastes are held out of the visible input behind a `[Pasted text #N]`
   // placeholder and spliced back in at submit time (see lib/paste.ts). Kept in
@@ -1075,6 +1107,7 @@ export function App({
             tokenCosts,
             forkSession,
             worktree: worktreeSession,
+            browserInfo: showBrowserInfo,
             openMcpPanel: mcpPanel.open,
             openSkillPanel: skillPanel.open,
             openAgentsPanel: agentsPanel.open,
@@ -1138,7 +1171,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

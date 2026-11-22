@@ -14,6 +14,11 @@ export interface DeferredToolMatch {
   parameters: Record<string, unknown>;
 }
 
+/** Browser automation bridge supplied by the host (the Lucky Chrome extension). */
+export interface BrowserBridge {
+  request(method: string, params?: Record<string, unknown>): Promise<unknown>;
+}
+
 /** Context handed to every tool at execution time. */
 export interface AskUserRequest {
   /** Question to present to the user. */
@@ -127,6 +132,8 @@ export interface ToolContext {
   toolSearch?: (query: string, maxResults: number) => DeferredToolMatch[];
   /** Mark deferred tools active for the rest of the session; returns the newly active names. */
   activateTools?: (names: string[]) => string[];
+  /** Browser bridge for the Lucky Chrome extension. */
+  browser?: BrowserBridge;
 }
 
 /**

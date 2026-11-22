@@ -416,6 +416,43 @@ Control visible apps, read a bounded text UI tree, click, type, press keys and
 save screenshots without shipping a native addon.
 ```
 
+## T18 — Lucky Chrome extension + browser bridge
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- Bridge HTTP loopback in `packages/cli/src/browser/bridge.ts`:
+  - binding solo su `127.0.0.1`, porte `17321–17330`;
+  - token casuale persistito in `~/.lucky/browser.json` (`0600`);
+  - `GET /next` long-poll (25 s), `POST /result`, `GET /info`;
+  - timeout per comando, chiusura pulita di long-poll e richieste in volo.
+- Tool core `browser` (permesso `ask`): `tabs`, `open`, `activate`, `close`,
+  `snapshot`, `click`, `type`; risultato pagina troncato a 20k caratteri.
+- Wiring runtime/TUI: `BuildAgentOptions.browser`, `AgentConfig.browser`,
+  `BrowserBridge` singleton in Root, `/browser` in commands/menu.
+- Estensione MV3 `packages/chrome-extension` chiamata **Lucky**:
+  `manifest.json`, service worker con long-poll e backoff, options page per
+  porta/token e test connessione; tab + scripting API.
+- Test: tool con bridge finto, bridge reale (auth, consegna, errore, timeout,
+  close), comando e menu.
+
+**Limiti**
+
+- L'estensione non è pubblicata sul Chrome Web Store: va caricata unpacked.
+- Il service worker MV3 può essere sospeso; l'alarm/minuto e il long-poll lo
+  riattivano, ma un comando in volo durante la sospensione va ritentato.
+- Niente native messaging: configurazione manuale di porta e token.
+
+**Commit**
+
+```text
+feat(browser): drive Chrome through the Lucky extension
+
+Add a loopback, token-authenticated bridge and an MV3 extension that exposes
+tab management, page snapshots, clicks and typing to the browser tool.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:

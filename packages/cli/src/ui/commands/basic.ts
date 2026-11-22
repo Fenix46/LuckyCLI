@@ -102,6 +102,13 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
       },
     },
     {
+      name: "/browser",
+      description: "Show the Lucky Chrome extension port and token",
+      async run(_args, ctx) {
+        await ctx.ui.browserInfo();
+      },
+    },
+    {
       name: "/task",
       description: "View the work task list (/task clear to empty it)",
       run(args, ctx) {

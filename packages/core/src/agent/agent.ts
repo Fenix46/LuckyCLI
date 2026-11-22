@@ -20,6 +20,7 @@ import {
 import type { ToolRegistry } from "../tools/registry.js";
 import type {
   AskUserRequest,
+  BrowserBridge,
   SpawnAgentRequest,
   SpawnAgentResult,
   ToolResult,
@@ -124,6 +125,8 @@ export interface AgentConfig {
   onSkillLoaded?: (id: string) => void;
   /** Optional project skill allowlist forwarded to skill tools. */
   allowedSkills?: readonly string[];
+  /** Optional browser bridge (Lucky Chrome extension). */
+  browser?: BrowserBridge;
   /**
    * Optional host-backed file access forwarded to the file tools: lets a host
    * (e.g. an ACP editor) serve reads from unsaved buffers and receive writes.
@@ -206,6 +209,7 @@ export class Agent {
   private readonly verificationSessionId: string | undefined;
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
   private readonly allowedSkills: readonly string[] | undefined;
+  private readonly browser: BrowserBridge | undefined;
   private readonly readTextFile: ((absPath: string) => Promise<string | null>) | undefined;
   private readonly writeTextFile: ((absPath: string, content: string) => Promise<void>) | undefined;
   private readonly enrichTurn: ((userText: string) => Promise<string | null> | string | null) | undefined;
@@ -272,6 +276,7 @@ export class Agent {
     this.verificationSessionId = cfg.verificationSessionId;
     this.onSkillLoaded = cfg.onSkillLoaded;
     this.allowedSkills = cfg.allowedSkills;
+    this.browser = cfg.browser;
     this.totalUsage = { ...this.totalUsage, ...(cfg.initialUsage ?? {}) };
     this.retryCount = cfg.initialRetryCount ?? 0;
     this.readTextFile = cfg.readTextFile;
@@ -978,6 +983,7 @@ export class Agent {
       ...(this.onWorkspaceChanged ? { onWorkspaceChanged: this.onWorkspaceChanged } : {}),
       ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
       ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
+      ...(this.browser ? { browser: this.browser } : {}),
       ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
       ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
     });

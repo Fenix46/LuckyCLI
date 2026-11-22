@@ -331,6 +331,7 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/rules` | Allow, ask for or block specific shell commands |
 | `/graph` | Build or refresh the knowledge graph |
 | `/worktree [list\|enter [name]\|exit]` | Work in an isolated Lucky git worktree |
+| `/browser` | Show the Lucky Chrome extension's bridge port and token |
 | `/skill` | Skills panel; `/skill use <name>` runs one (alias `/skills`) |
 | `/mcp` | MCP panel; `/mcp add` installs from the registry or adds your own server |
 | `/theme` | Choose the interface theme |
@@ -355,6 +356,7 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `http_fetch` | allow | Fetch a public URL (private and metadata addresses are blocked) |
 | `web_search` | allow | Search the web through Brave, Tavily or a custom endpoint |
 | `computer` | ask | macOS Accessibility: list apps/windows, read a UI tree, click, type, key, screenshot |
+| `browser` | ask | Use the user's Chrome through the Lucky extension |
 | `task_create` · `task_update` · `task_list` · `task_get` | allow | A structured task list the user can follow |
 | `present_plan` | allow | Present a plan for approval before implementing |
 | `spawn_agent` | allow | Delegate a sub-task to a sub-agent; with `files`, several run in parallel |
@@ -377,6 +379,13 @@ Accessibility permission for the terminal running Lucky.
 `web_search` is configured with `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, or
 `LUCKY_WEB_SEARCH_URL` + `LUCKY_WEB_SEARCH_API_KEY`; set
 `LUCKY_WEB_SEARCH_PROVIDER` to force a provider when more than one is configured.
+
+`browser` needs the bundled MV3 extension in `packages/chrome-extension`. Run
+`/browser` to start the loopback bridge and print its port and token, load the
+folder as an unpacked extension in `chrome://extensions`, then paste both values
+into the extension's options. The bridge listens on `127.0.0.1` only, stores its
+token in `~/.lucky/browser.json` (`0600`), and every browser action still goes
+through the normal `ask` permission.
 
 Mutation tools require a **fresh read** of an existing file: editing or
 overwriting a file the model has not read, or that changed since that read, is

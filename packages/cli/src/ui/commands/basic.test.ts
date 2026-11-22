@@ -12,6 +12,7 @@ interface Harness {
     exit: ReturnType<typeof vi.fn>;
     forkSession: ReturnType<typeof vi.fn>;
     worktree: ReturnType<typeof vi.fn>;
+    browserInfo: ReturnType<typeof vi.fn>;
   };
   deps: BasicCommandDeps;
   run(name: string, args?: string): Promise<void> | void;
@@ -30,6 +31,7 @@ function harness(overrides: {
     exit: vi.fn(),
     forkSession: vi.fn(async () => {}),
     worktree: vi.fn(async () => {}),
+    browserInfo: vi.fn(async () => {}),
   };
   const deps: BasicCommandDeps = {
     listSessions: vi.fn(() => []),
@@ -100,6 +102,14 @@ describe("/fork", () => {
     h.run("/fork", "0");
     expect(h.ui.forkSession).not.toHaveBeenCalled();
     expect(h.emitted.at(-1)).toMatchObject({ kind: "error" });
+  });
+});
+
+describe("/browser", () => {
+  it("asks the UI to show the bridge port and token", async () => {
+    const h = harness();
+    await h.run("/browser");
+    expect(h.ui.browserInfo).toHaveBeenCalledTimes(1);
   });
 });
 

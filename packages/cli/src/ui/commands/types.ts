@@ -54,6 +54,8 @@ export interface CommandContext {
     forkSession(throughMessageCount?: number): Promise<void>;
     /** Enter, leave or list this repository's Lucky worktrees. */
     worktree(action: "enter" | "exit" | "list", name?: string): Promise<void>;
+    /** Start the Chrome bridge and show the extension's port and token. */
+    browserInfo(): Promise<void>;
     persistSession(): void;
     /**
      * Notify session-scoped injectors (skills, graph enricher) that the

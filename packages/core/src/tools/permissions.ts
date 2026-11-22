@@ -10,6 +10,7 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   grep: "allow",
   http_fetch: "allow",
   web_search: "allow",
+  browser: "ask",
   task_create: "allow",
   task_list: "allow",
   task_get: "allow",
