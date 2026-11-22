@@ -11,6 +11,7 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   http_fetch: "allow",
   web_search: "allow",
   browser: "ask",
+  lsp: "allow",
   task_create: "allow",
   task_list: "allow",
   task_get: "allow",

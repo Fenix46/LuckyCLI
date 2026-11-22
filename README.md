@@ -358,6 +358,7 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `web_search` | allow | Search the web through Brave, Tavily or a custom endpoint |
 | `computer` | ask | macOS Accessibility: list apps/windows, read a UI tree, click, type, key, screenshot |
 | `browser` | ask | Use the user's Chrome through the Lucky extension |
+| `lsp` | allow | Language server: diagnostics, hover, definition, references, symbols |
 | `task_create` · `task_update` · `task_list` · `task_get` | allow | A structured task list the user can follow |
 | `present_plan` | allow | Present a plan for approval before implementing |
 | `spawn_agent` | allow | Delegate a sub-task to a sub-agent; with `files`, several run in parallel |
@@ -422,6 +423,38 @@ accepted, so many existing hooks work unchanged. Types are `command`, `http`
 `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`,
 `PreCompact`, `PostCompact`, `SessionEnd`. `LUCKY_DISABLE_HOOKS=1` disables all
 hooks; `/hooks` shows what is loaded and validates the files.
+
+## Language servers (LSP)
+
+The `lsp` tool asks a language server for semantic answers instead of guessing
+from text: `diagnostics`, `hover`, `definition`, `references` and `symbols`.
+Configure servers in the project `.lsp.json` (or under `lsp` in
+`~/.luckycli/config.json`):
+
+```json
+{
+  "typescript": {
+    "command": "typescript-language-server",
+    "args": ["--stdio"],
+    "extensionToLanguage": {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact"
+    }
+  },
+  "python": {
+    "command": "pyright-langserver",
+    "args": ["--stdio"],
+    "fileExtensions": [".py", ".pyi"]
+  }
+}
+```
+
+The server starts lazily on the first `lsp` call, is initialized per project,
+and receives `didOpen`/`didChange` for the requested file. Diagnostics use the
+pull model when the server advertises `diagnosticProvider`, otherwise the push
+`publishDiagnostics` notification (with a short wait). `LUCKY_LSP_FILE` points at
+a different config file. When a file's extension has no server, the tool reports
+exactly which extensions are configured.
 
 `browser` needs the bundled MV3 extension in `packages/chrome-extension`. Run
 `/browser` to start the loopback bridge and print its port and token, load the

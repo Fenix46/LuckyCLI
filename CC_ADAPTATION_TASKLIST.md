@@ -487,6 +487,42 @@ Load global and project hook configs, execute command/http/prompt handlers with
 a JSON payload, and let them block, rewrite input or add context.
 ```
 
+## T20 — LSP
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- Client JSON-RPC stdio (`lsp/client.ts`): framing `Content-Length`, request
+  correlate con timeout, notifiche, richieste inverse del server, shutdown
+  pulito, tail di stderr negli errori.
+- Manager (`lsp/manager.ts`): un server per nome, scelta per estensione,
+  inizializzazione per progetto, `didOpen`/`didChange`, diagnostica pull
+  (`textDocument/diagnostic`) o push (`publishDiagnostics`), formattazione
+  compatta e limitata a 20k caratteri.
+- Tool `lsp` (read-only, `allow`): diagnostics, hover, definition, references,
+  symbols (file o workspace); messaggio di setup se non configurato.
+- Config: `lsp` in `~/.luckycli/config.json` e `.lsp.json` di progetto (forme
+  diretta, `lspServers`, `servers`), `LUCKY_LSP_FILE`, validazione ed errori.
+- Vita dei processi: manager per cwd con cache, `disposeLspManagers()` alla
+  chiusura della TUI.
+- Test: config, manager con un vero fake language server, tool.
+
+**Limiti**
+
+- Solo trasporto stdio (niente socket).
+- Un server per estensione; workspace symbol usa il primo server configurato.
+- Non c'è un comando `/lsp`: configurazione da JSON e diagnosi via tool.
+
+**Commit**
+
+```text
+feat(lsp): add a language-server tool
+
+Spawn configured stdio servers lazily, sync documents and expose diagnostics,
+hover, definition, references and symbols to the model.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:

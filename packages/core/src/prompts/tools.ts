@@ -93,6 +93,7 @@ const GROUPS: ToolGroup[] = [
       { name: "ask_user", text: "ask the human only for a genuine decision they must make, not for facts the repository can answer." },
       { name: "computer", text: "on macOS, control an app through Accessibility: list apps/windows, read a text UI tree, click, type, press a key, screenshot." },
       { name: "browser", text: "use the user's Chrome via the Lucky extension: tabs, page text, click, type; needs /browser setup." },
+      { name: "lsp", text: "ask the project's language server for diagnostics, hover, definition, references or symbols; more precise than grep for typed code." },
     ],
   },
 ];

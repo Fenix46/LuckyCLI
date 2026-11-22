@@ -21,6 +21,7 @@ import {
   type SpawnAgentResult,
   type TokenUsage,
   createSessionId,
+  disposeLspManagers,
   setActiveTaskListId,
   cleanupOrphanTaskLists,
   isProjectTrusted,
@@ -345,6 +346,7 @@ export function Root({
   useEffect(() => {
     return () => {
       void runtimeRef.current?.agent.endSession();
+      void disposeLspManagers();
       void runtimeRef.current?.mcpManager?.close();
       void browserRef.current?.close();
     };

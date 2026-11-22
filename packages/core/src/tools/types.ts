@@ -3,6 +3,7 @@ import type { FileStateLedger } from "./file-state.js";
 import type { z } from "zod";
 import type { PlanDecision, PlanProposal } from "../agent/plan.js";
 import type { FileDiff } from "../diff.js";
+import type { LspService } from "../lsp/types.js";
 
 /**
  * One deferred tool returned by a tool search: enough for the model to decide
@@ -134,6 +135,8 @@ export interface ToolContext {
   activateTools?: (names: string[]) => string[];
   /** Browser bridge for the Lucky Chrome extension. */
   browser?: BrowserBridge;
+  /** Language-server service; defaults to the project's configured manager, null disables it. */
+  lsp?: LspService | null;
 }
 
 /**

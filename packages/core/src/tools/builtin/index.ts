@@ -11,6 +11,7 @@ import { graphOverviewTool, graphQueryTool } from "./graph.js";
 import { grepTool } from "./grep.js";
 import { httpFetchTool } from "./http-fetch.js";
 import { listDirTool } from "./list-dir.js";
+import { lspTool } from "./lsp.js";
 import { notebookEditTool } from "./notebook-edit.js";
 import { presentPlanTool } from "./plan.js";
 import { powerShellTool } from "./powershell.js";
@@ -50,6 +51,7 @@ export function defaultToolRegistry(platform: NodeJS.Platform = process.platform
     .register(httpFetchTool)
     .register(webSearchTool)
     .register(browserTool)
+    .register(lspTool)
     .register(taskCreateTool)
     .register(taskListTool)
     .register(taskGetTool)
@@ -84,6 +86,7 @@ export {
   httpFetchTool,
   webSearchTool,
   browserTool,
+  lspTool,
   taskCreateTool,
   taskListTool,
   taskGetTool,

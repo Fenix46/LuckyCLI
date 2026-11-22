@@ -72,6 +72,7 @@ export {
   httpFetchTool,
   webSearchTool,
   browserTool,
+  lspTool,
   taskCreateTool,
   taskListTool,
   taskGetTool,
@@ -180,6 +181,27 @@ export {
   listSessionCheckpoints,
   removeSessionCheckpoint,
 } from "./session/store.js";
+
+// Language servers.
+export {
+  LSP_OPERATIONS,
+  LspClient,
+  LspManager,
+  disposeLspManagers,
+  getLspManager,
+  loadLspConfig,
+  serverExtensions,
+} from "./lsp/index.js";
+export type {
+  LoadedLspConfig,
+  LspClientOptions,
+  LspConfig,
+  LspOperation,
+  LspRequest,
+  LspResult,
+  LspServerConfig,
+  LspService,
+} from "./lsp/index.js";
 
 // Lifecycle hooks.
 export {
