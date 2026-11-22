@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { extname, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { CORE_VERSION } from "../version.js";
 import { LspClient } from "./client.js";
 import { loadLspConfig, serverExtensions } from "./config.js";
 import type { LspConfig, LspRequest, LspResult, LspServerConfig, LspService } from "./types.js";
@@ -219,7 +220,7 @@ export class LspManager implements LspService {
     try {
       const result = (await client.request("initialize", {
         processId: process.pid,
-        clientInfo: { name: "LuckyCLI", version: "0.7.1" },
+        clientInfo: { name: "LuckyCLI", version: CORE_VERSION },
         rootUri: pathToFileURL(this.cwd).toString(),
         workspaceFolders: [{ uri: pathToFileURL(this.cwd).toString(), name: "workspace" }],
         capabilities: {
