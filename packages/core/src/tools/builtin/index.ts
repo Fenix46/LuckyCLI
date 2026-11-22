@@ -15,6 +15,7 @@ import { projectMemoryTool } from "./project-memory.js";
 import { readFileTool } from "./read-file.js";
 import { skillLoadTool, skillSearchTool } from "./skills.js";
 import { spawnAgentTool } from "./spawn-agent.js";
+import { toolSearchTool } from "./tool-search.js";
 import {
   taskCreateTool,
   taskGetTool,
@@ -53,6 +54,7 @@ export function defaultToolRegistry(platform: NodeJS.Platform = process.platform
     .register(skillSearchTool)
     .register(skillLoadTool)
     .register(askUserTool)
+    .register(toolSearchTool)
     .register(verifyTool);
 }
 
@@ -82,5 +84,6 @@ export {
   skillSearchTool,
   skillLoadTool,
   askUserTool,
+  toolSearchTool,
   verifyTool,
 };

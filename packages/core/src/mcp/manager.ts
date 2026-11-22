@@ -174,8 +174,8 @@ export class McpManager {
     // hiding a configured tool.
     const taken = new Set<string>();
     return [...this.servers.entries()].flatMap(([name, server]) =>
-      server.tools.map((tool) =>
-        adaptMcpTool(
+      server.tools.map((tool) => {
+        const adapted = adaptMcpTool(
           name,
           tool,
           async (invocation, ctx) => {
@@ -198,8 +198,12 @@ export class McpManager {
             };
           },
           uniqueMcpToolName(name, tool.name, taken),
-        ),
-      ),
+        );
+        // MCP schemas are often large and numerous. The registry keeps them
+        // hidden behind tool_search until the model needs them, so a request
+        // does not pay for every server's tool list.
+        return { ...adapted, defer: true };
+      }),
     );
   }
 

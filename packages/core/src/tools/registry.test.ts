@@ -93,6 +93,57 @@ describe("ToolRegistry", () => {
     expect(reg.definitionsJsonLength()).toBe(JSON.stringify(second).length);
   });
 
+  it("keeps small deferred sets visible and hides large ones behind search", () => {
+    const deferred = (name: string, description = `${name} tool`) =>
+      defineTool({
+        name,
+        description,
+        schema: z.object({}),
+        defer: true,
+        async execute() {
+          return { content: `${name} ran` };
+        },
+      });
+
+    const small = new ToolRegistry().register(deferred("mcp_one")).register(deferred("mcp_two"));
+    expect(small.hasDeferredTools()).toBe(false);
+    expect(small.definitions().map((d) => d.name)).toEqual(["mcp_one", "mcp_two"]);
+    expect(small.searchDeferred("one")).toEqual([]);
+
+    const large = new ToolRegistry();
+    for (let i = 0; i < 5; i++) large.register(deferred(`mcp_${i}`, i === 0 ? "jira issue search" : "other"));
+    expect(large.hasDeferredTools()).toBe(true);
+    expect(large.definitions()).toEqual([]);
+    const matches = large.searchDeferred("jira", 5);
+    expect(matches.map((m) => m.name)).toEqual(["mcp_0"]);
+    expect(matches[0]?.parameters).toMatchObject({ type: "object" });
+    expect(large.activate(["mcp_0"])).toEqual(["mcp_0"]);
+    expect(large.activate(["mcp_0"])).toEqual([]);
+    expect(large.definitions().map((d) => d.name)).toEqual(["mcp_0"]);
+    const length = large.definitionsJsonLength();
+    expect(length).toBe(JSON.stringify(large.definitions()).length);
+    expect(large.activate(["mcp_1"])).toEqual(["mcp_1"]);
+    expect(large.definitionsJsonLength()).toBeGreaterThan(length);
+  });
+
+  it("defers a few tools when their schemas are large enough", () => {
+    const big = { type: "object", description: "x".repeat(5_000) };
+    const deferred = (name: string) =>
+      defineTool({
+        name,
+        description: name,
+        schema: z.object({}),
+        parametersSchema: big,
+        defer: true,
+        async execute() {
+          return { content: "ok" };
+        },
+      });
+    const reg = new ToolRegistry().register(deferred("mcp_a")).register(deferred("mcp_b"));
+    expect(reg.hasDeferredTools()).toBe(true);
+    expect(reg.definitions()).toEqual([]);
+  });
+
   it("validates input and runs the tool", async () => {
     const reg = new ToolRegistry().register(echo);
     const ok = await reg.execute("echo", { message: "hi" }, { cwd: "/" });

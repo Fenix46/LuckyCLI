@@ -16,6 +16,7 @@ import { ToolRegistry } from "../tools/registry.js";
 import { askUserTool } from "../tools/builtin/ask-user.js";
 import { readFileTool } from "../tools/builtin/read-file.js";
 import { writeFileTool } from "../tools/builtin/write-file.js";
+import { toolSearchTool } from "../tools/builtin/tool-search.js";
 import { defineTool } from "../tools/types.js";
 import { fileDiff } from "../diff.js";
 import { Agent } from "./agent.js";
@@ -38,9 +39,13 @@ const INFO: ProviderInfo = {
 class ScriptedProvider implements IProvider {
   readonly info = INFO;
   private turn = 0;
-  constructor(private readonly script: StreamChunk[][]) {}
+  constructor(
+    private readonly script: StreamChunk[][],
+    private readonly onConfig?: (config: GenerationConfig) => void,
+  ) {}
 
-  async *generateStream(): AsyncGenerator<StreamChunk> {
+  async *generateStream(_messages: Message[], config: GenerationConfig): AsyncGenerator<StreamChunk> {
+    this.onConfig?.(config);
     const batch = this.script[this.turn++] ?? [{ finishReason: "stop" }];
     for (const chunk of batch) yield chunk;
   }
@@ -340,6 +345,53 @@ describe("Agent loop", () => {
     expect(secondEnd).toMatchObject({ name: "mutate", content: "mutated:y" });
     expect(mutations).toBe(1);
     expect(agent.planModeEnabled).toBe(false);
+  });
+
+  it("discovers a deferred tool with tool_search and advertises it on the next step", async () => {
+    const deferredTool = (name: string, description: string) =>
+      defineTool({
+        name,
+        description,
+        schema: z.object({}),
+        defer: true,
+        async execute() {
+          return { content: `${name} ran` };
+        },
+      });
+    const registry = new ToolRegistry();
+    for (let i = 0; i < 5; i++) {
+      registry.register(
+        deferredTool(`mcp_tool_${i}`, i === 0 ? "Search Jira issues" : "another tool"),
+      );
+    }
+    registry.register(toolSearchTool);
+    const seen: string[][] = [];
+    const provider = new ScriptedProvider(
+      [
+        [
+          { toolCall: { type: "tool_call", id: "s1", name: "tool_search", arguments: { query: "jira" } } },
+          { finishReason: "tool_calls" },
+        ],
+        [
+          { toolCall: { type: "tool_call", id: "d1", name: "mcp_tool_0", arguments: {} } },
+          { finishReason: "tool_calls" },
+        ],
+        [{ textDelta: "done" }, { finishReason: "stop" }],
+      ],
+      (config) => seen.push((config.tools ?? []).map((tool) => tool.name)),
+    );
+    const agent = new Agent({ provider, model: "mock", tools: registry });
+
+    const events = await collect(agent.send("find the jira tool"));
+    const ends = events.filter((e) => e.type === "tool_end") as Array<{
+      name: string;
+      content: string;
+    }>;
+    expect(ends.find((e) => e.name === "tool_search")?.content).toContain("mcp_tool_0");
+    expect(ends.find((e) => e.name === "mcp_tool_0")?.content).toBe("mcp_tool_0 ran");
+    expect(seen[0]).toContain("tool_search");
+    expect(seen[0]).not.toContain("mcp_tool_0");
+    expect(seen[1]).toContain("mcp_tool_0");
   });
 
   it("runs verification after an approved edit that reports a diff", async () => {

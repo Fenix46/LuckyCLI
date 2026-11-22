@@ -127,6 +127,10 @@ Portati come comportamenti, non come copia di codice:
   per il calcolo del contesto; ogni step conta il transcript una sola volta per
   pruning e compaction. `/keys` e un avviso di contesto pieno migliorano la
   scopribilità e portano l'utente verso `/compact` prima che sia tardi.
+- **Tool differiti.** I tool MCP sono marcati `defer`; quando il catalogo supera
+  la soglia (numero o caratteri degli schema) restano fuori dalla richiesta e
+  il modello li scopre con `tool_search`, che ne mostra lo schema e li attiva
+  per lo step successivo. I cataloghi piccoli restano visibili come prima.
 
 ## Prossimo focus
 

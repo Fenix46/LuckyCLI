@@ -429,3 +429,49 @@ feat(cli): warn once when the context window fills up
 
 Surface the existing context meter as an actionable notice with /compact.
 ```
+
+## T12 — Tool differiti e `tool_search` (MCP)
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- `Tool`: flag `defer?: boolean`.
+- `McpManager`: i tool MCP nascono `defer: true`.
+- `ToolRegistry`:
+  - definisce quando differire (soglia di numero o di caratteri degli schema);
+  - `definitions()` include solo i tool attivi + `tool_search`;
+  - `searchDeferred(query, max)` e `activate(names)`;
+  - cache invalidate da `register`/`activate`.
+- `ToolContext`: bridge `toolSearch` / `activateTools`.
+- `Agent`: passa i bridge al registry.
+- Nuovo tool `tool_search`: cerca per nome/descrizione, mostra gli schema dei
+  match e li attiva per lo step successivo.
+- Permessi: `tool_search` è read-only/allow.
+- Prompt: una riga in “Other” spiega quando usarlo.
+- Test: soglia, ricerca, attivazione, schema restituito, tool MCP deferito,
+  registry di default.
+
+**Perché**
+
+Ogni richiesta porta tutti gli schema dei tool. Con molti server MCP questo è
+token e latenza puri, anche quando il modello non userà quei tool. Caricarli su
+richiesta riduce il payload fisso e paga lo schema solo quando serve.
+
+**Done when**
+
+- Sotto soglia i tool MCP restano visibili come oggi (nessun cambiamento).
+- Sopra soglia `definitions()` non include i tool MCP non attivati.
+- `tool_search` li trova, ne restituisce lo schema e li rende chiamabili dallo
+  step successivo.
+- I test esistenti su MCP e registry restano verdi.
+
+**Commit**
+
+```text
+perf(mcp): defer tool schemas behind tool_search
+
+Advertise MCP tools only when their schema budget is small; otherwise let the
+model discover and activate them on demand instead of sending every schema on
+every request.
+```

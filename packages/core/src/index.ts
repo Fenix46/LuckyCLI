@@ -79,6 +79,7 @@ export {
   skillSearchTool,
   skillLoadTool,
   askUserTool,
+  toolSearchTool,
   previewPatch,
   replaceSnippet,
 } from "./tools/builtin/index.js";

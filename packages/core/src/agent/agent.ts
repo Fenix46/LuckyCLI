@@ -962,6 +962,8 @@ export class Agent {
       readLedger: this.readLedger,
       fileState: this.fileState,
       toolCallId: call.id,
+      toolSearch: (query, maxResults) => this.tools.searchDeferred(query, maxResults),
+      activateTools: (names) => this.tools.activate(names),
       ...(signal ? { signal } : {}),
       ...(onOutput ? { onOutput } : {}),
       ...(this.askUser ? { askUser: this.askUser } : {}),

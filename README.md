@@ -358,6 +358,7 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `skill_search` · `skill_load` | allow | Find and load skills |
 | `ask_user` | allow | Ask you a question and wait for the answer |
 | `verify` | allow | Run the project's typecheck, test or build checks |
+| `tool_search` | allow | Find and activate tools left out of the request (MCP catalogs) |
 | `process` | allow | List, read or stop background commands this session started |
 | `write_file` · `edit_file` · `apply_patch` | ask | Write a file, replace an exact snippet, apply a unified diff |
 | `exec` | ask | Run a shell command (2 min default, up to 10); `background: true` for servers |
@@ -422,6 +423,9 @@ into cost (or, on a local model, into time). LuckyCLI keeps it small:
 - **Cached tool schemas.** JSON Schema is derived once per tool and reused until
   a new tool is registered; the context estimate reuses its serialized length
   instead of re-serializing every schema on each step.
+- **Deferred MCP tools.** When a server catalog is large, its tool schemas stay
+  out of the request until the model finds one with `tool_search`; small
+  catalogs are still advertised directly.
 - **One transcript count per step.** The pruning and compaction checks share one
   character count, recomputed only when pruning actually changes the transcript.
 - **Compaction** summarizes older turns with the provider's cheapest model at 75%

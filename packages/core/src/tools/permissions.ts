@@ -17,6 +17,8 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   graph_query: "allow",
   graph_overview: "allow",
   ask_user: "allow",
+  // Discovers deferred tools; it never runs them.
+  tool_search: "allow",
   // Reads/stops only background commands the user already approved starting.
   process: "allow",
 

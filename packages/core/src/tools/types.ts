@@ -4,6 +4,16 @@ import type { z } from "zod";
 import type { PlanDecision, PlanProposal } from "../agent/plan.js";
 import type { FileDiff } from "../diff.js";
 
+/**
+ * One deferred tool returned by a tool search: enough for the model to decide
+ * to use it and to call it with the right arguments.
+ */
+export interface DeferredToolMatch {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 /** Context handed to every tool at execution time. */
 export interface AskUserRequest {
   /** Question to present to the user. */
@@ -109,6 +119,14 @@ export interface ToolContext {
   fileState?: FileStateLedger;
   /** Id of the tool call being executed, when the host knows it. */
   toolCallId?: string;
+  /**
+   * Search tools that were deliberately left out of the advertised schemas.
+   * Returns at most `maxResults` matches, best first. Absent when the host has
+   * no registry-backed search (e.g. a direct tool call in a test).
+   */
+  toolSearch?: (query: string, maxResults: number) => DeferredToolMatch[];
+  /** Mark deferred tools active for the rest of the session; returns the newly active names. */
+  activateTools?: (names: string[]) => string[];
 }
 
 /**
@@ -165,6 +183,12 @@ export interface Tool<Schema extends z.ZodType = z.ZodType> {
    * keeps them sequential.
    */
   conflictKeys?: (input: unknown) => string[] | undefined;
+  /**
+   * Leave this tool out of the provider-facing definitions until the model
+   * discovers it with tool_search. Used for MCP tools, whose schemas can be
+   * numerous and expensive to send on every request.
+   */
+  defer?: boolean;
   execute(input: z.infer<Schema>, ctx: ToolContext): Promise<ToolResult>;
 }
 

@@ -475,6 +475,10 @@ describe("robust built-in tools", () => {
     expect(defaultToolRegistry("linux").has("PowerShell")).toBe(false);
   });
 
+  it("always includes the deferred-tool search", () => {
+    expect(defaultToolRegistry("linux").has("tool_search")).toBe(true);
+  });
+
   it("refuses dangerous PowerShell commands unless explicitly allowed", async () => {
     const registry = new ToolRegistry().register(powerShellTool);
     const result = await registry.execute(
