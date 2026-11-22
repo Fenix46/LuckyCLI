@@ -330,6 +330,7 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/agents` | Manage sub-agent profiles (provider/model per role) |
 | `/rules` | Allow, ask for or block specific shell commands |
 | `/graph` | Build or refresh the knowledge graph |
+| `/worktree [list\|enter [name]\|exit]` | Work in an isolated Lucky git worktree |
 | `/skill` | Skills panel; `/skill use <name>` runs one (alias `/skills`) |
 | `/mcp` | MCP panel; `/mcp add` installs from the registry or adds your own server |
 | `/theme` | Choose the interface theme |

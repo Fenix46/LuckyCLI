@@ -11,6 +11,7 @@ interface Harness {
     applyTheme: ReturnType<typeof vi.fn>;
     exit: ReturnType<typeof vi.fn>;
     forkSession: ReturnType<typeof vi.fn>;
+    worktree: ReturnType<typeof vi.fn>;
   };
   deps: BasicCommandDeps;
   run(name: string, args?: string): Promise<void> | void;
@@ -24,7 +25,12 @@ function harness(overrides: {
   messages?: Message[];
 } = {}): Harness {
   const emitted: Item[] = [];
-  const ui = { applyTheme: vi.fn(), exit: vi.fn(), forkSession: vi.fn(async () => {}) };
+  const ui = {
+    applyTheme: vi.fn(),
+    exit: vi.fn(),
+    forkSession: vi.fn(async () => {}),
+    worktree: vi.fn(async () => {}),
+  };
   const deps: BasicCommandDeps = {
     listSessions: vi.fn(() => []),
     listTasks: vi.fn(() => []),
@@ -93,6 +99,22 @@ describe("/fork", () => {
     h.ui.forkSession.mockClear();
     h.run("/fork", "0");
     expect(h.ui.forkSession).not.toHaveBeenCalled();
+    expect(h.emitted.at(-1)).toMatchObject({ kind: "error" });
+  });
+});
+
+describe("/worktree", () => {
+  it("lists by default and parses enter/exit", () => {
+    const h = harness();
+    h.run("/worktree");
+    expect(h.ui.worktree).toHaveBeenCalledWith("list");
+    h.run("/worktree", "enter feature one");
+    expect(h.ui.worktree).toHaveBeenCalledWith("enter", "feature one");
+    h.run("/worktree", "exit");
+    expect(h.ui.worktree).toHaveBeenCalledWith("exit");
+    h.ui.worktree.mockClear();
+    h.run("/worktree", "nope");
+    expect(h.ui.worktree).not.toHaveBeenCalled();
     expect(h.emitted.at(-1)).toMatchObject({ kind: "error" });
   });
 });

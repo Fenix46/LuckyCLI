@@ -52,6 +52,8 @@ export interface CommandContext {
     setMcpConfig(next: Record<string, McpServerConfig>): void;
     /** Branch the conversation into a fresh session, optionally at a message count. */
     forkSession(throughMessageCount?: number): Promise<void>;
+    /** Enter, leave or list this repository's Lucky worktrees. */
+    worktree(action: "enter" | "exit" | "list", name?: string): Promise<void>;
     persistSession(): void;
     /**
      * Notify session-scoped injectors (skills, graph enricher) that the

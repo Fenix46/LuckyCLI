@@ -287,6 +287,11 @@ export class Agent {
     return this.history;
   }
 
+  /** Directory the file tools and project context are anchored to. */
+  get workingDirectory(): string {
+    return this.cwd;
+  }
+
   /** The system prompt sent with every request (persisted to resume with a warm cache). */
   get systemPrompt(): string | undefined {
     return this.system;

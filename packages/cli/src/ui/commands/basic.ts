@@ -75,6 +75,33 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
       },
     },
     {
+      name: "/worktree",
+      description: "List, enter or leave a Lucky git worktree (/worktree enter [name])",
+      async run(args, ctx) {
+        const trimmed = args.trim();
+        if (!trimmed || trimmed === "list") {
+          await ctx.ui.worktree("list");
+          return;
+        }
+        if (trimmed === "exit") {
+          await ctx.ui.worktree("exit");
+          return;
+        }
+        if (trimmed === "enter") {
+          await ctx.ui.worktree("enter");
+          return;
+        }
+        if (trimmed.startsWith("enter ")) {
+          await ctx.ui.worktree("enter", trimmed.slice("enter ".length).trim());
+          return;
+        }
+        ctx.emit({
+          kind: "error",
+          text: "usage: /worktree [list | enter [name] | exit]",
+        });
+      },
+    },
+    {
       name: "/task",
       description: "View the work task list (/task clear to empty it)",
       run(args, ctx) {

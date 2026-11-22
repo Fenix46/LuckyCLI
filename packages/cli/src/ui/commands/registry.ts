@@ -28,6 +28,7 @@ const MENU_ORDER = [
   "/theme",
   "/rules",
   "/graph",
+  "/worktree",
   "/task",
   "/keys",
   "/exit",

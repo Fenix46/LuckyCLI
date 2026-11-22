@@ -178,6 +178,18 @@ export {
   removeSessionCheckpoint,
 } from "./session/store.js";
 
+// Git worktrees.
+export {
+  WORKTREE_DIR,
+  createWorktree,
+  listWorktrees,
+  removeWorktree,
+  repoRoot,
+  sanitizeWorktreeName,
+  worktreeRoot,
+} from "./worktree.js";
+export type { WorktreeInfo } from "./worktree.js";
+
 export {
   TASK_STATUSES,
   TaskSchema,

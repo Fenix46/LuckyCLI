@@ -19,6 +19,9 @@ import {
   antigravityModelLabel,
   claudeEffortLevelsForModel,
   createSessionId,
+  createWorktree,
+  listWorktrees,
+  removeWorktree,
   defaultEffortFor,
   deriveTitle,
   listAvailableSkills,
@@ -132,6 +135,8 @@ interface AppProps {
   onTriggerResume: () => void;
   /** Rebuild the agent on a forked message prefix (in-place branch). */
   onForkSession: (messages: Message[]) => Promise<void> | void;
+  /** Rebuild the agent in another directory (worktree enter/exit). */
+  onSwitchWorktree: (cwd: string) => Promise<void> | void;
   /** Current tool-approval mode, displayed in the footer. */
   permissionMode: PermissionMode;
   /** Cycle the tool-approval mode (Shift+Tab). */
@@ -160,6 +165,7 @@ export function App({
   onChangeModel,
   onTriggerResume,
   onForkSession,
+  onSwitchWorktree,
   permissionMode,
   onCyclePermissionMode,
   resumed,
@@ -221,7 +227,7 @@ export function App({
         model: meta.model,
         createdAt: sessionCreatedAtRef.current,
         updatedAt: Date.now(),
-        cwd: process.cwd(),
+        cwd: agent.workingDirectory,
         messages,
         usage: agent.totalTokenUsage,
         retryCount: agent.totalRetryCount,
@@ -262,7 +268,7 @@ export function App({
           model: meta.model,
           createdAt: now,
           updatedAt: now,
-          cwd: process.cwd(),
+          cwd: agent.workingDirectory,
           messages,
           ...(agent.systemPrompt !== undefined ? { systemPrompt: agent.systemPrompt } : {}),
         });
@@ -287,6 +293,77 @@ export function App({
       ]);
     },
     [agent, meta.provider, meta.model, onForkSession],
+  );
+  const baseCwdRef = useRef<string | null>(null);
+  const worktreePathRef = useRef<string | null>(null);
+  const worktreeSession = useCallback(
+    async (action: "enter" | "exit" | "list", name?: string) => {
+      try {
+        if (action === "list") {
+          const entries = await listWorktrees(agent.workingDirectory);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "Worktrees",
+              rows: entries.map((entry) => ({
+                label: entry.current ? "current" : entry.branch ?? "detached",
+                value: entry.path,
+              })),
+            },
+          ]);
+          return;
+        }
+        if (action === "enter") {
+          if (worktreePathRef.current) {
+            setItems((prev) => [
+              ...prev,
+              { kind: "error", text: "Already in a Lucky worktree; /worktree exit first." },
+            ]);
+            return;
+          }
+          const created = await createWorktree(agent.workingDirectory, name);
+          baseCwdRef.current = agent.workingDirectory;
+          worktreePathRef.current = created.path;
+          await onSwitchWorktree(created.path);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "notice",
+              tone: "info",
+              text: `Entered worktree ${created.path}${created.branch ? ` (${created.branch})` : ""}.`,
+            },
+          ]);
+          return;
+        }
+        const path = worktreePathRef.current;
+        const base = baseCwdRef.current;
+        if (!path || !base) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: "Not in a Lucky worktree entered this session." },
+          ]);
+          return;
+        }
+        await removeWorktree(agent.workingDirectory, path);
+        worktreePathRef.current = null;
+        baseCwdRef.current = null;
+        await onSwitchWorktree(base);
+        setItems((prev) => [
+          ...prev,
+          { kind: "notice", tone: "info", text: `Left the worktree; back in ${base}.` },
+        ]);
+      } catch (error) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Worktree ${action} failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ]);
+      }
+    },
+    [agent, onSwitchWorktree],
   );
   const [input, setInput] = useState("");
   // Large pastes are held out of the visible input behind a `[Pasted text #N]`
@@ -997,6 +1074,7 @@ export function App({
           ui: {
             tokenCosts,
             forkSession,
+            worktree: worktreeSession,
             openMcpPanel: mcpPanel.open,
             openSkillPanel: skillPanel.open,
             openAgentsPanel: agentsPanel.open,
@@ -1060,7 +1138,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

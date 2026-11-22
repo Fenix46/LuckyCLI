@@ -364,6 +364,29 @@ Search through Brave, Tavily or a custom endpoint, with bounded responses,
 domain filters and a clear setup message when no provider is configured.
 ```
 
+## T16 — Git worktree enter/exit
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- `worktree.ts`: repo root, create (branch `lucky/<name>`), list, remove, name
+  sanitization; worktrees live under `.lucky/worktrees/` (gitignored).
+- Agent: `workingDirectory` getter; session persistence and sub-agents use it.
+- Runtime: `activateRuntime` accepts `cwd`; resume restores a session's cwd.
+- TUI: `/worktree [list|enter [name]|exit]` rebuilds the agent in the new
+  directory while keeping the conversation.
+- Test: git repo temporaneo per create/list/remove, comando e menu.
+
+**Commit**
+
+```text
+feat(cli): switch sessions into isolated git worktrees
+
+Create Lucky worktrees under .lucky/worktrees and rebuild the live agent in the
+selected checkout without losing the conversation.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:
