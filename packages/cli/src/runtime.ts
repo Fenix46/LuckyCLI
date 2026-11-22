@@ -3,6 +3,7 @@ import {
   Agent,
   createHookRunner,
   loadHookConfig,
+  loadLspConfig,
   type ResumeCacheHints,
   McpManager,
   appendProjectInstructionsToSystemPrompt,
@@ -240,6 +241,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const cwd = opts.cwd ?? process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
   const hookConfig = loadHookConfig(cwd);
+  const lspConfig = loadLspConfig(cwd);
   const hooks = createHookRunner(hookConfig.config, {
     cwd,
     ...(opts.cacheHints?.promptCacheKey ? { sessionId: opts.cacheHints.promptCacheKey } : {}),
@@ -270,6 +272,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
           hasGraph: existsSync(graphFilePath(cwd)),
           hasSubAgents: listProfiles().length > 0,
           hasSkills: skills.length > 0,
+          hasHooks: Object.keys(hookConfig.config).length > 0,
+          hasLsp: Object.keys(lspConfig.config).length > 0,
           skills,
           project: detectProjectFacts(cwd),
           env: process.env,

@@ -31,11 +31,33 @@ describe("buildSystemPrompt", () => {
   it("composes the core behavioral sections", () => {
     const prompt = buildSystemPrompt(INFO, ENV);
     expect(prompt).toContain(IDENTITY_PROMPT);
+    expect(prompt).toContain("# Delivering work");
+    expect(prompt).toContain("# Finishing the turn");
     expect(prompt).toContain("# How you work");
     expect(prompt).toContain("# Code style");
     expect(prompt).toContain("# Objectivity and honesty");
     expect(prompt).toContain("# Executing actions with care");
-    expect(prompt).toContain("# Output style");
+    expect(prompt).toContain("# Communicating with the user");
+    expect(prompt).toContain("# Context management");
+  });
+
+  it("adds hooks guidance only when hooks are configured", () => {
+    const without = buildSystemPromptFromContext({ environment: INFO, env: ENV });
+    expect(without).not.toContain("# Hooks");
+
+    const withHooks = buildSystemPromptFromContext({ environment: INFO, env: ENV, hasHooks: true });
+    expect(withHooks).toContain("# Hooks");
+    expect(withHooks).toContain("<hook-context>");
+  });
+
+  it("adds semantic-navigation guidance only when a language server exists", () => {
+    const without = buildSystemPromptFromContext({ environment: INFO, env: ENV });
+    expect(without).not.toContain("# Semantic navigation (LSP)");
+
+    const withLsp = buildSystemPromptFromContext({ environment: INFO, env: ENV, hasLsp: true });
+    expect(withLsp).toContain("# Semantic navigation (LSP)");
+    expect(withLsp).toContain("diagnostics");
+    expect(withLsp).toContain("references");
   });
 
   it("describes enabled tools when capabilities are known", () => {
@@ -135,6 +157,7 @@ describe("section architecture", () => {
   it("exposes the ordered default sections", () => {
     expect(SYSTEM_PROMPT_SECTIONS.map((s) => s.name)).toEqual([
       "identity",
+      "delivering",
       "agency",
       "code-style",
       "objectivity",
@@ -143,6 +166,7 @@ describe("section architecture", () => {
       "tool-use",
       "skills",
       "output-style",
+      "context",
       "environment",
       "project",
     ]);

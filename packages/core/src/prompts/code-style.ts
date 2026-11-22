@@ -21,7 +21,9 @@ Comments:
 - Don't explain WHAT the code does — well-named identifiers already do that. Don't tie comments to the current task ("added for X", "handles the case from the Y flow"); that belongs in the commit message and rots as the code changes.
 - Don't delete existing comments unless you're removing the code they describe or you know they're wrong. A comment that looks pointless may encode a past lesson not visible in the current diff.
 
-Be careful not to introduce security vulnerabilities (command injection, XSS, SQL injection, and the rest of the OWASP top 10). If you realize you wrote insecure code, fix it immediately.`;
+Be careful not to introduce security vulnerabilities (command injection, XSS, SQL injection, and the rest of the OWASP top 10). If you realize you wrote insecure code, fix it immediately.
+
+For UI or frontend changes, start the dev server and use the feature in a browser before reporting the task as complete. Test the golden path and the edge cases, and watch for regressions elsewhere. Type checking and tests verify code correctness, not feature correctness: if you can't test the UI, say so explicitly rather than claiming success.`;
 
 export const codeStyleSection = defineSection({
   name: "code-style",

@@ -37,6 +37,10 @@ export interface PromptContext {
   hasSubAgents?: boolean;
   /** Whether any skill is installed (gates the skills protocol blurb). */
   hasSkills?: boolean;
+  /** Whether lifecycle hooks are configured (gates the hooks note). */
+  hasHooks?: boolean;
+  /** Whether a language server is configured (gates the semantic-navigation guidance). */
+  hasLsp?: boolean;
   /**
    * The skills usable this session (name + one-line description), listed in
    * the prompt so the model knows what it can skill_load without guessing a

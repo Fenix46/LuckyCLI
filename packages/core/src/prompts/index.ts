@@ -18,7 +18,9 @@
  * have nothing to cache.
  */
 import { identitySection } from "./identity.js";
+import { deliveringSection } from "./delivering.js";
 import { agencySection } from "./agency.js";
+import { contextSection } from "./context.js";
 import { codeStyleSection } from "./code-style.js";
 import { objectivitySection } from "./objectivity.js";
 import { toolsSection } from "./tools.js";
@@ -42,6 +44,7 @@ export type { PromptContext, PromptSection } from "./section.js";
  */
 export const SYSTEM_PROMPT_SECTIONS: PromptSection[] = [
   identitySection,
+  deliveringSection,
   agencySection,
   codeStyleSection,
   objectivitySection,
@@ -50,6 +53,7 @@ export const SYSTEM_PROMPT_SECTIONS: PromptSection[] = [
   toolUseSection,
   skillsSection,
   outputStyleSection,
+  contextSection,
   environmentSection,
   projectSection,
 ];
@@ -92,8 +96,10 @@ export function buildSummarizationPrompt(
   return value !== undefined && value.trim() !== "" ? value : SUMMARIZATION_PROMPT;
 }
 
-export { IDENTITY_PROMPT } from "./identity.js";
+export { buildIdentityPrompt, IDENTITY_PROMPT } from "./identity.js";
+export { DELIVERING_PROMPT } from "./delivering.js";
 export { AGENCY_PROMPT } from "./agency.js";
+export { CONTEXT_PROMPT } from "./context.js";
 export { CODE_STYLE_PROMPT } from "./code-style.js";
 export { OBJECTIVITY_PROMPT } from "./objectivity.js";
 export { SAFETY_PROMPT } from "./safety.js";
@@ -105,7 +111,9 @@ export { ENVIRONMENT_PROMPT_TEMPLATE } from "./environment.js";
 export { SUMMARIZATION_PROMPT } from "./summarization.js";
 export {
   identitySection,
+  deliveringSection,
   agencySection,
+  contextSection,
   codeStyleSection,
   objectivitySection,
   toolsSection,

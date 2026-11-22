@@ -523,6 +523,35 @@ Spawn configured stdio servers lazily, sync documents and expose diagnostics,
 hover, definition, references and symbols to the model.
 ```
 
+## T21 — System prompt allineato a Claude Code
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- Identity/harness riscritta sul modello Claude Code: testo finale autosufficiente,
+  permission mode, output dei tool non visibili, `file_path:line_number`, tool
+  dedicati prima della shell, gestione del contesto.
+- Nuove sezioni: `# Delivering work` (scope, ambiguità, completezza, blocker),
+  `# Finishing the turn`, `# Context management`; `# Corrections` dentro
+  Objectivity; `# Communicating with the user` al posto del solo Output style.
+- Safety aggiornata: `git status` prima di comandi distruttivi, stash con tag,
+  controllo dei segreti prima del push, stato inatteso da investigare.
+- Code style: verifica UI/frontend nel browser quando applicabile.
+- Sezioni condizionali: `# Hooks` se ci sono hook configurati,
+  `# Semantic navigation (LSP)` se c'è un language server; il runtime passa
+  `hasHooks`/`hasLsp` al compositore.
+- Test aggiornati su ordine, contenuti e sezioni condizionali.
+
+**Commit**
+
+```text
+feat(prompts): align the system prompt with Claude Code
+
+Add delivering/finishing, communication and context guidance, refresh safety
+and code style, and gate hooks/LSP advice on the session's real capabilities.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:
