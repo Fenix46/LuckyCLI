@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -15,6 +15,8 @@ import type {
 import { ToolRegistry } from "../tools/registry.js";
 import { askUserTool } from "../tools/builtin/ask-user.js";
 import { readFileTool } from "../tools/builtin/read-file.js";
+import { writeFileTool } from "../tools/builtin/write-file.js";
+import { toolSearchTool } from "../tools/builtin/tool-search.js";
 import { defineTool } from "../tools/types.js";
 import { fileDiff } from "../diff.js";
 import { Agent } from "./agent.js";
@@ -37,9 +39,13 @@ const INFO: ProviderInfo = {
 class ScriptedProvider implements IProvider {
   readonly info = INFO;
   private turn = 0;
-  constructor(private readonly script: StreamChunk[][]) {}
+  constructor(
+    private readonly script: StreamChunk[][],
+    private readonly onConfig?: (config: GenerationConfig) => void,
+  ) {}
 
-  async *generateStream(): AsyncGenerator<StreamChunk> {
+  async *generateStream(_messages: Message[], config: GenerationConfig): AsyncGenerator<StreamChunk> {
+    this.onConfig?.(config);
     const batch = this.script[this.turn++] ?? [{ finishReason: "stop" }];
     for (const chunk of batch) yield chunk;
   }
@@ -237,6 +243,155 @@ describe("Agent loop", () => {
       toolCallId: "t1",
       name: "echo",
     });
+  });
+
+  it("passes the read-before-write gate to the mutation tools", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "lucky-agent-file-state-"));
+    try {
+      await writeFile(join(cwd, "a.txt"), "old\n", "utf8");
+      const provider = new ScriptedProvider([
+        [
+          {
+            toolCall: {
+              type: "tool_call",
+              id: "w1",
+              name: "write_file",
+              arguments: { path: "a.txt", content: "new\n" },
+            },
+          },
+          { finishReason: "tool_calls" },
+        ],
+        [{ textDelta: "done" }, { finishReason: "stop" }],
+      ]);
+      const agent = new Agent({
+        provider,
+        model: "mock",
+        tools: new ToolRegistry().register(writeFileTool),
+        cwd,
+      });
+
+      const events = await collect(agent.send("overwrite a.txt"));
+      const toolEnd = events.find((e) => e.type === "tool_end") as
+        | { content: string; isError: boolean }
+        | undefined;
+      expect(toolEnd?.isError).toBe(true);
+      expect(toolEnd?.content).toMatch(/Read a\.txt with read_file/i);
+      await expect(readFile(join(cwd, "a.txt"), "utf8")).resolves.toBe("old\n");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks mutating tools in plan mode and releases them when the plan is accepted", async () => {
+    let mutations = 0;
+    let peeks = 0;
+    const mutate = defineTool({
+      name: "mutate",
+      description: "Change the workspace.",
+      schema: z.object({ value: z.string() }),
+      async execute({ value }) {
+        mutations += 1;
+        return { content: `mutated:${value}` };
+      },
+    });
+    const peek = defineTool({
+      name: "peek",
+      description: "Read-only inspection.",
+      schema: z.object({}),
+      readonly: true,
+      async execute() {
+        peeks += 1;
+        return { content: "peeked" };
+      },
+    });
+    const provider = new ScriptedProvider([
+      [
+        { toolCall: { type: "tool_call", id: "m1", name: "mutate", arguments: { value: "x" } } },
+        { toolCall: { type: "tool_call", id: "p1", name: "peek", arguments: {} } },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "planned" }, { finishReason: "stop" }],
+      [
+        { toolCall: { type: "tool_call", id: "m2", name: "mutate", arguments: { value: "y" } } },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "implemented" }, { finishReason: "stop" }],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(mutate).register(peek),
+      planMode: true,
+    });
+
+    const first = await collect(agent.send("make a plan"));
+    const ends = first.filter((e) => e.type === "tool_end") as Array<{
+      name: string;
+      content: string;
+      isError: boolean;
+    }>;
+    expect(ends.find((e) => e.name === "mutate")).toMatchObject({ isError: true });
+    expect(ends.find((e) => e.name === "mutate")?.content).toMatch(/plan mode/i);
+    expect(ends.find((e) => e.name === "peek")).toMatchObject({ content: "peeked" });
+    expect(mutations).toBe(0);
+    expect(peeks).toBe(1);
+    expect(agent.planModeEnabled).toBe(true);
+
+    agent.setPlanMode(false);
+    const second = await collect(agent.send("implement it"));
+    const secondEnd = second.find((e) => e.type === "tool_end") as
+      | { name: string; content: string }
+      | undefined;
+    expect(secondEnd).toMatchObject({ name: "mutate", content: "mutated:y" });
+    expect(mutations).toBe(1);
+    expect(agent.planModeEnabled).toBe(false);
+  });
+
+  it("discovers a deferred tool with tool_search and advertises it on the next step", async () => {
+    const deferredTool = (name: string, description: string) =>
+      defineTool({
+        name,
+        description,
+        schema: z.object({}),
+        defer: true,
+        async execute() {
+          return { content: `${name} ran` };
+        },
+      });
+    const registry = new ToolRegistry();
+    for (let i = 0; i < 5; i++) {
+      registry.register(
+        deferredTool(`mcp_tool_${i}`, i === 0 ? "Search Jira issues" : "another tool"),
+      );
+    }
+    registry.register(toolSearchTool);
+    const seen: string[][] = [];
+    const provider = new ScriptedProvider(
+      [
+        [
+          { toolCall: { type: "tool_call", id: "s1", name: "tool_search", arguments: { query: "jira" } } },
+          { finishReason: "tool_calls" },
+        ],
+        [
+          { toolCall: { type: "tool_call", id: "d1", name: "mcp_tool_0", arguments: {} } },
+          { finishReason: "tool_calls" },
+        ],
+        [{ textDelta: "done" }, { finishReason: "stop" }],
+      ],
+      (config) => seen.push((config.tools ?? []).map((tool) => tool.name)),
+    );
+    const agent = new Agent({ provider, model: "mock", tools: registry });
+
+    const events = await collect(agent.send("find the jira tool"));
+    const ends = events.filter((e) => e.type === "tool_end") as Array<{
+      name: string;
+      content: string;
+    }>;
+    expect(ends.find((e) => e.name === "tool_search")?.content).toContain("mcp_tool_0");
+    expect(ends.find((e) => e.name === "mcp_tool_0")?.content).toBe("mcp_tool_0 ran");
+    expect(seen[0]).toContain("tool_search");
+    expect(seen[0]).not.toContain("mcp_tool_0");
+    expect(seen[1]).toContain("mcp_tool_0");
   });
 
   it("runs verification after an approved edit that reports a diff", async () => {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { fileDiff } from "../../diff.js";
+import { describeFileStateFailure } from "../file-state.js";
 import { readTextViaContext, writeTextViaContext } from "../file-access.js";
 import { resolveExistingInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
@@ -31,8 +32,15 @@ export const editFileTool = defineTool({
       // Through the context, so an editor's unsaved buffer is what gets
       // matched and edited (falls back to disk when the host has no view).
       const original = await readTextViaContext(ctx, abs);
+      if (ctx.fileState) {
+        const state = ctx.fileState.check(abs, original);
+        if (!state.ok) {
+          return { content: describeFileStateFailure(path, state.reason), isError: true };
+        }
+      }
       const updated = replace(original, oldString, newString, replaceAll ?? false);
       await writeTextViaContext(ctx, abs, updated);
+      ctx.fileState?.recordWrite(abs, updated);
       ctx.onFilesChanged?.([path]);
       const diff = fileDiff(path, original, updated);
       return {

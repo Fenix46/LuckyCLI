@@ -72,6 +72,17 @@ describe("McpManager", () => {
     expect(manager.tools()).toEqual([]);
   });
 
+  it("marks MCP tools as deferred so large server catalogs stay out of every request", async () => {
+    const manager = new McpManager();
+    managers.push(manager);
+    await manager.connectAll({
+      docs: { type: "local", command: ["node", fixtureServer], timeout: 5_000 },
+    });
+    const tools = manager.tools();
+    expect(tools.length).toBeGreaterThan(0);
+    expect(tools.every((tool) => tool.defer === true)).toBe(true);
+  });
+
   it("records disconnected status and drops tools on disconnect, then restores on reconnect", async () => {
     const manager = new McpManager();
     managers.push(manager);

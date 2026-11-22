@@ -27,14 +27,32 @@ const NO_GRAPH_GUIDANCE = `# Navigation
 
 This project has no knowledge graph. Locate code with grep and glob: grep for symbols and text, glob for filenames and path patterns, then read the exact file before reasoning about or changing it. Don't open many files at random. You may suggest \`/graph\` or \`lucky graph build\` to index the project, but do not build it unprompted.`;
 
+const SEMANTIC_GUIDANCE = `# Semantic navigation (LSP)
+
+This project has a language server. For typed code, prefer the lsp tool over text search when you need meaning rather than a literal match:
+
+- diagnostics: see errors and warnings in a file without running the whole compiler.
+- hover: get the type or documentation of a symbol.
+- definition and references: find exactly where something is declared and every place it is used; use references before changing a shared symbol.
+- symbols: outline a file, or search the workspace by name.
+
+Use grep for text, configuration, logs and projects the server doesn't cover. If the LSP result is empty, fall back to the source rather than assuming the code is correct.`;
+
 const COMMON_GUIDANCE = `# Working with tools
 
 - Run independent tool calls together; run dependent calls in sequence. Reads, searches, directory listings, graph queries and fetches issued in the same response execute concurrently, so gather what you need in one batch instead of one call per step.
 - Read narrowly: the exact file and line range a search pointed at, not whole files, unless the task needs full-file understanding. Read before editing so you change the exact current text, and re-read changed regions afterwards.
 - Check callers before an impact-bearing edit to shared code, and never claim completion without checking the resulting code or validation output.`;
 
-export function buildToolUsePrompt(hasGraph: boolean | undefined): string {
-  return [hasGraph ? GRAPH_GUIDANCE : NO_GRAPH_GUIDANCE, COMMON_GUIDANCE].join("\n\n");
+export function buildToolUsePrompt(
+  hasGraph: boolean | undefined,
+  hasLsp: boolean | undefined = false,
+): string {
+  return [
+    hasGraph ? GRAPH_GUIDANCE : NO_GRAPH_GUIDANCE,
+    ...(hasLsp ? [SEMANTIC_GUIDANCE] : []),
+    COMMON_GUIDANCE,
+  ].join("\n\n");
 }
 
 /**
@@ -46,5 +64,5 @@ export const TOOL_USE_PROMPT = buildToolUsePrompt(true);
 export const toolUseSection = defineSection({
   name: "tool-use",
   envVar: "LUCKY_PROMPT_TOOL_USE",
-  compute: (ctx: PromptContext) => buildToolUsePrompt(ctx.hasGraph),
+  compute: (ctx: PromptContext) => buildToolUsePrompt(ctx.hasGraph, ctx.hasLsp),
 });

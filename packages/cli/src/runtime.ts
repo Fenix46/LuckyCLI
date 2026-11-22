@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import {
   Agent,
+  createHookRunner,
+  loadHookConfig,
+  loadLspConfig,
   type ResumeCacheHints,
   McpManager,
   appendProjectInstructionsToSystemPrompt,
@@ -26,6 +29,7 @@ import {
   type SpawnAgentRequest,
   type SpawnAgentResult,
   type Message,
+  type BrowserBridge,
   type McpServerConfig,
   type ProviderCredentials,
   type ProviderId,
@@ -127,6 +131,8 @@ export interface BuildAgentOptions {
   thinkingEnabled?: boolean;
   allowedSkills?: readonly string[];
   permissions?: ToolPermissionPolicy;
+  /** Start the agent in read-only plan mode. */
+  planMode?: boolean;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
   presentPlan?: (plan: PlanProposal) => Promise<PlanDecision>;
@@ -135,6 +141,8 @@ export interface BuildAgentOptions {
     signal?: AbortSignal,
   ) => Promise<SpawnAgentResult>;
   extraTools?: Tool[];
+  /** Browser bridge for the Lucky Chrome extension (see AgentConfig.browser). */
+  browser?: BrowserBridge;
   /** Host-backed file access for the file tools (see AgentConfig). */
   readTextFile?: (absPath: string) => Promise<string | null>;
   writeTextFile?: (absPath: string, content: string) => Promise<void>;
@@ -232,6 +240,12 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const provider = getProvider(opts.provider, opts.credentials);
   const cwd = opts.cwd ?? process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
+  const hookConfig = loadHookConfig(cwd);
+  const lspConfig = loadLspConfig(cwd);
+  const hooks = createHookRunner(hookConfig.config, {
+    cwd,
+    ...(opts.cacheHints?.promptCacheKey ? { sessionId: opts.cacheHints.promptCacheKey } : {}),
+  });
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
   const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills, cwd);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
@@ -258,6 +272,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
           hasGraph: existsSync(graphFilePath(cwd)),
           hasSubAgents: listProfiles().length > 0,
           hasSkills: skills.length > 0,
+          hasHooks: Object.keys(hookConfig.config).length > 0,
+          hasLsp: Object.keys(lspConfig.config).length > 0,
           skills,
           project: detectProjectFacts(cwd),
           env: process.env,
@@ -278,6 +294,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.cacheHints?.promptCacheKey ? { promptCacheKey: opts.cacheHints.promptCacheKey } : {}),
     ...(opts.compactOnResume ? { compactOnResume: true } : {}),
     permissions: opts.permissions,
+    ...(opts.planMode ? { planMode: true } : {}),
     ...(opts.allowedSkills ? { allowedSkills: opts.allowedSkills } : {}),
     approveTool: opts.approveTool,
     askUser: opts.askUser,
@@ -290,6 +307,8 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
       await refreshGraphBeforeTurn(cwd);
       return graphEnricher.enrich(text);
     },
+    ...(opts.browser ? { browser: opts.browser } : {}),
+    hooks,
     ...(opts.readTextFile ? { readTextFile: opts.readTextFile } : {}),
     ...(opts.writeTextFile ? { writeTextFile: opts.writeTextFile } : {}),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),

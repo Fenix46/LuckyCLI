@@ -40,15 +40,22 @@ export type PlanRequest = PlanProposal;
  *  - acceptEdits: file edits are auto-approved; shell commands still ask.
  *  - auto: everything is auto-approved except shell calls that opt into
  *    destructive commands (see requiresApprovalInAutoMode).
+ *  - plan: read-only exploration; mutating tools are denied until the user
+ *    accepts a presented plan.
  */
-export type PermissionMode = "normal" | "acceptEdits" | "auto";
+export type PermissionMode = "normal" | "acceptEdits" | "auto" | "plan";
 
-const PERMISSION_MODE_CYCLE: readonly PermissionMode[] = ["normal", "acceptEdits", "auto"];
+const PERMISSION_MODE_CYCLE: readonly PermissionMode[] = ["normal", "acceptEdits", "auto", "plan"];
 
 /** The mode Shift+Tab switches to from `current`. */
 export function nextPermissionMode(current: PermissionMode): PermissionMode {
   const index = PERMISSION_MODE_CYCLE.indexOf(current);
   return PERMISSION_MODE_CYCLE[(index + 1) % PERMISSION_MODE_CYCLE.length] ?? "normal";
+}
+
+/** Plan mode ends when the user accepts the plan; other modes are unchanged. */
+export function modeAfterPlanAccept(current: PermissionMode): PermissionMode {
+  return current === "plan" ? "normal" : current;
 }
 
 /** Live token consumption of one running/finished sub-agent. */

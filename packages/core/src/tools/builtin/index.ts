@@ -1,6 +1,8 @@
 import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { askUserTool } from "./ask-user.js";
+import { browserTool } from "./browser.js";
+import { computerTool } from "./computer.js";
 import { editFileTool } from "./edit-file.js";
 import { execTool } from "./exec.js";
 import { processTool } from "./background.js";
@@ -9,12 +11,15 @@ import { graphOverviewTool, graphQueryTool } from "./graph.js";
 import { grepTool } from "./grep.js";
 import { httpFetchTool } from "./http-fetch.js";
 import { listDirTool } from "./list-dir.js";
+import { lspTool } from "./lsp.js";
+import { notebookEditTool } from "./notebook-edit.js";
 import { presentPlanTool } from "./plan.js";
 import { powerShellTool } from "./powershell.js";
 import { projectMemoryTool } from "./project-memory.js";
 import { readFileTool } from "./read-file.js";
 import { skillLoadTool, skillSearchTool } from "./skills.js";
 import { spawnAgentTool } from "./spawn-agent.js";
+import { toolSearchTool } from "./tool-search.js";
 import {
   taskCreateTool,
   taskGetTool,
@@ -23,6 +28,7 @@ import {
 } from "./tasks.js";
 import { writeFileTool } from "./write-file.js";
 import { verifyTool } from "./verify.js";
+import { webSearchTool } from "./web-search.js";
 
 /** A registry pre-loaded with the built-in tools. */
 export function defaultToolRegistry(platform: NodeJS.Platform = process.platform): ToolRegistry {
@@ -31,16 +37,21 @@ export function defaultToolRegistry(platform: NodeJS.Platform = process.platform
     .register(writeFileTool)
     .register(editFileTool)
     .register(applyPatchTool)
+    .register(notebookEditTool)
     .register(execTool)
     .register(processTool);
   // PowerShell is only useful on Windows; elsewhere its definition would just
   // add tokens to every request.
   if (platform === "win32") registry.register(powerShellTool);
+  if (platform === "darwin") registry.register(computerTool);
   return registry
     .register(listDirTool)
     .register(globTool)
     .register(grepTool)
     .register(httpFetchTool)
+    .register(webSearchTool)
+    .register(browserTool)
+    .register(lspTool)
     .register(taskCreateTool)
     .register(taskListTool)
     .register(taskGetTool)
@@ -53,6 +64,7 @@ export function defaultToolRegistry(platform: NodeJS.Platform = process.platform
     .register(skillSearchTool)
     .register(skillLoadTool)
     .register(askUserTool)
+    .register(toolSearchTool)
     .register(verifyTool);
 }
 
@@ -66,10 +78,15 @@ export {
   writeFileTool,
   editFileTool,
   applyPatchTool,
+  notebookEditTool,
+  computerTool,
   listDirTool,
   globTool,
   grepTool,
   httpFetchTool,
+  webSearchTool,
+  browserTool,
+  lspTool,
   taskCreateTool,
   taskListTool,
   taskGetTool,
@@ -82,5 +99,6 @@ export {
   skillSearchTool,
   skillLoadTool,
   askUserTool,
+  toolSearchTool,
   verifyTool,
 };

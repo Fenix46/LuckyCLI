@@ -10,6 +10,7 @@ import {
   deleteSession,
   getSessionCheckpoint,
   deriveTitle,
+  forkSession,
   isValidSessionId,
   latestSession,
   listSessions,
@@ -61,6 +62,51 @@ describe("session store", () => {
   afterEach(async () => {
     process.env.HOME = ORIGINAL_HOME;
     await rm(home, { recursive: true, force: true });
+  });
+
+  it("forks a chosen prefix into a fresh session", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "one" }] },
+      { role: "assistant", content: [{ type: "text", text: "two" }] },
+      { role: "user", content: [{ type: "text", text: "three" }] },
+    ];
+    const source = makeSession({
+      title: "build parser",
+      cwd: "/repo",
+      systemPrompt: "sys",
+      promptCacheKey: "cache-key",
+      messages,
+    });
+    saveSession(source);
+
+    const fork = forkSession(source.id, { throughMessageCount: 2 });
+    expect(fork).toBeDefined();
+    expect(fork!.id).not.toBe(source.id);
+    expect(fork!.messages).toEqual(messages.slice(0, 2));
+    expect(fork!.title).toBe("build parser (fork)");
+    expect(fork!.cwd).toBe("/repo");
+    expect(fork!.systemPrompt).toBe("sys");
+    expect(fork!.promptCacheKey).toBeUndefined();
+    expect(fork!.forkedFrom).toBe(source.id);
+    expect(loadSession(fork!.id)).toEqual(fork);
+    // The source is untouched.
+    expect(loadSession(source.id)?.messages).toEqual(messages);
+  });
+
+  it("forks the whole session by default and rejects an impossible branch point", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "one" }] },
+      { role: "assistant", content: [{ type: "text", text: "two" }] },
+    ];
+    const source = makeSession({ messages });
+    saveSession(source);
+    expect(forkSession(source.id)?.messages).toEqual(messages);
+    expect(() => forkSession(source.id, { throughMessageCount: 0 })).toThrow(/between 1 and 2/);
+    expect(() => forkSession(source.id, { throughMessageCount: 3 })).toThrow(/between 1 and 2/);
+  });
+
+  it("returns undefined when the source session does not exist", () => {
+    expect(forkSession("ses_missing_missing")).toBeUndefined();
   });
 
   it("saves and loads a session round-trip", () => {

@@ -7,7 +7,13 @@ import type { Item } from "../lib/items.js";
 interface Harness {
   ctx: CommandContext;
   emitted: Item[];
-  ui: { applyTheme: ReturnType<typeof vi.fn>; exit: ReturnType<typeof vi.fn> };
+  ui: {
+    applyTheme: ReturnType<typeof vi.fn>;
+    exit: ReturnType<typeof vi.fn>;
+    forkSession: ReturnType<typeof vi.fn>;
+    worktree: ReturnType<typeof vi.fn>;
+    browserInfo: ReturnType<typeof vi.fn>;
+  };
   deps: BasicCommandDeps;
   run(name: string, args?: string): Promise<void> | void;
 }
@@ -20,12 +26,24 @@ function harness(overrides: {
   messages?: Message[];
 } = {}): Harness {
   const emitted: Item[] = [];
-  const ui = { applyTheme: vi.fn(), exit: vi.fn() };
+  const ui = {
+    applyTheme: vi.fn(),
+    exit: vi.fn(),
+    forkSession: vi.fn(async () => {}),
+    worktree: vi.fn(async () => {}),
+    browserInfo: vi.fn(async () => {}),
+  };
   const deps: BasicCommandDeps = {
     listSessions: vi.fn(() => []),
     listTasks: vi.fn(() => []),
     resetTaskList: vi.fn(),
     loadConfig: vi.fn(() => ({})),
+    loadHooks: vi.fn(() => ({
+      config: {},
+      sources: [],
+      errors: [],
+      disabled: false,
+    })),
     copyToClipboard: vi.fn(async () => {}),
     ...overrides.deps,
   } as BasicCommandDeps;
@@ -72,6 +90,84 @@ describe("/theme", () => {
     h.run("/theme", "dracula");
     expect(h.ui.applyTheme).toHaveBeenCalledWith("dracula");
     expect(h.emitted).toEqual([]);
+  });
+});
+
+describe("/fork", () => {
+  it("forks the whole conversation by default", () => {
+    const h = harness();
+    h.run("/fork");
+    expect(h.ui.forkSession).toHaveBeenCalledWith();
+  });
+
+  it("passes a valid branch point and rejects an invalid one", () => {
+    const h = harness();
+    h.run("/fork", "3");
+    expect(h.ui.forkSession).toHaveBeenCalledWith(3);
+    h.ui.forkSession.mockClear();
+    h.run("/fork", "0");
+    expect(h.ui.forkSession).not.toHaveBeenCalled();
+    expect(h.emitted.at(-1)).toMatchObject({ kind: "error" });
+  });
+});
+
+describe("/hooks", () => {
+  it("reports when no hook is configured", async () => {
+    const h = harness();
+    await h.run("/hooks");
+    expect(h.emitted.at(-1)).toMatchObject({ kind: "notice" });
+  });
+
+  it("lists events and reports config errors", async () => {
+    const h = harness({
+      deps: {
+        loadHooks: vi.fn(() => ({
+          config: { PreToolUse: [{ matcher: "exec", hooks: [{ type: "prompt" as const, prompt: "x" }] }] },
+          sources: [{ path: ".lucky/hooks.json", events: 1 }],
+          errors: ["bad matcher"],
+          disabled: false,
+        })),
+      },
+    });
+    await h.run("/hooks");
+    expect(h.emitted[0]).toMatchObject({ kind: "command", title: "Hook config errors" });
+    expect(h.emitted.at(-1)).toMatchObject({ kind: "command", title: "Lifecycle hooks" });
+  });
+});
+
+describe("/browser", () => {
+  it("asks the UI to show the bridge port and token", async () => {
+    const h = harness();
+    await h.run("/browser");
+    expect(h.ui.browserInfo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("/worktree", () => {
+  it("lists by default and parses enter/exit", () => {
+    const h = harness();
+    h.run("/worktree");
+    expect(h.ui.worktree).toHaveBeenCalledWith("list");
+    h.run("/worktree", "enter feature one");
+    expect(h.ui.worktree).toHaveBeenCalledWith("enter", "feature one");
+    h.run("/worktree", "exit");
+    expect(h.ui.worktree).toHaveBeenCalledWith("exit");
+    h.ui.worktree.mockClear();
+    h.run("/worktree", "nope");
+    expect(h.ui.worktree).not.toHaveBeenCalled();
+    expect(h.emitted.at(-1)).toMatchObject({ kind: "error" });
+  });
+});
+
+describe("/keys", () => {
+  it("lists the keyboard shortcuts", () => {
+    const h = harness();
+    h.run("/keys");
+    const item = h.emitted[0];
+    if (item?.kind !== "command") throw new Error("expected command item");
+    expect(item.title).toBe("Keyboard shortcuts");
+    expect(item.rows.some((row) => row.label === "shift+tab")).toBe(true);
+    expect(item.rows.some((row) => row.label === "esc")).toBe(true);
   });
 });
 

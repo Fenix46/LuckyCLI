@@ -2,6 +2,7 @@ import { mkdir, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { fileDiff, type FileDiff } from "../../diff.js";
+import { describeFileStateFailure } from "../file-state.js";
 import { readTextViaContext, writeTextViaContext } from "../file-access.js";
 import {
   assertParentPathInsideCwd,
@@ -27,33 +28,71 @@ export const applyPatchTool = defineTool({
       const files = parseUnifiedDiff(patch);
       if (files.length === 0) throw new Error("No file patches found.");
 
-      const changed: string[] = [];
-      const diffs: FileDiff[] = [];
+      // Preflight every file before writing anything: a patch that updates
+      // two files must not leave the first one changed when the second is
+      // unread or stale.
+      const planned: Array<{
+        file: FilePatch;
+        /** Resolved existing path (update/delete). */
+        abs?: string;
+        /** Unresolved write target (add; resolved after mkdir). */
+        target?: string;
+        original?: string;
+      }> = [];
+      // Content as the patch progresses, so a second entry for the same path
+      // sees the first entry's result instead of the preflight snapshot.
+      const currentContent = new Map<string, string>();
       for (const file of files) {
         if (file.operation === "add") {
           const target = resolveInsideCwd(ctx.cwd, file.path);
           await assertParentPathInsideCwd(ctx.cwd, file.path);
-          await mkdir(dirname(target), { recursive: true });
+          planned.push({ file, target });
+          continue;
+        }
+        const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
+        const original = await readTextViaContext(ctx, abs);
+        if (ctx.fileState) {
+          const state = ctx.fileState.check(abs, original);
+          if (!state.ok) {
+            return { content: describeFileStateFailure(file.path, state.reason), isError: true };
+          }
+        }
+        planned.push({ file, abs, original });
+        currentContent.set(abs, original);
+      }
+
+      const changed: string[] = [];
+      const diffs: FileDiff[] = [];
+      for (const entry of planned) {
+        const { file } = entry;
+        if (file.operation === "add") {
+          if (entry.target === undefined) throw new Error(`No target for ${file.path}.`);
+          await mkdir(dirname(entry.target), { recursive: true });
           const abs = await resolveWritableInsideCwd(ctx.cwd, file.path);
           const updated = applyFilePatch("", file);
           await writeTextViaContext(ctx, abs, updated);
+          ctx.fileState?.recordWrite(abs, updated);
+          currentContent.set(abs, updated);
           diffs.push(fileDiff(file.path, "", updated, { created: true }));
-        } else if (file.operation === "delete") {
-          const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
-          const original = await readTextViaContext(ctx, abs);
-          const updated = applyFilePatch(original, file);
-          if (updated.length > 0) {
-            throw new Error(`Delete patch for ${file.path} did not remove all content.`);
-          }
-          // Deletion has no host channel; it lands on disk either way.
-          await unlink(abs);
-          diffs.push(fileDiff(file.path, original, ""));
         } else {
-          const abs = await resolveExistingInsideCwd(ctx.cwd, file.path);
-          const original = await readTextViaContext(ctx, abs);
+          if (entry.abs === undefined) throw new Error(`No path for ${file.path}.`);
+          const original = currentContent.get(entry.abs) ?? entry.original ?? "";
           const updated = applyFilePatch(original, file);
-          await writeTextViaContext(ctx, abs, updated);
-          diffs.push(fileDiff(file.path, original, updated));
+          if (file.operation === "delete") {
+            if (updated.length > 0) {
+              throw new Error(`Delete patch for ${file.path} did not remove all content.`);
+            }
+            // Deletion has no host channel; it lands on disk either way.
+            await unlink(entry.abs);
+            ctx.fileState?.forgetPath(entry.abs);
+            currentContent.delete(entry.abs);
+            diffs.push(fileDiff(file.path, original, ""));
+          } else {
+            await writeTextViaContext(ctx, entry.abs, updated);
+            ctx.fileState?.recordWrite(entry.abs, updated);
+            currentContent.set(entry.abs, updated);
+            diffs.push(fileDiff(file.path, original, updated));
+          }
         }
         changed.push(file.path);
       }

@@ -1,7 +1,24 @@
 import type { ReadLedger } from "./read-ledger.js";
+import type { FileStateLedger } from "./file-state.js";
 import type { z } from "zod";
 import type { PlanDecision, PlanProposal } from "../agent/plan.js";
 import type { FileDiff } from "../diff.js";
+import type { LspService } from "../lsp/types.js";
+
+/**
+ * One deferred tool returned by a tool search: enough for the model to decide
+ * to use it and to call it with the right arguments.
+ */
+export interface DeferredToolMatch {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+/** Browser automation bridge supplied by the host (the Lucky Chrome extension). */
+export interface BrowserBridge {
+  request(method: string, params?: Record<string, unknown>): Promise<unknown>;
+}
 
 /** Context handed to every tool at execution time. */
 export interface AskUserRequest {
@@ -99,8 +116,27 @@ export interface ToolContext {
    * can point back to the earlier result instead of re-sending it.
    */
   readLedger?: ReadLedger;
+  /**
+   * Reads already in the conversation, by absolute path. When present, the
+   * mutation tools require a fresh read before changing an existing file and
+   * refuse when the file changed since that read. The agent always provides it;
+   * direct registry callers may omit it to keep the pre-ledger behavior.
+   */
+  fileState?: FileStateLedger;
   /** Id of the tool call being executed, when the host knows it. */
   toolCallId?: string;
+  /**
+   * Search tools that were deliberately left out of the advertised schemas.
+   * Returns at most `maxResults` matches, best first. Absent when the host has
+   * no registry-backed search (e.g. a direct tool call in a test).
+   */
+  toolSearch?: (query: string, maxResults: number) => DeferredToolMatch[];
+  /** Mark deferred tools active for the rest of the session; returns the newly active names. */
+  activateTools?: (names: string[]) => string[];
+  /** Browser bridge for the Lucky Chrome extension. */
+  browser?: BrowserBridge;
+  /** Language-server service; defaults to the project's configured manager, null disables it. */
+  lsp?: LspService | null;
 }
 
 /**
@@ -111,6 +147,10 @@ export interface ToolContext {
 export interface ToolResultMetadata {
   /** Structured per-file diffs for mutations (edit_file, write_file, apply_patch). */
   diff?: FileDiff[];
+  /** Full output written under `.lucky/tool-results/` when the model result was truncated. */
+  persistedOutputPath?: string;
+  /** Size in bytes of the persisted output. */
+  persistedOutputBytes?: number;
 }
 
 /** Result of running a tool. `content` is always a string fed back to the model. */
@@ -153,6 +193,12 @@ export interface Tool<Schema extends z.ZodType = z.ZodType> {
    * keeps them sequential.
    */
   conflictKeys?: (input: unknown) => string[] | undefined;
+  /**
+   * Leave this tool out of the provider-facing definitions until the model
+   * discovers it with tool_search. Used for MCP tools, whose schemas can be
+   * numerous and expensive to send on every request.
+   */
+  defer?: boolean;
   execute(input: z.infer<Schema>, ctx: ToolContext): Promise<ToolResult>;
 }
 

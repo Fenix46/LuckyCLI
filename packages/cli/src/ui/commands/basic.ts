@@ -1,6 +1,8 @@
 import {
   PROVIDER_CATALOG,
+  describeHookConfig,
   getReasoningEffort,
+  loadHookConfig,
   getThinkingEnabled,
   listSessions,
   listTasks,
@@ -11,6 +13,7 @@ import {
 import { setClipboard } from "../../vendor/ink/termio/osc.js";
 import { THEMES } from "../themes.js";
 import { formatNumber } from "../lib/format.js";
+import { KEYBOARD_SHORTCUTS } from "../lib/shortcuts.js";
 import { unknownCommand } from "./helpers.js";
 import type { Command } from "./types.js";
 
@@ -20,6 +23,8 @@ export interface BasicCommandDeps {
   listTasks: typeof listTasks;
   resetTaskList: typeof resetTaskList;
   loadConfig: typeof loadStoredConfig;
+  /** Read global + project hook config (injectable for /hooks tests). */
+  loadHooks: typeof loadHookConfig;
   /** Put text on the system clipboard (OSC 52 / tmux / native helper). */
   copyToClipboard: (text: string) => Promise<void>;
 }
@@ -29,6 +34,7 @@ const defaultDeps: BasicCommandDeps = {
   listTasks,
   resetTaskList,
   loadConfig: loadStoredConfig,
+  loadHooks: loadHookConfig,
   copyToClipboard: async (text) => {
     const sequence = await setClipboard(text);
     if (sequence) process.stdout.write(sequence);
@@ -70,6 +76,86 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
             label: theme.id === ctx.state.activeThemeId ? "active" : "theme",
             value: `${theme.id} (${theme.name})`,
           })),
+        });
+      },
+    },
+    {
+      name: "/worktree",
+      description: "List, enter or leave a Lucky git worktree (/worktree enter [name])",
+      async run(args, ctx) {
+        const trimmed = args.trim();
+        if (!trimmed || trimmed === "list") {
+          await ctx.ui.worktree("list");
+          return;
+        }
+        if (trimmed === "exit") {
+          await ctx.ui.worktree("exit");
+          return;
+        }
+        if (trimmed === "enter") {
+          await ctx.ui.worktree("enter");
+          return;
+        }
+        if (trimmed.startsWith("enter ")) {
+          await ctx.ui.worktree("enter", trimmed.slice("enter ".length).trim());
+          return;
+        }
+        ctx.emit({
+          kind: "error",
+          text: "usage: /worktree [list | enter [name] | exit]",
+        });
+      },
+    },
+    {
+      name: "/browser",
+      description: "Show the Lucky Chrome extension port and token",
+      async run(_args, ctx) {
+        await ctx.ui.browserInfo();
+      },
+    },
+    {
+      name: "/hooks",
+      description: "List configured lifecycle hooks",
+      async run(_args, ctx) {
+        const cwd = ctx.agent.workingDirectory ?? process.cwd();
+        const loaded = deps.loadHooks(cwd);
+        if (loaded.errors.length > 0) {
+          ctx.emit({
+            kind: "command",
+            title: "Hook config errors",
+            rows: loaded.errors.map((error) => ({ label: "error", value: error })),
+          });
+        }
+        if (loaded.disabled) {
+          ctx.emit({
+            kind: "notice",
+            tone: "info",
+            text: "Hooks are disabled by LUCKY_DISABLE_HOOKS.",
+          });
+          return;
+        }
+        const events = describeHookConfig(loaded.config);
+        if (events.length === 0) {
+          ctx.emit({
+            kind: "notice",
+            tone: "info",
+            text: "No hooks configured. Add them under \"hooks\" in ~/.luckycli/config.json or in .lucky/hooks.json.",
+          });
+          return;
+        }
+        ctx.emit({
+          kind: "command",
+          title: "Lifecycle hooks",
+          rows: [
+            ...loaded.sources.map((source) => ({
+              label: "source",
+              value: `${source.path} (${source.events})`,
+            })),
+            ...events.map((event) => ({
+              label: event.event,
+              value: `${event.handlers} handler${event.handlers === 1 ? "" : "s"} · ${event.matchers.join(", ")}`,
+            })),
+          ],
         });
       },
     },
@@ -132,6 +218,26 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
           return;
         }
         ctx.ui.triggerResume();
+      },
+    },
+    {
+      name: "/fork",
+      aliases: ["/branch"],
+      description: "Branch this conversation into a new session (/fork <n> keeps the first n messages)",
+      async run(args, ctx) {
+        if (args) {
+          const count = Number(args);
+          if (!Number.isInteger(count) || count < 1) {
+            ctx.emit({
+              kind: "error",
+              text: "usage: /fork [messages] — messages is a positive integer",
+            });
+            return;
+          }
+          await ctx.ui.forkSession(count);
+          return;
+        }
+        await ctx.ui.forkSession();
       },
     },
     {
@@ -246,6 +352,21 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
           rows: ctx.registry
             .filter((command) => !command.hidden)
             .map((command) => ({ label: command.name, value: command.description })),
+        });
+      },
+    },
+    {
+      name: "/keys",
+      description: "Show keyboard shortcuts",
+      run(args, ctx) {
+        if (args) {
+          unknownCommand(ctx, `/keys ${args}`);
+          return;
+        }
+        ctx.emit({
+          kind: "command",
+          title: "Keyboard shortcuts",
+          rows: KEYBOARD_SHORTCUTS.map(({ keys, what }) => ({ label: keys, value: what })),
         });
       },
     },

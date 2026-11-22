@@ -55,6 +55,10 @@ export const readFileTool = defineTool({
     // point back to it rather than paying for the whole file again.
     const readKey = `${abs}\0${offset ?? ""}:${limit ?? ""}`;
     const hash = createHash("sha1").update(text).digest("hex");
+    // Remember the file's current content for the read-before-edit gate. A read
+    // capped at MAX_BYTES hashes only that prefix; a change beyond it is not
+    // detectable, which is the same trade-off the 256KB read cap already makes.
+    ctx.fileState?.recordRead(abs, text, ctx.toolCallId);
     if (ctx.readLedger?.has(readKey, hash)) {
       return { content: UNCHANGED_NOTE };
     }

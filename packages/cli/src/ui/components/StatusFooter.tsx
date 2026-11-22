@@ -72,14 +72,16 @@ export function StatusFooter({
   );
 }
 
-/** "● ask first" / "● accept edits" / "● auto", with the shift+tab hint. */
+/** "● ask first" / "● accept edits" / "● auto" / "● plan mode", with the shift+tab hint. */
 function ModeBadge({ theme, mode }: { theme: Theme; mode: PermissionMode }): React.JSX.Element {
   const [label, color] =
-    mode === "acceptEdits"
-      ? ["accept edits on", theme.success]
-      : mode === "auto"
-        ? ["auto mode on", theme.warning]
-        : ["ask before edits", theme.muted];
+    mode === "plan"
+      ? ["plan mode on", theme.accent]
+      : mode === "acceptEdits"
+        ? ["accept edits on", theme.success]
+        : mode === "auto"
+          ? ["auto mode on", theme.warning]
+          : ["ask before edits", theme.muted];
   return (
     <Text>
       <Text color={color}>{GLYPH.active} </Text>

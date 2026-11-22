@@ -68,6 +68,8 @@ export interface Session {
   systemPrompt?: string;
   /** The conversation's prompt-cache routing key (see AgentConfig.promptCacheKey). */
   promptCacheKey?: string;
+  /** The session this one was forked from, when it is a branch. */
+  forkedFrom?: string;
 }
 
 /**
@@ -123,6 +125,52 @@ function assertValidSessionId(id: string): void {
   if (!isValidSessionId(id)) {
     throw new Error("Invalid session id.");
   }
+}
+
+export interface ForkSessionOptions {
+  /** Keep only the first N messages (a branch point); defaults to the whole session. */
+  throughMessageCount?: number;
+  /** Title for the fork; defaults to the source title + " (fork)". */
+  title?: string;
+}
+
+/**
+ * Copy a session into a new one. The fork keeps the provider, model, cwd and
+ * system prompt, but gets a fresh id, creation time and prompt-cache routing
+ * key; checkpoints and usage are not copied (the fork starts its own history
+ * from the chosen branch point).
+ *
+ * Throws on an out-of-range branch point so a caller cannot silently fork an
+ * empty or truncated-away conversation.
+ */
+export function forkSession(
+  sourceId: string,
+  options: ForkSessionOptions = {},
+): Session | undefined {
+  const source = loadSession(sourceId);
+  if (!source) return undefined;
+  const total = source.messages.length;
+  const count = options.throughMessageCount ?? total;
+  if (!Number.isInteger(count) || count < 1 || count > total) {
+    throw new Error(`Fork point must be between 1 and ${total} messages.`);
+  }
+  const now = Date.now();
+  const id = createSessionId();
+  const title = options.title ?? `${source.title ?? "Session"} (fork)`;
+  const fork: Session = {
+    id,
+    title,
+    provider: source.provider,
+    model: source.model,
+    createdAt: now,
+    updatedAt: now,
+    messages: structuredClone(source.messages.slice(0, count)),
+    ...(source.cwd ? { cwd: source.cwd } : {}),
+    ...(source.systemPrompt ? { systemPrompt: source.systemPrompt } : {}),
+    forkedFrom: source.id,
+  };
+  saveSession(fork);
+  return fork;
 }
 
 /** A short, time-sortable, collision-resistant session id. */

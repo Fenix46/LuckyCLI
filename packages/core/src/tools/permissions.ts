@@ -9,6 +9,9 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   glob: "allow",
   grep: "allow",
   http_fetch: "allow",
+  web_search: "allow",
+  browser: "ask",
+  lsp: "allow",
   task_create: "allow",
   task_list: "allow",
   task_get: "allow",
@@ -17,6 +20,8 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   graph_query: "allow",
   graph_overview: "allow",
   ask_user: "allow",
+  // Discovers deferred tools; it never runs them.
+  tool_search: "allow",
   // Reads/stops only background commands the user already approved starting.
   process: "allow",
 
@@ -24,6 +29,8 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
   write_file: "ask",
   edit_file: "ask",
   apply_patch: "ask",
+  notebook_edit: "ask",
+  computer: "ask",
   exec: "ask",
   PowerShell: "ask",
   project_memory: "ask",

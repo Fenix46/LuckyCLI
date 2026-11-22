@@ -298,7 +298,7 @@ after 30s+ of unattended work the bell rings when a turn finishes or needs you
 | `Enter` | Send the message |
 | `Option/Alt + Enter` (macOS) · `Ctrl + Enter` (Win/Linux) | Insert a newline |
 | `Esc` | Interrupt the running turn (queued prompts return to the input) |
-| `Shift + Tab` | Cycle approval mode: ask before edits → accept edits → auto |
+| `Shift + Tab` | Cycle approval mode: ask before edits → accept edits → auto → plan |
 | `Ctrl + C` | Cancel a running turn, or quit when idle |
 | `↑` / `↓` | Recall earlier prompts; navigate menus and pickers |
 | `Tab` | Complete the highlighted slash command |
@@ -319,6 +319,7 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/context` | Context window usage |
 | `/compact` | Summarize older chat history now |
 | `/resume` | Pick a saved session (this project first; `tab` for all projects) |
+| `/fork [n]` | Branch the conversation into a new session (alias `/branch`; `n` keeps the first `n` messages) |
 | `/sessions` | List this project's saved sessions |
 | `/diff [all]` | Review the file changes of the last turn (or the whole session) |
 | `/copy [n]` | Copy the latest reply (or the n-th from the end) to the clipboard |
@@ -329,11 +330,15 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/agents` | Manage sub-agent profiles (provider/model per role) |
 | `/rules` | Allow, ask for or block specific shell commands |
 | `/graph` | Build or refresh the knowledge graph |
+| `/worktree [list\|enter [name]\|exit]` | Work in an isolated Lucky git worktree |
+| `/browser` | Show the Lucky Chrome extension's bridge port and token |
+| `/hooks` | List configured lifecycle hooks and config errors |
 | `/skill` | Skills panel; `/skill use <name>` runs one (alias `/skills`) |
 | `/mcp` | MCP panel; `/mcp add` installs from the registry or adds your own server |
 | `/theme` | Choose the interface theme |
 | `/config` | Show the active configuration |
 | `/update` | Check for updates (`/update apply`, `/update auto <mode>`) |
+| `/keys` | Show keyboard shortcuts |
 | `/help` | List every command |
 | `/exit` | Quit (alias `/quit`) |
 
@@ -350,6 +355,10 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `list_dir` · `glob` · `grep` | allow | List a directory, find files by pattern, search contents |
 | `graph_query` · `graph_overview` | allow | Query the knowledge graph: find, callers, callees, neighbors, impact |
 | `http_fetch` | allow | Fetch a public URL (private and metadata addresses are blocked) |
+| `web_search` | allow | Search the web through Brave, Tavily or a custom endpoint |
+| `computer` | ask | macOS Accessibility: list apps/windows, read a UI tree, click, type, key, screenshot |
+| `browser` | ask | Use the user's Chrome through the Lucky extension |
+| `lsp` | allow | Language server: diagnostics, hover, definition, references, symbols |
 | `task_create` · `task_update` · `task_list` · `task_get` | allow | A structured task list the user can follow |
 | `present_plan` | allow | Present a plan for approval before implementing |
 | `spawn_agent` | allow | Delegate a sub-task to a sub-agent; with `files`, several run in parallel |
@@ -357,13 +366,109 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `skill_search` · `skill_load` | allow | Find and load skills |
 | `ask_user` | allow | Ask you a question and wait for the answer |
 | `verify` | allow | Run the project's typecheck, test or build checks |
+| `tool_search` | allow | Find and activate tools left out of the request (MCP catalogs) |
 | `process` | allow | List, read or stop background commands this session started |
-| `write_file` · `edit_file` · `apply_patch` | ask | Write a file, replace an exact snippet, apply a unified diff |
+| `write_file` · `edit_file` · `apply_patch` · `notebook_edit` | ask | Write a file, replace a snippet, apply a diff, edit a Jupyter cell |
 | `exec` | ask | Run a shell command (2 min default, up to 10); `background: true` for servers |
 | `PowerShell` | ask | Run a PowerShell command (registered on Windows only) |
 
 MCP tools appear next to these as `<server>_<tool>`; tools a server marks
 read-only default to allow, everything else asks.
+
+`computer` is macOS-only, uses `osascript`/`screencapture`, and needs
+Accessibility permission for the terminal running Lucky.
+
+`web_search` is configured with `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, or
+`LUCKY_WEB_SEARCH_URL` + `LUCKY_WEB_SEARCH_API_KEY`; set
+`LUCKY_WEB_SEARCH_PROVIDER` to force a provider when more than one is configured.
+
+## Hooks
+
+Hooks run your code at a named point in the agent loop and can block the action,
+rewrite tool input or add context. Configure them globally under `hooks` in
+`~/.luckycli/config.json`, or per project in `.lucky/hooks.json` (gitignored):
+
+```json
+{
+  "PreToolUse": [
+    {
+      "matcher": "exec",
+      "hooks": [
+        { "type": "command", "command": "node .lucky/guard.mjs", "timeout": 10 }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    { "matcher": "edit_file", "hooks": [{ "type": "command", "command": "npm run lint:file" }] }
+  ]
+}
+```
+
+A command hook receives the event JSON on stdin (`session_id`, `cwd`,
+`hook_event_name`, `tool_name`, `tool_input`, `tool_response`, `prompt`). It can
+answer with JSON on stdout:
+
+```json
+{
+  "decision": "block",
+  "reason": "this command is not allowed",
+  "additionalContext": "context shown to the model",
+  "updatedInput": { "command": "ls" }
+}
+```
+
+Exit code `2` also blocks. Claude Code's `hookSpecificOutput` envelope is
+accepted, so many existing hooks work unchanged. Types are `command`, `http`
+(POST JSON) and `prompt` (inject text). Wired events: `SessionStart`,
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`,
+`PreCompact`, `PostCompact`, `SessionEnd`. `LUCKY_DISABLE_HOOKS=1` disables all
+hooks; `/hooks` shows what is loaded and validates the files.
+
+## Language servers (LSP)
+
+The `lsp` tool asks a language server for semantic answers instead of guessing
+from text: `diagnostics`, `hover`, `definition`, `references` and `symbols`.
+Configure servers in the project `.lsp.json` (or under `lsp` in
+`~/.luckycli/config.json`):
+
+```json
+{
+  "typescript": {
+    "command": "typescript-language-server",
+    "args": ["--stdio"],
+    "extensionToLanguage": {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact"
+    }
+  },
+  "python": {
+    "command": "pyright-langserver",
+    "args": ["--stdio"],
+    "fileExtensions": [".py", ".pyi"]
+  }
+}
+```
+
+The server starts lazily on the first `lsp` call, is initialized per project,
+and receives `didOpen`/`didChange` for the requested file. Diagnostics use the
+pull model when the server advertises `diagnosticProvider`, otherwise the push
+`publishDiagnostics` notification (with a short wait). `LUCKY_LSP_FILE` points at
+a different config file. When a file's extension has no server, the tool reports
+exactly which extensions are configured.
+
+`browser` needs the Lucky extension, kept in the separate
+[`lucky-chrome-extension`](../lucky-chrome-extension) repository (a sibling
+checkout by default). Run `/browser` to start the loopback bridge and print its
+port and token, load that repository's root as an unpacked extension in
+`chrome://extensions`, then paste both values into the extension's options. The
+bridge listens on `127.0.0.1` only, stores its token in `~/.lucky/browser.json`
+(`0600`), and every browser action still goes through the normal `ask`
+permission.
+
+Mutation tools require a **fresh read** of an existing file: editing or
+overwriting a file the model has not read, or that changed since that read, is
+refused with a clear message. New files need no prior read; a successful write
+updates the known state so consecutive edits do not re-read.
 
 ### Safety model
 
@@ -375,7 +480,9 @@ read-only default to allow, everything else asks.
   shell commands; *auto* approves everything (and accepts presented plans) except
   risky shell commands, which always ask: pushes, publishes, deploys, downloaded or
   inline scripts (`curl … | sh`, `bash -c`), destructive commands, and
-  `npm run`/`make` scripts whose body does any of that.
+  `npm run`/`make` scripts whose body does any of that; *plan* keeps the session
+  read-only until you accept a presented plan (read-only tools and read-only shell
+  commands stay available).
 - **Command rules.** `/rules allow|ask|deny <pattern>` (or `LUCKY_COMMAND_RULES`,
   e.g. `allow=npm test;deny=git push --force*`) decides per command in every mode.
   Patterns match a command and its longer forms by whole words, or as globs with
@@ -402,12 +509,23 @@ into cost (or, on a local model, into time). LuckyCLI keeps it small:
   a stable per-conversation cache key.
 - **Bounded output.** `read_file` returns at most 2,000 lines per call and cuts
   overlong lines; shell output is trimmed to 30k characters, keeping both ends.
+  When a command's output exceeds that budget, the full text is saved under
+  `.lucky/tool-results/` and the result points at it, so the model can read the
+  rest instead of losing it.
 - **Old tool results cleared.** Once the context reaches half of the compaction
   point, the bodies of old, large tool results are replaced by a short note (the
   newest eight stay intact); the agent re-runs a tool if it needs the content.
   This works inside a single long tool loop, which compaction can't shrink.
 - **No re-sending unchanged files.** Re-reading the same range of a file that
   hasn't changed returns a pointer to the earlier read instead of the content.
+- **Cached tool schemas.** JSON Schema is derived once per tool and reused until
+  a new tool is registered; the context estimate reuses its serialized length
+  instead of re-serializing every schema on each step.
+- **Deferred MCP tools.** When a server catalog is large, its tool schemas stay
+  out of the request until the model finds one with `tool_search`; small
+  catalogs are still advertised directly.
+- **One transcript count per step.** The pruning and compaction checks share one
+  character count, recomputed only when pruning actually changes the transcript.
 - **Compaction** summarizes older turns with the provider's cheapest model at 75%
   of the usable window or 160k tokens, whichever comes first (`/compact` forces it).
 - **ChatGPT reasoning carried over.** The encrypted reasoning the model returns is
@@ -796,6 +914,7 @@ approach.
 ## Roadmap
 
 - [x] Approval prompts, remembered approvals, approval modes and command rules
+- [x] Read-before-edit gate with stale-file detection, plan mode, persisted tool output
 - [x] Automatic context compaction, old tool output clearing, bounded tool output
 - [x] Prompt caching across providers, ChatGPT reasoning replay, warm session resumes
 - [x] Browser OAuth for Claude, ChatGPT, Gemini and Antigravity

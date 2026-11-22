@@ -35,6 +35,14 @@ export {
   parseCommandRulesEnv,
 } from "./tools/command-policy.js";
 export type { CommandAction, CommandRules, CommandVerdict } from "./tools/command-policy.js";
+export { FileStateLedger, contentHash } from "./tools/file-state.js";
+export type { FileStateCheck } from "./tools/file-state.js";
+export {
+  MAX_PERSISTED_OUTPUT_BYTES,
+  TOOL_RESULTS_DIR,
+  persistToolOutput,
+} from "./tools/output-store.js";
+export type { PersistedToolOutput } from "./tools/output-store.js";
 export { defineTool } from "./tools/types.js";
 export type {
   AskUserRequest,
@@ -44,6 +52,7 @@ export type {
   ToolContext,
   ToolResult,
   ToolResultMetadata,
+  BrowserBridge,
 } from "./tools/types.js";
 export { diffLines, fileDiff } from "./diff.js";
 export type { DiffHunk, DiffLine, FileDiff } from "./diff.js";
@@ -55,10 +64,15 @@ export {
   writeFileTool,
   editFileTool,
   applyPatchTool,
+  notebookEditTool,
+  computerTool,
   listDirTool,
   globTool,
   grepTool,
   httpFetchTool,
+  webSearchTool,
+  browserTool,
+  lspTool,
   taskCreateTool,
   taskListTool,
   taskGetTool,
@@ -71,6 +85,7 @@ export {
   skillSearchTool,
   skillLoadTool,
   askUserTool,
+  toolSearchTool,
   previewPatch,
   replaceSnippet,
 } from "./tools/builtin/index.js";
@@ -166,6 +181,65 @@ export {
   listSessionCheckpoints,
   removeSessionCheckpoint,
 } from "./session/store.js";
+
+// Language servers.
+export {
+  LSP_OPERATIONS,
+  LspClient,
+  LspManager,
+  disposeLspManagers,
+  getLspManager,
+  loadLspConfig,
+  serverExtensions,
+} from "./lsp/index.js";
+export type {
+  LoadedLspConfig,
+  LspClientOptions,
+  LspConfig,
+  LspOperation,
+  LspRequest,
+  LspResult,
+  LspServerConfig,
+  LspService,
+} from "./lsp/index.js";
+
+// Lifecycle hooks.
+export {
+  HOOK_EVENTS,
+  EMPTY_HOOK_RESULT,
+  createHookRunner,
+  describeHookConfig,
+  isHookEvent,
+  loadHookConfig,
+  parseHookStdout,
+} from "./hooks/index.js";
+export type {
+  HookCommand,
+  HookConfig,
+  HookConfigSource,
+  HookEvent,
+  HookHandler,
+  HookHttp,
+  HookInput,
+  HookMatcher,
+  HookPrompt,
+  HookResult,
+  HookRunner,
+  HookRunnerOptions,
+  LoadedHookConfig,
+} from "./hooks/index.js";
+
+// Git worktrees.
+export {
+  WORKTREE_DIR,
+  createWorktree,
+  listWorktrees,
+  removeWorktree,
+  repoRoot,
+  sanitizeWorktreeName,
+  worktreeRoot,
+} from "./worktree.js";
+export type { WorktreeInfo } from "./worktree.js";
 
 export {
   TASK_STATUSES,
@@ -458,6 +532,7 @@ export {
   createSessionId,
   deleteSession,
   deriveTitle,
+  forkSession,
   isValidSessionId,
   latestSession,
   listSessions,
@@ -468,7 +543,13 @@ export {
   sessionFilePath,
   sessionsDirPath,
 } from "./session/store.js";
-export type { ResumeCacheHints, Session, SessionFilter, SessionMeta } from "./session/store.js";
+export type {
+  ForkSessionOptions,
+  ResumeCacheHints,
+  Session,
+  SessionFilter,
+  SessionMeta,
+} from "./session/store.js";
 
 export {
   startOAuthFlow,

@@ -21,6 +21,7 @@ import {
   type SpawnAgentResult,
   type TokenUsage,
   createSessionId,
+  disposeLspManagers,
   setActiveTaskListId,
   cleanupOrphanTaskLists,
   isProjectTrusted,
@@ -41,8 +42,9 @@ import {
   requiresApprovalInAutoMode,
   shellCommandVerdict,
 } from "../approval.js";
-import { nextPermissionMode, QUESTION_SKIPPED, verificationModeFor } from "./lib/requests.js";
+import { modeAfterPlanAccept, nextPermissionMode, QUESTION_SKIPPED, verificationModeFor } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
+import { BrowserBridge } from "../browser/bridge.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
@@ -174,9 +176,10 @@ export function Root({
 
   function cyclePermissionMode() {
     // The ref is the source of truth (the agent's captured approveTool reads it);
-    // state just mirrors it for rendering. normal → acceptEdits → auto → normal.
+    // state just mirrors it for rendering. normal → acceptEdits → auto → plan → normal.
     const next = nextPermissionMode(permissionModeRef.current);
     permissionModeRef.current = next;
+    runtimeRef.current?.agent.setPlanMode(next === "plan");
     runtimeRef.current?.agent.setVerificationMode(verificationModeFor(next));
     // Returning to normal also forgets the session's "always" approvals, so the
     // user starts asking again from a clean slate.
@@ -255,7 +258,16 @@ export function Root({
         })
       ).trim();
 
-      if (answer === ACCEPT) return { action: "accept" };
+      if (answer === ACCEPT) {
+        if (permissionModeRef.current === "plan") {
+          const next = modeAfterPlanAccept(permissionModeRef.current);
+          permissionModeRef.current = next;
+          setPermissionMode(next);
+          runtimeRef.current?.agent.setPlanMode(false);
+          runtimeRef.current?.agent.setVerificationMode(verificationModeFor(next));
+        }
+        return { action: "accept" };
+      }
       // Esc on the plan question skips it: treat that as a rejection rather
       // than as modification feedback.
       if (answer === REJECT || answer === QUESTION_SKIPPED || /^(reject|no|cancel|annulla|rifiuta)$/i.test(answer)) {
@@ -300,7 +312,7 @@ export function Root({
         profile,
         task: request.task,
         ...(request.files ? { writableFiles: request.files } : {}),
-        cwd: process.cwd(),
+        cwd: runtimeRef.current?.agent.workingDirectory ?? process.cwd(),
         // A custom LUCKY_SYSTEM prompt is honored verbatim; otherwise core
         // composes a smaller prompt sized to the sub-agent's own tools.
         ...(process.env.LUCKY_SYSTEM !== undefined ? { system: config.system } : {}),
@@ -328,9 +340,15 @@ export function Root({
     runtimeRef.current = runtime;
   }, [runtime]);
 
+  const browserRef = useRef<BrowserBridge | null>(null);
+  if (!browserRef.current) browserRef.current = new BrowserBridge();
+
   useEffect(() => {
     return () => {
+      void runtimeRef.current?.agent.endSession();
+      void disposeLspManagers();
       void runtimeRef.current?.mcpManager?.close();
+      void browserRef.current?.close();
     };
   }, []);
 
@@ -345,6 +363,8 @@ export function Root({
     cacheHints?: ResumeCacheHints;
     /** Compact a large resumed history before its first turn. */
     compactOnResume?: boolean;
+    /** Directory the rebuilt agent is anchored to (worktrees change this). */
+    cwd?: string;
     /**
      * MCP servers to load. Defaults to the current state, but callers that have
      * just changed the config must pass the next value explicitly: the state
@@ -363,6 +383,9 @@ export function Root({
       // graph presence, sub-agent profiles) so conditional sections react to it.
       composeSystemFromContext: true,
       permissions: permissionsRef.current,
+      planMode: permissionModeRef.current === "plan",
+      cwd: next.cwd ?? process.cwd(),
+      ...(browserRef.current ? { browser: browserRef.current } : {}),
       ...(config.skills ? { allowedSkills: config.skills } : {}),
       approveTool,
       askUser,
@@ -409,6 +432,36 @@ export function Root({
     setBooting(false);
   }
 
+  /**
+   * Rebuild the agent on a forked message prefix. The new session id and
+   * persisted copy are owned by App (it resets the transcript and session
+   * refs first); this only swaps the engine.
+   */
+  async function forkConversation(messages: Message[]): Promise<void> {
+    const current = runtimeRef.current;
+    if (!current) return;
+    await activateRuntime({
+      provider: current.provider,
+      model: current.model,
+      credentials: current.credentials,
+      messages,
+      cwd: current.agent.workingDirectory,
+    });
+  }
+
+  /** Rebuild the agent in another directory, keeping the conversation. */
+  async function switchWorktree(cwd: string): Promise<void> {
+    const current = runtimeRef.current;
+    if (!current) return;
+    await activateRuntime({
+      provider: current.provider,
+      model: current.model,
+      credentials: current.credentials,
+      messages: [...current.agent.messages],
+      cwd,
+    });
+  }
+
   useEffect(() => {
     if (forceSetup || config.needsSetup) {
       setBooting(false);
@@ -423,6 +476,7 @@ export function Root({
       model: config.model,
       credentials: config.credentials,
       ...(resume?.messages?.length ? { messages: resume.messages } : {}),
+      ...(resume?.cwd ? { cwd: resume.cwd } : {}),
       ...(resume?.usage ? { initialUsage: resume.usage } : {}),
       ...(resume?.retryCount !== undefined ? { initialRetryCount: resume.retryCount } : {}),
       ...(resume ? resumeOptions(resume, config.provider, config.model) : {}),
@@ -439,6 +493,7 @@ export function Root({
       model: result.model,
       credentials: result.credentials,
       ...(carriedMessages.length ? { messages: carriedMessages } : {}),
+      ...(resumeSession.cwd ? { cwd: resumeSession.cwd } : {}),
       ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
       ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
       // Only the untouched resumed conversation matches what the session stored.
@@ -478,6 +533,7 @@ export function Root({
       model: resolved.model,
       credentials: resolved.credentials,
       ...(session.messages.length ? { messages: session.messages } : {}),
+      ...(session.cwd ? { cwd: session.cwd } : {}),
       ...(session.usage ? { initialUsage: session.usage } : {}),
       ...(session.retryCount !== undefined ? { initialRetryCount: session.retryCount } : {}),
       ...resumeOptions(session, resolved.provider, resolved.model),
@@ -500,6 +556,7 @@ export function Root({
       model,
       credentials: runtime.credentials,
       ...(carried.length ? { messages: carried } : {}),
+      cwd: runtime.agent.workingDirectory,
       initialUsage: runtime.agent.totalTokenUsage,
       initialRetryCount: runtime.agent.totalRetryCount,
       cacheHints: { promptCacheKey: runtime.agent.cacheKey },
@@ -527,6 +584,7 @@ export function Root({
         model: config.model,
         credentials: config.credentials,
         ...(carriedMessages.length ? { messages: carriedMessages } : {}),
+        ...(resumeSession.cwd ? { cwd: resumeSession.cwd } : {}),
         ...(resumeSession.usage ? { initialUsage: resumeSession.usage } : {}),
         ...(resumeSession.retryCount !== undefined ? { initialRetryCount: resumeSession.retryCount } : {}),
         ...resumeOptions(resumeSession, config.provider, config.model),
@@ -613,6 +671,9 @@ export function Root({
       onTriggerSetup={onTriggerProviderSetup}
       onChangeModel={onChangeModel}
       onTriggerResume={() => setPicking(true)}
+      onForkSession={forkConversation}
+      onSwitchWorktree={switchWorktree}
+      requestBrowserInfo={() => browserRef.current!.info()}
       permissionMode={permissionMode}
       onCyclePermissionMode={cyclePermissionMode}
       resumed={resumeSession}

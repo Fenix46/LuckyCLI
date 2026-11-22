@@ -19,6 +19,9 @@ import {
   antigravityModelLabel,
   claudeEffortLevelsForModel,
   createSessionId,
+  createWorktree,
+  listWorktrees,
+  removeWorktree,
   defaultEffortFor,
   deriveTitle,
   listAvailableSkills,
@@ -38,6 +41,7 @@ import {
   type Task,
 } from "@luckycli/core";
 import { THEMES, themeById, type Theme } from "./themes.js";
+import { contextWarning } from "./lib/context-warning.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { appendLiveOutput, collectDiffs, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
 import { formatToolAction } from "./lib/format.js";
@@ -129,6 +133,12 @@ interface AppProps {
   onTriggerSetup: () => void;
   onChangeModel: (model: string) => void;
   onTriggerResume: () => void;
+  /** Rebuild the agent on a forked message prefix (in-place branch). */
+  onForkSession: (messages: Message[]) => Promise<void> | void;
+  /** Rebuild the agent in another directory (worktree enter/exit). */
+  onSwitchWorktree: (cwd: string) => Promise<void> | void;
+  /** Start the local bridge and return the port/token the extension needs. */
+  requestBrowserInfo: () => Promise<{ port: number; token: string }>;
   /** Current tool-approval mode, displayed in the footer. */
   permissionMode: PermissionMode;
   /** Cycle the tool-approval mode (Shift+Tab). */
@@ -156,6 +166,9 @@ export function App({
   onTriggerSetup,
   onChangeModel,
   onTriggerResume,
+  onForkSession,
+  onSwitchWorktree,
+  requestBrowserInfo,
   permissionMode,
   onCyclePermissionMode,
   resumed,
@@ -217,7 +230,7 @@ export function App({
         model: meta.model,
         createdAt: sessionCreatedAtRef.current,
         updatedAt: Date.now(),
-        cwd: process.cwd(),
+        cwd: agent.workingDirectory,
         messages,
         usage: agent.totalTokenUsage,
         retryCount: agent.totalRetryCount,
@@ -228,6 +241,162 @@ export function App({
       // persistence is best-effort; never break the session over a write error
     }
   }, [agent, meta.provider, meta.model]);
+  const forkSession = useCallback(
+    async (throughMessageCount?: number) => {
+      const source = agent.messages;
+      const count = throughMessageCount ?? source.length;
+      if (!Number.isInteger(count) || count < 1 || count > source.length) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Fork point must be between 1 and ${source.length} messages.`,
+          },
+        ]);
+        return;
+      }
+      const messages = structuredClone(source.slice(0, count));
+      const id = createSessionId();
+      const now = Date.now();
+      const title = deriveTitle(messages);
+      sessionIdRef.current = id;
+      sessionCreatedAtRef.current = now;
+      setContextStatus(null);
+      setItems([{ kind: "intro" }, ...messagesToItems(messages)]);
+      try {
+        saveSession({
+          id,
+          ...(title ? { title } : {}),
+          provider: meta.provider,
+          model: meta.model,
+          createdAt: now,
+          updatedAt: now,
+          cwd: agent.workingDirectory,
+          messages,
+          ...(agent.systemPrompt !== undefined ? { systemPrompt: agent.systemPrompt } : {}),
+        });
+      } catch {
+        // A read-only config must not fail the branch itself.
+      }
+      try {
+        await onForkSession(messages);
+      } catch (error) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Fork failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ]);
+        return;
+      }
+      setItems((prev) => [
+        ...prev,
+        { kind: "notice", tone: "info", text: `Forked into session ${id}.` },
+      ]);
+    },
+    [agent, meta.provider, meta.model, onForkSession],
+  );
+  const baseCwdRef = useRef<string | null>(null);
+  const worktreePathRef = useRef<string | null>(null);
+  const worktreeSession = useCallback(
+    async (action: "enter" | "exit" | "list", name?: string) => {
+      try {
+        if (action === "list") {
+          const entries = await listWorktrees(agent.workingDirectory);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "command",
+              title: "Worktrees",
+              rows: entries.map((entry) => ({
+                label: entry.current ? "current" : entry.branch ?? "detached",
+                value: entry.path,
+              })),
+            },
+          ]);
+          return;
+        }
+        if (action === "enter") {
+          if (worktreePathRef.current) {
+            setItems((prev) => [
+              ...prev,
+              { kind: "error", text: "Already in a Lucky worktree; /worktree exit first." },
+            ]);
+            return;
+          }
+          const created = await createWorktree(agent.workingDirectory, name);
+          baseCwdRef.current = agent.workingDirectory;
+          worktreePathRef.current = created.path;
+          await onSwitchWorktree(created.path);
+          setItems((prev) => [
+            ...prev,
+            {
+              kind: "notice",
+              tone: "info",
+              text: `Entered worktree ${created.path}${created.branch ? ` (${created.branch})` : ""}.`,
+            },
+          ]);
+          return;
+        }
+        const path = worktreePathRef.current;
+        const base = baseCwdRef.current;
+        if (!path || !base) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "error", text: "Not in a Lucky worktree entered this session." },
+          ]);
+          return;
+        }
+        await removeWorktree(agent.workingDirectory, path);
+        worktreePathRef.current = null;
+        baseCwdRef.current = null;
+        await onSwitchWorktree(base);
+        setItems((prev) => [
+          ...prev,
+          { kind: "notice", tone: "info", text: `Left the worktree; back in ${base}.` },
+        ]);
+      } catch (error) {
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Worktree ${action} failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ]);
+      }
+    },
+    [agent, onSwitchWorktree],
+  );
+  const showBrowserInfo = useCallback(async () => {
+    try {
+      const info = await requestBrowserInfo();
+      setItems((prev) => [
+        ...prev,
+        {
+          kind: "command",
+          title: "Lucky browser bridge",
+          rows: [
+            { label: "port", value: String(info.port) },
+            { label: "token", value: info.token },
+          ],
+        },
+        {
+          kind: "notice",
+          tone: "info",
+          text: "Load the Lucky extension, open its options, and enter this port and token. The bridge only listens on 127.0.0.1.",
+        },
+      ]);
+    } catch (error) {
+      setItems((prev) => [
+        ...prev,
+        {
+          kind: "error",
+          text: `Could not start the browser bridge: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ]);
+    }
+  }, [requestBrowserInfo]);
   const [input, setInput] = useState("");
   // Large pastes are held out of the visible input behind a `[Pasted text #N]`
   // placeholder and spliced back in at submit time (see lib/paste.ts). Kept in
@@ -277,6 +446,15 @@ export function App({
   }, []);
 
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null);
+  // One context-full notice per session; the footer meter stays live.
+  const contextWarnedRef = useRef(false);
+  useEffect(() => {
+    if (contextWarnedRef.current) return;
+    const warning = contextWarning(contextStatus);
+    if (!warning) return;
+    contextWarnedRef.current = true;
+    setItems((prev) => [...prev, { kind: "notice", tone: "info", text: warning }]);
+  }, [contextStatus]);
   // True while a manual /compact is summarizing. Drives a "compacting…"
   // indicator and blocks re-running /compact (which otherwise fired several
   // times because the long await gave no feedback). compactStartedAt anchors
@@ -927,6 +1105,9 @@ export function App({
           },
           ui: {
             tokenCosts,
+            forkSession,
+            worktree: worktreeSession,
+            browserInfo: showBrowserInfo,
             openMcpPanel: mcpPanel.open,
             openSkillPanel: skillPanel.open,
             openAgentsPanel: agentsPanel.open,
@@ -990,7 +1171,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

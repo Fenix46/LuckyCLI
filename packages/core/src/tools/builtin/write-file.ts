@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { fileDiff } from "../../diff.js";
+import { describeFileStateFailure } from "../file-state.js";
 import { tryReadTextViaContext, writeTextViaContext } from "../file-access.js";
 import { assertParentPathInsideCwd, resolveInsideCwd, resolveWritableInsideCwd } from "../path.js";
 import { defineTool } from "../types.js";
@@ -34,6 +35,14 @@ export const writeFileTool = defineTool({
         isError: true,
       };
     }
+    // Overwriting an existing file is a blind mutation unless the model has
+    // seen that exact content. A new file needs no prior read.
+    if (ctx.fileState && original !== undefined) {
+      const state = ctx.fileState.check(abs, original);
+      if (!state.ok) {
+        return { content: describeFileStateFailure(path, state.reason), isError: true };
+      }
+    }
     if (ctx.writeTextFile) {
       await writeTextViaContext(ctx, abs, content);
     } else {
@@ -54,6 +63,7 @@ export const writeFileTool = defineTool({
         throw err;
       }
     }
+    ctx.fileState?.recordWrite(abs, content);
     ctx.onFilesChanged?.([path]);
     const diff = fileDiff(path, original ?? "", content, { created: original === undefined });
     return {

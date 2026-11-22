@@ -34,6 +34,7 @@ const GROUPS: ToolGroup[] = [
       { name: "read_file", text: "read a file (or a line range) before reasoning about or editing it." },
       { name: "edit_file", text: "make a targeted, partial edit to an existing file by matching exact text." },
       { name: "apply_patch", text: "apply a multi-hunk diff in one call when several edits across a file go together." },
+      { name: "notebook_edit", text: "replace, insert or delete a cell in a Jupyter notebook; read it first." },
       { name: "write_file", text: "create a new file or fully rewrite one. Never use it for a small change to an unread file." },
     ],
   },
@@ -85,9 +86,14 @@ const GROUPS: ToolGroup[] = [
     heading: "## Other",
     intro: "",
     tools: [
+      { name: "tool_search", text: "find a tool that is not in your list (MCP servers and other deferred tools); read its schema and call it in your next step." },
+      { name: "web_search", text: "search the web for current information when the answer is newer than your knowledge or outside the project." },
       { name: "http_fetch", text: "fetch external public content only when the task needs something not already in the project." },
       { name: "project_memory", text: "store durable, project-specific facts that should persist across sessions — never guesses, transient tasks, or secrets." },
       { name: "ask_user", text: "ask the human only for a genuine decision they must make, not for facts the repository can answer." },
+      { name: "computer", text: "on macOS, control an app through Accessibility: list apps/windows, read a text UI tree, click, type, press a key, screenshot." },
+      { name: "browser", text: "use the user's Chrome via the Lucky extension: tabs, page text, click, type; needs /browser setup." },
+      { name: "lsp", text: "ask the project's language server for diagnostics, hover, definition, references or symbols; more precise than grep for typed code." },
     ],
   },
 ];
