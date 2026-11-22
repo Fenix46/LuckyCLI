@@ -344,7 +344,7 @@ estimate; invalidate only what a newly registered tool changes.
 
 ## T8 — Un solo conteggio del transcript per step
 
-**Stato:** da fare.
+**Stato:** fatto (commit di chiusura).
 
 **Scope**
 

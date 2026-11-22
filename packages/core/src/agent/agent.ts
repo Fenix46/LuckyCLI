@@ -355,8 +355,8 @@ export class Agent {
    * the transcript we sent) plus an estimate of what changed since; only
    * falls back to a real count before any usage has been observed.
    */
-  private async cheapContextStatus(): Promise<ContextStatus> {
-    if (this.usageAnchor) return this.estimatedStatus();
+  private async cheapContextStatus(historyChars?: number): Promise<ContextStatus> {
+    if (this.usageAnchor) return this.estimatedStatus(historyChars);
     return this.contextStatus();
   }
 
@@ -365,8 +365,7 @@ export class Agent {
    * estimated change since it, or a pure estimate of the whole request when
    * nothing has been measured yet (e.g. a server that never reports usage).
    */
-  private estimatedStatus(): ContextStatus {
-    const historyChars = transcriptChars(this.history);
+  private estimatedStatus(historyChars = transcriptChars(this.history)): ContextStatus {
     const anchor = this.usageAnchor;
     if (anchor) {
       if (historyChars === anchor.historyChars) return this.statusFor(anchor.usedTokens, "provider");
@@ -492,12 +491,16 @@ export class Agent {
       // user turn can't be compacted (the current turn is always kept). So
       // once the transcript gets large, clear the bodies of old tool results:
       // the model keeps the call and a short note, and can re-run the tool.
-      const pruneStatus = await this.cheapContextStatus();
+      // One O(history) count serves both checks; pruning invalidates it, so
+      // recompute only when the transcript actually shrank.
+      let stepChars = transcriptChars(this.history);
+      const pruneStatus = await this.cheapContextStatus(stepChars);
       if (this.shouldPruneToolResults(pruneStatus) && this.pruneOldToolResults() > 0) {
-        yield { type: "context", status: await this.cheapContextStatus() };
+        stepChars = transcriptChars(this.history);
+        yield { type: "context", status: await this.cheapContextStatus(stepChars) };
       }
 
-      const midStatus = await this.cheapContextStatus();
+      const midStatus = await this.cheapContextStatus(stepChars);
       if (this.shouldCompact(midStatus) && this.grewSinceCompaction(midStatus, compactedAt)) {
         // Mid-turn, the current turn itself may be the bulk of the context
         // (one request driving a long tool loop), so compaction may also
