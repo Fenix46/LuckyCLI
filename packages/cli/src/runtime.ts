@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import {
   Agent,
+  createHookRunner,
+  loadHookConfig,
   type ResumeCacheHints,
   McpManager,
   appendProjectInstructionsToSystemPrompt,
@@ -237,6 +239,11 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   const provider = getProvider(opts.provider, opts.credentials);
   const cwd = opts.cwd ?? process.cwd();
   const projectMemory = ensureProjectMemoryFile(cwd);
+  const hookConfig = loadHookConfig(cwd);
+  const hooks = createHookRunner(hookConfig.config, {
+    cwd,
+    ...(opts.cacheHints?.promptCacheKey ? { sessionId: opts.cacheHints.promptCacheKey } : {}),
+  });
   const tools = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
   const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills, cwd);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
@@ -297,6 +304,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
       return graphEnricher.enrich(text);
     },
     ...(opts.browser ? { browser: opts.browser } : {}),
+    hooks,
     ...(opts.readTextFile ? { readTextFile: opts.readTextFile } : {}),
     ...(opts.writeTextFile ? { writeTextFile: opts.writeTextFile } : {}),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),

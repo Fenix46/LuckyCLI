@@ -38,6 +38,12 @@ function harness(overrides: {
     listTasks: vi.fn(() => []),
     resetTaskList: vi.fn(),
     loadConfig: vi.fn(() => ({})),
+    loadHooks: vi.fn(() => ({
+      config: {},
+      sources: [],
+      errors: [],
+      disabled: false,
+    })),
     copyToClipboard: vi.fn(async () => {}),
     ...overrides.deps,
   } as BasicCommandDeps;
@@ -102,6 +108,30 @@ describe("/fork", () => {
     h.run("/fork", "0");
     expect(h.ui.forkSession).not.toHaveBeenCalled();
     expect(h.emitted.at(-1)).toMatchObject({ kind: "error" });
+  });
+});
+
+describe("/hooks", () => {
+  it("reports when no hook is configured", async () => {
+    const h = harness();
+    await h.run("/hooks");
+    expect(h.emitted.at(-1)).toMatchObject({ kind: "notice" });
+  });
+
+  it("lists events and reports config errors", async () => {
+    const h = harness({
+      deps: {
+        loadHooks: vi.fn(() => ({
+          config: { PreToolUse: [{ matcher: "exec", hooks: [{ type: "prompt" as const, prompt: "x" }] }] },
+          sources: [{ path: ".lucky/hooks.json", events: 1 }],
+          errors: ["bad matcher"],
+          disabled: false,
+        })),
+      },
+    });
+    await h.run("/hooks");
+    expect(h.emitted[0]).toMatchObject({ kind: "command", title: "Hook config errors" });
+    expect(h.emitted.at(-1)).toMatchObject({ kind: "command", title: "Lifecycle hooks" });
   });
 });
 

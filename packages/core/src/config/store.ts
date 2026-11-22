@@ -20,6 +20,7 @@ import type { McpServerConfig } from "../mcp/types.js";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
 import type { ToolPermissionPolicy } from "../tools/permissions.js";
 import type { CommandRules } from "../tools/command-policy.js";
+import type { HookConfig } from "../hooks/types.js";
 
 export interface StoredConfig {
   provider?: ProviderId;
@@ -57,6 +58,8 @@ export interface StoredConfig {
   mcp?: Record<string, McpServerConfig>;
   /** Per-folder trust + graph state, keyed by absolute path. See project-trust.ts. */
   projects?: Record<string, ProjectRecord>;
+  /** Lifecycle hooks (global). A project can add more in .lucky/hooks.json. */
+  hooks?: HookConfig;
 }
 
 /**

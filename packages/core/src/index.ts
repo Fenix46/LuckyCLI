@@ -181,6 +181,32 @@ export {
   removeSessionCheckpoint,
 } from "./session/store.js";
 
+// Lifecycle hooks.
+export {
+  HOOK_EVENTS,
+  EMPTY_HOOK_RESULT,
+  createHookRunner,
+  describeHookConfig,
+  isHookEvent,
+  loadHookConfig,
+  parseHookStdout,
+} from "./hooks/index.js";
+export type {
+  HookCommand,
+  HookConfig,
+  HookConfigSource,
+  HookEvent,
+  HookHandler,
+  HookHttp,
+  HookInput,
+  HookMatcher,
+  HookPrompt,
+  HookResult,
+  HookRunner,
+  HookRunnerOptions,
+  LoadedHookConfig,
+} from "./hooks/index.js";
+
 // Git worktrees.
 export {
   WORKTREE_DIR,

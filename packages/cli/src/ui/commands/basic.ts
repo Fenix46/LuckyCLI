@@ -1,6 +1,8 @@
 import {
   PROVIDER_CATALOG,
+  describeHookConfig,
   getReasoningEffort,
+  loadHookConfig,
   getThinkingEnabled,
   listSessions,
   listTasks,
@@ -21,6 +23,8 @@ export interface BasicCommandDeps {
   listTasks: typeof listTasks;
   resetTaskList: typeof resetTaskList;
   loadConfig: typeof loadStoredConfig;
+  /** Read global + project hook config (injectable for /hooks tests). */
+  loadHooks: typeof loadHookConfig;
   /** Put text on the system clipboard (OSC 52 / tmux / native helper). */
   copyToClipboard: (text: string) => Promise<void>;
 }
@@ -30,6 +34,7 @@ const defaultDeps: BasicCommandDeps = {
   listTasks,
   resetTaskList,
   loadConfig: loadStoredConfig,
+  loadHooks: loadHookConfig,
   copyToClipboard: async (text) => {
     const sequence = await setClipboard(text);
     if (sequence) process.stdout.write(sequence);
@@ -106,6 +111,52 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
       description: "Show the Lucky Chrome extension port and token",
       async run(_args, ctx) {
         await ctx.ui.browserInfo();
+      },
+    },
+    {
+      name: "/hooks",
+      description: "List configured lifecycle hooks",
+      async run(_args, ctx) {
+        const cwd = ctx.agent.workingDirectory ?? process.cwd();
+        const loaded = deps.loadHooks(cwd);
+        if (loaded.errors.length > 0) {
+          ctx.emit({
+            kind: "command",
+            title: "Hook config errors",
+            rows: loaded.errors.map((error) => ({ label: "error", value: error })),
+          });
+        }
+        if (loaded.disabled) {
+          ctx.emit({
+            kind: "notice",
+            tone: "info",
+            text: "Hooks are disabled by LUCKY_DISABLE_HOOKS.",
+          });
+          return;
+        }
+        const events = describeHookConfig(loaded.config);
+        if (events.length === 0) {
+          ctx.emit({
+            kind: "notice",
+            tone: "info",
+            text: "No hooks configured. Add them under \"hooks\" in ~/.luckycli/config.json or in .lucky/hooks.json.",
+          });
+          return;
+        }
+        ctx.emit({
+          kind: "command",
+          title: "Lifecycle hooks",
+          rows: [
+            ...loaded.sources.map((source) => ({
+              label: "source",
+              value: `${source.path} (${source.events})`,
+            })),
+            ...events.map((event) => ({
+              label: event.event,
+              value: `${event.handlers} handler${event.handlers === 1 ? "" : "s"} · ${event.matchers.join(", ")}`,
+            })),
+          ],
+        });
       },
     },
     {

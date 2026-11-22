@@ -344,6 +344,7 @@ export function Root({
 
   useEffect(() => {
     return () => {
+      void runtimeRef.current?.agent.endSession();
       void runtimeRef.current?.mcpManager?.close();
       void browserRef.current?.close();
     };

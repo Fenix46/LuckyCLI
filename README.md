@@ -332,6 +332,7 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/graph` | Build or refresh the knowledge graph |
 | `/worktree [list\|enter [name]\|exit]` | Work in an isolated Lucky git worktree |
 | `/browser` | Show the Lucky Chrome extension's bridge port and token |
+| `/hooks` | List configured lifecycle hooks and config errors |
 | `/skill` | Skills panel; `/skill use <name>` runs one (alias `/skills`) |
 | `/mcp` | MCP panel; `/mcp add` installs from the registry or adds your own server |
 | `/theme` | Choose the interface theme |
@@ -379,6 +380,48 @@ Accessibility permission for the terminal running Lucky.
 `web_search` is configured with `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, or
 `LUCKY_WEB_SEARCH_URL` + `LUCKY_WEB_SEARCH_API_KEY`; set
 `LUCKY_WEB_SEARCH_PROVIDER` to force a provider when more than one is configured.
+
+## Hooks
+
+Hooks run your code at a named point in the agent loop and can block the action,
+rewrite tool input or add context. Configure them globally under `hooks` in
+`~/.luckycli/config.json`, or per project in `.lucky/hooks.json` (gitignored):
+
+```json
+{
+  "PreToolUse": [
+    {
+      "matcher": "exec",
+      "hooks": [
+        { "type": "command", "command": "node .lucky/guard.mjs", "timeout": 10 }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    { "matcher": "edit_file", "hooks": [{ "type": "command", "command": "npm run lint:file" }] }
+  ]
+}
+```
+
+A command hook receives the event JSON on stdin (`session_id`, `cwd`,
+`hook_event_name`, `tool_name`, `tool_input`, `tool_response`, `prompt`). It can
+answer with JSON on stdout:
+
+```json
+{
+  "decision": "block",
+  "reason": "this command is not allowed",
+  "additionalContext": "context shown to the model",
+  "updatedInput": { "command": "ls" }
+}
+```
+
+Exit code `2` also blocks. Claude Code's `hookSpecificOutput` envelope is
+accepted, so many existing hooks work unchanged. Types are `command`, `http`
+(POST JSON) and `prompt` (inject text). Wired events: `SessionStart`,
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`,
+`PreCompact`, `PostCompact`, `SessionEnd`. `LUCKY_DISABLE_HOOKS=1` disables all
+hooks; `/hooks` shows what is loaded and validates the files.
 
 `browser` needs the bundled MV3 extension in `packages/chrome-extension`. Run
 `/browser` to start the loopback bridge and print its port and token, load the

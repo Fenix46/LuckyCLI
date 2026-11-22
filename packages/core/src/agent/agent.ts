@@ -39,8 +39,10 @@ import { FileStateLedger } from "../tools/file-state.js";
 import { classifyCommandSemantics } from "../tools/builtin/exec.js";
 import { classifyPowerShellCommandSemantics } from "../tools/builtin/powershell.js";
 import { ownershipOverlaps } from "../agents/ownership.js";
+import type { HookResult, HookRunner } from "../hooks/types.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
+const MAX_STOP_HOOK_RUNS = 3;
 const PLAN_MODE_PROMPT = `# Plan mode
 Plan mode is on. Do not edit files, run mutating commands, or change the workspace. Explore with read-only tools and read-only shell commands, resolve open questions with ask_user, then call present_plan. When the user accepts the plan, plan mode ends and you can implement its tasks. If they ask for changes, revise the plan and present it again.`;
 // Compaction summaries are a mechanical, low-stakes task: run them on the
@@ -127,6 +129,8 @@ export interface AgentConfig {
   allowedSkills?: readonly string[];
   /** Optional browser bridge (Lucky Chrome extension). */
   browser?: BrowserBridge;
+  /** Optional lifecycle hooks (see hooks/types.ts). */
+  hooks?: HookRunner;
   /**
    * Optional host-backed file access forwarded to the file tools: lets a host
    * (e.g. an ACP editor) serve reads from unsaved buffers and receive writes.
@@ -210,6 +214,8 @@ export class Agent {
   private readonly onSkillLoaded: ((id: string) => void) | undefined;
   private readonly allowedSkills: readonly string[] | undefined;
   private readonly browser: BrowserBridge | undefined;
+  private readonly hooks: HookRunner | undefined;
+  private sessionStarted = false;
   private readonly readTextFile: ((absPath: string) => Promise<string | null>) | undefined;
   private readonly writeTextFile: ((absPath: string, content: string) => Promise<void>) | undefined;
   private readonly enrichTurn: ((userText: string) => Promise<string | null> | string | null) | undefined;
@@ -277,6 +283,7 @@ export class Agent {
     this.onSkillLoaded = cfg.onSkillLoaded;
     this.allowedSkills = cfg.allowedSkills;
     this.browser = cfg.browser;
+    this.hooks = cfg.hooks;
     this.totalUsage = { ...this.totalUsage, ...(cfg.initialUsage ?? {}) };
     this.retryCount = cfg.initialRetryCount ?? 0;
     this.readTextFile = cfg.readTextFile;
@@ -442,6 +449,32 @@ export class Agent {
         }
       }
     }
+    // SessionStart runs once per agent, before the first user turn. Its context
+    // rides with that turn; a block stops the session before any work.
+    if (!this.sessionStarted) {
+      this.sessionStarted = true;
+      const started = await this.runHook("SessionStart", { source: "startup" });
+      if (started.blocked) {
+        yield { type: "error", message: `Session blocked by hook: ${hookReason(started)}` };
+        return;
+      }
+      if (started.additionalContext) {
+        content.push({ type: "text", text: hookContext(started.additionalContext) });
+      }
+    }
+    const promptText = content
+      .filter((part): part is TextPart => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    const submitted = await this.runHook("UserPromptSubmit", { prompt: promptText });
+    if (submitted.blocked) {
+      yield { type: "error", message: `Prompt blocked by hook: ${hookReason(submitted)}` };
+      return;
+    }
+    if (submitted.additionalContext) {
+      content.push({ type: "text", text: hookContext(submitted.additionalContext) });
+    }
+
     this.history.push({ role: "user", content });
     // Failure tracking is per turn: a new user message resets the counters so
     // a tool that legitimately recovered isn't throttled by an old failure.
@@ -449,6 +482,8 @@ export class Agent {
     // Files edited this turn, and how many end-of-turn checks already ran.
     const editedThisTurn = new Set<string>();
     let autoChecks = 0;
+    // Stop hooks may ask the model to keep working; bound that loop.
+    let stopHookRuns = 0;
 
     // Use the cheap, already-known context size for the routine pre-turn check.
     // The previous stream's final usage measured the full transcript we sent, so
@@ -673,6 +708,28 @@ export class Agent {
               isError: true,
             })),
           });
+        }
+        // A Stop hook can reject the stop and ask the model to continue (e.g.
+        // "tests still fail"). Bound it so a faulty hook cannot loop forever.
+        if (this.hooks?.has("Stop") && stopHookRuns < MAX_STOP_HOOK_RUNS) {
+          const stopped = await this.runHook("Stop", {});
+          if (stopped.blocked || stopped.additionalContext) {
+            stopHookRuns += 1;
+            this.history.push({
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: hookContext(
+                    stopped.blocked
+                      ? stopped.reason ?? "Keep working until the task is complete."
+                      : stopped.additionalContext!,
+                  ),
+                },
+              ],
+            });
+            continue;
+          }
         }
         // The stream's final usage reports input_tokens for the full transcript
         // we just sent, so it is an authoritative measure of used context —
@@ -961,32 +1018,94 @@ export class Agent {
     return semantics.category === "read_only";
   }
 
-  /** Execute one approved tool call with the agent's full tool context. */
-  private runTool(
+  /**
+   * Execute one approved tool call with the agent's full tool context.
+   * PreToolUse can rewrite the input or block the call; PostToolUse (or
+   * PostToolUseFailure) can add context to the result.
+   */
+  private async runTool(
     call: ToolCallPart,
     signal?: AbortSignal,
     onOutput?: (chunk: string) => void,
   ): Promise<ToolResult> {
-    return this.tools.execute(call.name, call.arguments, {
-      cwd: this.cwd,
-      readLedger: this.readLedger,
-      fileState: this.fileState,
-      toolCallId: call.id,
-      toolSearch: (query, maxResults) => this.tools.searchDeferred(query, maxResults),
-      activateTools: (names) => this.tools.activate(names),
-      ...(signal ? { signal } : {}),
-      ...(onOutput ? { onOutput } : {}),
-      ...(this.askUser ? { askUser: this.askUser } : {}),
-      ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
-      ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
-      ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
-      ...(this.onWorkspaceChanged ? { onWorkspaceChanged: this.onWorkspaceChanged } : {}),
-      ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
-      ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
-      ...(this.browser ? { browser: this.browser } : {}),
-      ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
-      ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
+    const pre = await this.runHook("PreToolUse", {
+      toolName: call.name,
+      toolInput: call.arguments,
     });
+    if (pre.blocked) {
+      return {
+        content: `Tool '${call.name}' blocked by hook: ${hookReason(pre)}`,
+        isError: true,
+      };
+    }
+    let input: unknown = pre.updatedInput ?? call.arguments;
+    let result: ToolResult;
+    try {
+      result = await this.tools.execute(call.name, input, {
+        cwd: this.cwd,
+        readLedger: this.readLedger,
+        fileState: this.fileState,
+        toolCallId: call.id,
+        toolSearch: (query, maxResults) => this.tools.searchDeferred(query, maxResults),
+        activateTools: (names) => this.tools.activate(names),
+        ...(signal ? { signal } : {}),
+        ...(onOutput ? { onOutput } : {}),
+        ...(this.askUser ? { askUser: this.askUser } : {}),
+        ...(this.presentPlan ? { presentPlan: this.presentPlan } : {}),
+        ...(this.runSubAgent ? { runSubAgent: this.runSubAgent } : {}),
+        ...(this.onFilesChanged ? { onFilesChanged: this.onFilesChanged } : {}),
+        ...(this.onWorkspaceChanged ? { onWorkspaceChanged: this.onWorkspaceChanged } : {}),
+        ...(this.onSkillLoaded ? { onSkillLoaded: this.onSkillLoaded } : {}),
+        ...(this.allowedSkills ? { allowedSkills: this.allowedSkills } : {}),
+        ...(this.browser ? { browser: this.browser } : {}),
+        ...(this.readTextFile ? { readTextFile: this.readTextFile } : {}),
+        ...(this.writeTextFile ? { writeTextFile: this.writeTextFile } : {}),
+      });
+    } catch (error) {
+      result = {
+        content: `Tool '${call.name}' threw: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true,
+      };
+    }
+
+    const post = await this.runHook(result.isError ? "PostToolUseFailure" : "PostToolUse", {
+      toolName: call.name,
+      toolInput: input,
+      toolResponse: { content: result.content, isError: result.isError === true },
+    });
+    const extra = [pre.additionalContext, post.additionalContext].filter(Boolean).join("\n");
+    const warnings = [...pre.warnings, ...post.warnings];
+    if (extra || warnings.length > 0) {
+      const notes = [
+        ...(extra ? [extra] : []),
+        ...warnings.map((warning) => `[hook warning] ${warning}`),
+      ].join("\n");
+      result = { ...result, content: `${result.content}\n\n${hookContext(notes)}` };
+    }
+    return result;
+  }
+
+  /** Run a configured hook without letting a broken one crash the agent. */
+  private async runHook(
+    event: Parameters<HookRunner["run"]>[0],
+    payload: Parameters<HookRunner["run"]>[1],
+  ): Promise<HookResult> {
+    if (!this.hooks?.has(event)) return { blocked: false, warnings: [] };
+    try {
+      return await this.hooks.run(event, payload);
+    } catch (error) {
+      return {
+        blocked: false,
+        warnings: [`${event} hook failed: ${error instanceof Error ? error.message : String(error)}`],
+      };
+    }
+  }
+
+  /** Run SessionEnd once, e.g. when the host exits. */
+  async endSession(): Promise<void> {
+    if (!this.sessionStarted) return;
+    this.sessionStarted = false;
+    await this.runHook("SessionEnd", { source: "exit" });
   }
 
   /**
@@ -1271,6 +1390,9 @@ export class Agent {
       };
     }
 
+    const preCompact = await this.runHook("PreCompact", {
+      source: opts.force ? "manual" : "auto",
+    });
     let summary: string;
     let kept: Message[];
     if (useStepSplit) {
@@ -1282,6 +1404,9 @@ export class Agent {
     } else {
       summary = await this.summarizeMessages(this.history.slice(0, splitIndex));
       kept = this.history.slice(splitIndex);
+    }
+    if (preCompact.additionalContext) {
+      summary = `${summary}\n\n${preCompact.additionalContext}`;
     }
     const removedMessages = this.history.length - kept.length;
     const summaryMessage: Message = {
@@ -1300,6 +1425,7 @@ export class Agent {
     this.fileState.clear();
     // The transcript was rewritten wholesale; any memoized count is now stale.
     this.countCache = undefined;
+    await this.runHook("PostCompact", { source: opts.force ? "manual" : "auto" });
     const after = await this.contextStatus();
     return {
       beforeTokens,
@@ -1691,4 +1817,14 @@ function serializePart(part: ContentPart): string {
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n[truncated ${text.length - max} chars during compaction]`;
+}
+
+/** A hook's block reason, with a neutral fallback when it gave none. */
+function hookReason(result: HookResult): string {
+  return result.reason?.trim() || "no reason given";
+}
+
+/** Wrap hook-provided text so the model can tell it apart from the user. */
+function hookContext(text: string): string {
+  return `<hook-context>\n${text}\n</hook-context>`;
 }

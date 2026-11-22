@@ -30,6 +30,7 @@ const MENU_ORDER = [
   "/graph",
   "/worktree",
   "/browser",
+  "/hooks",
   "/task",
   "/keys",
   "/exit",

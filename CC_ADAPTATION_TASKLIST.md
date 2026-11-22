@@ -453,6 +453,40 @@ Add a loopback, token-authenticated bridge and an MV3 extension that exposes
 tab management, page snapshots, clicks and typing to the browser tool.
 ```
 
+## T19 — Hook lifecycle
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- Vocabolario completo dei 33 eventi in `hooks/types.ts`; handler `command`,
+  `http` e `prompt`, con matcher regex sul nome del tool.
+- Runner: payload JSON su stdin, timeout (default 60 s, max 600 s), output JSON
+  flat o `hookSpecificOutput` di Claude Code, exit code 2 = blocco, errori
+  dell'handler come warning (mai crash), `updatedInput`, `additionalContext`.
+- Config: `hooks` in `~/.luckycli/config.json` + `.lucky/hooks.json`
+  (gitignored, oppure `LUCKY_HOOKS_FILE`), validazione con errori leggibili,
+  `LUCKY_DISABLE_HOOKS` come kill switch.
+- Agent: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+  `PostToolUseFailure`, `Stop` (max 3 richieste di continuazione),
+  `PreCompact`/`PostCompact`, `SessionEnd` (`endSession()`).
+- TUI: `/hooks` elenca sorgenti, eventi, matcher e handler; README e test.
+
+**Limiti**
+
+- `agent`, `mcp_tool` e gli eventi non elencati sopra sono nel vocabolario ma
+  non ancora eseguiti.
+- Non c'è un editor interattivo di hook: si modificano i JSON.
+
+**Commit**
+
+```text
+feat(hooks): run lifecycle hooks around turns and tools
+
+Load global and project hook configs, execute command/http/prompt handlers with
+a JSON payload, and let them block, rewrite input or add context.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:
