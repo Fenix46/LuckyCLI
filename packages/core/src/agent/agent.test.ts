@@ -129,6 +129,19 @@ const echo = defineTool({
   },
 });
 
+/** A realistic usage for a mock: about 4 chars per token of what was sent. */
+function approxTokens(messages: Message[]): number {
+  let chars = 0;
+  for (const message of messages) {
+    for (const part of message.content) {
+      if (part.type === "text") chars += part.text.length;
+      else if (part.type === "tool_result") chars += part.content.length;
+      else if (part.type === "tool_call") chars += JSON.stringify(part.arguments).length;
+    }
+  }
+  return Math.max(1, Math.round(chars / 4));
+}
+
 async function collect(it: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
   const out: AgentEvent[] = [];
   for await (const e of it) out.push(e);
@@ -807,11 +820,11 @@ describe("Agent loop", () => {
         seen.push(messages);
         call += 1;
         if (call > steps) {
-          yield { textDelta: "done", finishReason: "stop", usage: { inputTokens: 900, outputTokens: 5 } };
+          yield { textDelta: "done", finishReason: "stop", usage: { inputTokens: approxTokens(messages), outputTokens: 5 } };
           return;
         }
         yield { toolCall: { type: "tool_call", id: `c${call}`, name: "bulky", arguments: { n: call } } };
-        yield { finishReason: "tool_calls", usage: { inputTokens: 900, outputTokens: 5 } };
+        yield { finishReason: "tool_calls", usage: { inputTokens: approxTokens(messages), outputTokens: 5 } };
       }
       async generate(): Promise<GenerationResponse> {
         return { content: [], finishReason: "stop" };
@@ -827,7 +840,9 @@ describe("Agent loop", () => {
       provider: new LoopProvider(),
       model: "mock",
       tools: new ToolRegistry().register(bulky),
-      compaction: { maxContextTokens: 1_000 },
+      // ~17K tokens by the last step: past the clearing point (half the
+      // trigger), never at the compaction trigger itself.
+      compaction: { maxContextTokens: 28_000 },
     });
 
     await collect(agent.send("go"));
@@ -872,12 +887,21 @@ describe("Agent loop", () => {
         read("r3"),
         [{ textDelta: "done", finishReason: "stop" }],
       ];
+      // Report a usage that matches what was actually sent.
+      class SizedProvider extends ScriptedProvider {
+        override async *generateStream(messages: Message[]): AsyncGenerator<StreamChunk> {
+          for await (const chunk of super.generateStream()) {
+            yield chunk.usage ? { ...chunk, usage: { inputTokens: approxTokens(messages), outputTokens: 5 } } : chunk;
+          }
+        }
+      }
       const agent = new Agent({
-        provider: new ScriptedProvider(script),
+        provider: new SizedProvider(script),
         model: "mock",
         cwd: dir,
         tools: new ToolRegistry().register(readFileTool).register(bulky),
-        compaction: { maxContextTokens: 1_000 },
+        // ~16K tokens before r3: old results get cleared, nothing compacts.
+        compaction: { maxContextTokens: 30_000 },
       });
 
       await collect(agent.send("go"));
@@ -1799,5 +1823,224 @@ describe("parallel claimed calls", () => {
       "start:c", "end:c", "start:d", "end:d",
       "start:e", "end:e",
     ]);
+  });
+});
+
+describe("context accounting and compaction", () => {
+  const bigResult = defineTool({
+    name: "big",
+    description: "Returns a lot of text.",
+    schema: z.object({ n: z.number() }),
+    async execute({ n }) {
+      return { content: `result ${n} ${"x".repeat(8_000)}` };
+    },
+  });
+
+  /** Provider driven by a step function; usage matches what was sent unless `usage` is false. */
+  class StepProvider implements IProvider {
+    readonly info: ProviderInfo;
+    readonly seen: Message[][] = [];
+    readonly prompts: string[] = [];
+    private call = 0;
+    constructor(
+      private readonly step: (call: number, messages: Message[]) => StreamChunk[],
+      opts: { contextWindow?: number; usage?: boolean } = {},
+    ) {
+      this.info = {
+        ...INFO,
+        id: "openai-compatible",
+        usageTokensIncludeCache: true,
+        ...(opts.contextWindow
+          ? { models: { mock: { id: "mock", contextWindow: opts.contextWindow, maxOutputTokens: 100 } } }
+          : {}),
+      };
+      this.reportUsage = opts.usage !== false;
+    }
+    private readonly reportUsage: boolean;
+    async *generateStream(messages: Message[]): AsyncGenerator<StreamChunk> {
+      this.seen.push([...messages]);
+      for (const chunk of this.step(this.call++, messages)) {
+        if (!chunk.finishReason || !this.reportUsage) {
+          yield chunk;
+          continue;
+        }
+        yield { ...chunk, usage: { inputTokens: approxTokens(messages), outputTokens: 5 } };
+      }
+    }
+    async generate(messages: Message[]): Promise<GenerationResponse> {
+      const first = messages[0]?.content[0];
+      this.prompts.push(first?.type === "text" ? first.text : "");
+      return { content: [{ type: "text", text: "summary of earlier work" }], finishReason: "stop" };
+    }
+    async countTokens(): Promise<TokenUsage | undefined> {
+      return undefined;
+    }
+    async healthCheck() {
+      return { ok: true };
+    }
+  }
+
+  const callBig = (n: number): StreamChunk[] => [
+    { toolCall: { type: "tool_call", id: `c${n}`, name: "big", arguments: { n } } },
+    { finishReason: "tool_calls" },
+  ];
+  const done: StreamChunk[] = [{ textDelta: "done", finishReason: "stop" }];
+
+  function toolPairsAreIntact(messages: readonly Message[]): boolean {
+    const calls = new Set<string>();
+    for (const message of messages) {
+      for (const part of message.content) {
+        if (part.type === "tool_call") calls.add(part.id);
+        if (part.type === "tool_result" && !calls.has(part.toolCallId)) return false;
+      }
+    }
+    return true;
+  }
+
+  it("counts tool results added since the last measured usage", async () => {
+    // The last usage measured the request *before* the tool ran. A large
+    // result appended since must count toward the next request's size, or
+    // compaction only notices after the window has already overflowed.
+    const provider = new StepProvider((call) => (call === 0 ? done : call === 1 ? callBig(1) : done), {
+      contextWindow: 3_000,
+    });
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(bigResult),
+      compaction: { thresholdRatio: 0.5, keepRecentTurns: 1 },
+    });
+
+    await collect(agent.send("first"));
+    const events = await collect(agent.send("second"));
+
+    // Every measured usage was small (< 100 tokens); only the ~2K-token
+    // result pushed the context past the trigger.
+    expect(events.some((e) => e.type === "context_compacted")).toBe(true);
+    expect(provider.seen.at(-1)?.[0]).toMatchObject({ role: "system" });
+  });
+
+  it("estimates the context when the server never reports usage", async () => {
+    const provider = new StepProvider(() => done, { usage: false });
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry(),
+      compaction: { keepRecentTurns: 1, maxContextTokens: 5_000 },
+    });
+
+    const first = await collect(agent.send("y".repeat(30_000)));
+    const status = first.find((e) => e.type === "context");
+    expect(status).toMatchObject({ status: { tokenCounter: "estimate" } });
+
+    const events = await collect(agent.send("next"));
+    const compacted = events.find((e) => e.type === "context_compacted");
+    expect(compacted).toBeDefined();
+    // The post-compaction size reflects the new, shorter transcript.
+    if (compacted?.type === "context_compacted") {
+      expect(compacted.result.afterTokens).toBeLessThan(compacted.result.beforeTokens!);
+    }
+  });
+
+  it("compacts the older steps of one long turn, keeping the request and recent steps", async () => {
+    const steps = 12;
+    const provider = new StepProvider((call) => (call < steps ? callBig(call) : done));
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(bigResult),
+      compaction: { maxContextTokens: 12_000 },
+    });
+
+    const events = await collect(agent.send("refactor everything"));
+
+    expect(events.some((e) => e.type === "context_compacted")).toBe(true);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(agent.messages[0]).toMatchObject({ role: "system" });
+    // The request itself survives verbatim right after the summary.
+    expect(agent.messages[1]).toMatchObject({
+      role: "user",
+      content: [{ type: "text", text: "refactor everything" }],
+    });
+    expect(agent.messages[2]?.role).toBe("assistant");
+    expect(toolPairsAreIntact(agent.messages)).toBe(true);
+    expect(provider.prompts[0]).toContain("still being worked on");
+    // Fewer tool results than steps remain: older ones were summarized.
+    const results = agent.messages.flatMap((m) => m.content).filter((p) => p.type === "tool_result");
+    expect(results.length).toBeLessThan(steps);
+  });
+
+  it("recovers from a context overflow error by compacting and retrying", async () => {
+    let failed = false;
+    const provider = new StepProvider((call) => {
+      if (call === 0) return done;
+      if (call === 1) return callBig(1);
+      if (!failed) {
+        failed = true;
+        throw new Error(
+          "400 This model's maximum context length is 4096 tokens. However, you requested 5000 tokens.",
+        );
+      }
+      return done;
+    });
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(bigResult),
+      compaction: { keepRecentTurns: 1 },
+    });
+
+    await collect(agent.send("first"));
+    const events = await collect(agent.send("second"));
+
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "context_compacted")).toBe(true);
+    expect(events.at(-1)?.type).toBe("turn_end");
+    // The window stated in the error is used from now on.
+    const status = await agent.contextStatus();
+    expect(status.contextWindow).toBe(4_096);
+  });
+
+  it("surfaces the overflow error when there is nothing left to compact", async () => {
+    const provider = new StepProvider(() => {
+      throw new Error("context_length_exceeded");
+    });
+    const agent = new Agent({ provider, model: "mock", tools: new ToolRegistry() });
+
+    const events = await collect(agent.send("hello"));
+
+    expect(events.at(-1)).toMatchObject({ type: "error", message: "context_length_exceeded" });
+    expect(provider.seen).toHaveLength(1);
+  });
+
+  it("summarizes a transcript too large for one request in parts", async () => {
+    const provider = new StepProvider(() => done, { contextWindow: 8_000, usage: false });
+    const old: Message[] = [];
+    for (let i = 0; i < 6; i++) {
+      old.push({ role: "user", content: [{ type: "text", text: `task ${i}` }] });
+      old.push({ role: "assistant", content: [{ type: "text", text: "z".repeat(10_000) }] });
+    }
+    const agent = new Agent({ provider, model: "mock", tools: new ToolRegistry(), messages: old });
+
+    await agent.compactNow();
+
+    expect(provider.prompts.length).toBeGreaterThan(1);
+    expect(provider.prompts[1]).toContain("summary of earlier work");
+    for (const prompt of provider.prompts) expect(prompt.length).toBeLessThan(20_000);
+  });
+
+  it("does not report an empty compaction", async () => {
+    // One long single-step turn: nothing older to summarize, no steps to split.
+    const provider = new StepProvider(() => done, { usage: false });
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry(),
+      compaction: { keepRecentTurns: 1, maxContextTokens: 1_000 },
+    });
+
+    const events = await collect(agent.send("y".repeat(20_000)));
+
+    expect(events.some((e) => e.type === "context_compacted")).toBe(false);
   });
 });

@@ -39,7 +39,7 @@ export interface ContextMeta {
   /** Cumulative cache reads/writes for the session, when reported. */
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
-  /** How the numbers were obtained — "unavailable" means they are estimates. */
+  /** How the numbers were obtained — "estimate" means they include a local estimate. */
   tokenCounter: ContextStatus["tokenCounter"];
 }
 

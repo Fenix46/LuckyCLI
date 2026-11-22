@@ -205,11 +205,18 @@ export class Agent {
   private totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   private retryCount = 0;
   /**
-   * Tokens freed by clearing old tool results since the last observed usage.
-   * The cheap context estimate subtracts it so a just-pruned transcript isn't
-   * judged by the pre-pruning size until the next stream reports the real one.
+   * The last request size the provider measured, and the size (in chars) of
+   * the transcript that request carried. The current context is that measure
+   * plus the estimated size of whatever changed since: tool results and
+   * replies appended after it, minus anything pruned or compacted away. A
+   * bare "last usage" ignores both and goes stale the moment the transcript
+   * changes.
    */
-  private prunedTokensSinceUsage = 0;
+  private usageAnchor: { usedTokens: number; historyChars: number } | undefined;
+  /** Chars per token for this conversation, calibrated from measured usage. */
+  private charsPerToken = CHARS_PER_TOKEN;
+  /** Context window reported by a provider overflow error; overrides the catalog. */
+  private learnedContextWindow: number | undefined;
   /** Stable per-conversation key so providers can route requests to a warm prompt cache. */
   private readonly promptCacheKey: string;
   /** Set until the first turn decides whether a large resumed history gets compacted. */
@@ -285,6 +292,20 @@ export class Agent {
   }
 
   private currentModelInfo(): ModelInfo {
+    const info = this.catalogModelInfo();
+    const learned = this.learnedContextWindow;
+    if (learned === undefined || (info.contextWindow !== undefined && info.contextWindow <= learned)) return info;
+    // The server told us its real limit in an overflow error: trust it over
+    // the catalog or a manually configured window.
+    const { maxInputTokens, ...rest } = info;
+    return {
+      ...rest,
+      contextWindow: learned,
+      ...(maxInputTokens !== undefined && maxInputTokens < learned ? { maxInputTokens } : {}),
+    };
+  }
+
+  private catalogModelInfo(): ModelInfo {
     const known = this.provider.info.models?.[this.model] ?? this.modelInfo;
     // For local providers the chosen model id is arbitrary and absent from the
     // catalog, so apply the provider-wide manual context window when the
@@ -300,17 +321,35 @@ export class Agent {
   }
 
   /**
-   * Context status for the routine per-turn compaction check, without a billed
-   * round-trip. Reuses the last stream's usage (an authoritative measure of the
-   * transcript we sent) when available; only falls back to a real count on the
-   * very first turn, before any usage has been observed.
+   * Context status for the routine compaction checks, without a billed
+   * round-trip. Builds on the last stream's usage (an authoritative measure of
+   * the transcript we sent) plus an estimate of what changed since; only
+   * falls back to a real count before any usage has been observed.
    */
   private async cheapContextStatus(): Promise<ContextStatus> {
-    if (this.lastUsage) {
-      const status = this.contextStatusFromUsage(this.lastUsage, undefined, "provider");
-      return this.prunedTokensSinceUsage > 0 ? withFreedTokens(status, this.prunedTokensSinceUsage) : status;
-    }
+    if (this.usageAnchor) return this.estimatedStatus();
     return this.contextStatus();
+  }
+
+  /**
+   * Context status without asking the provider: the anchored measure plus the
+   * estimated change since it, or a pure estimate of the whole request when
+   * nothing has been measured yet (e.g. a server that never reports usage).
+   */
+  private estimatedStatus(): ContextStatus {
+    const historyChars = transcriptChars(this.history);
+    const anchor = this.usageAnchor;
+    if (anchor) {
+      if (historyChars === anchor.historyChars) return this.statusFor(anchor.usedTokens, "provider");
+      const delta = (historyChars - anchor.historyChars) / this.charsPerToken;
+      return this.statusFor(Math.max(0, Math.round(anchor.usedTokens + delta)), "estimate");
+    }
+    return this.statusFor(Math.round((historyChars + this.overheadChars()) / this.charsPerToken), "estimate");
+  }
+
+  /** Size of what every request carries besides the transcript: system prompt and tool schemas. */
+  private overheadChars(): number {
+    return (this.system?.length ?? 0) + JSON.stringify(this.tools.definitions()).length;
   }
 
   async providerStatus(): Promise<ProviderStatus> {
@@ -381,8 +420,12 @@ export class Agent {
     // (/context, /status) or as a fallback when there is no prior usage yet.
     const beforeStatus = await this.cheapContextStatus();
     yield { type: "context", status: beforeStatus };
-    let compactedThisTurn = false;
-    const resumeCompaction = this.compactOnResume && estimateTokens(this.history) >= RESUME_COMPACT_MIN_TOKENS;
+    // Context size right after the last compaction this turn, if any. A long
+    // tool loop may need several compactions in one turn, but only once the
+    // context has grown meaningfully again — never one per step.
+    let compactedAt: number | undefined;
+    const resumeCompaction =
+      this.compactOnResume && transcriptChars(this.history) / this.charsPerToken >= RESUME_COMPACT_MIN_TOKENS;
     this.compactOnResume = false;
     if (resumeCompaction || this.shouldCompact(beforeStatus)) {
       // compactHistory already measured the post-compaction transcript; reuse
@@ -392,13 +435,13 @@ export class Agent {
       // round-trip on every compaction.
       // A resumed history may be one long turn with no older turns to split
       // off; forcing keeps just the new message verbatim in that case.
-      const { status: afterStatus, ...result } = await this.compactHistory(
-        beforeStatus.usedTokens,
-        { force: resumeCompaction },
-      );
-      yield { type: "context_compacted", result };
-      yield { type: "context", status: afterStatus };
-      compactedThisTurn = true;
+      const compacted = await this.tryCompact(beforeStatus.usedTokens, { force: resumeCompaction });
+      if (compacted) {
+        const { status: afterStatus, ...result } = compacted;
+        yield { type: "context_compacted", result };
+        yield { type: "context", status: afterStatus };
+        compactedAt = afterStatus.usedTokens ?? 0;
+      }
     }
 
     // Unbounded by default: the loop ends when the model stops requesting tools
@@ -425,15 +468,17 @@ export class Agent {
         yield { type: "context", status: await this.cheapContextStatus() };
       }
 
-      if (!compactedThisTurn) {
-        const midStatus = await this.cheapContextStatus();
-        if (this.shouldCompact(midStatus)) {
-          const { status: afterStatus, ...result } = await this.compactHistory(
-            midStatus.usedTokens,
-          );
+      const midStatus = await this.cheapContextStatus();
+      if (this.shouldCompact(midStatus) && this.grewSinceCompaction(midStatus, compactedAt)) {
+        // Mid-turn, the current turn itself may be the bulk of the context
+        // (one request driving a long tool loop), so compaction may also
+        // summarize this turn's older steps — see compactHistory.
+        const compacted = await this.tryCompact(midStatus.usedTokens, { midTurn: true });
+        if (compacted) {
+          const { status: afterStatus, ...result } = compacted;
           yield { type: "context_compacted", result };
           yield { type: "context", status: afterStatus };
-          compactedThisTurn = true;
+          compactedAt = afterStatus.usedTokens ?? 0;
         }
       }
 
@@ -442,6 +487,9 @@ export class Agent {
       const toolCalls: ToolCallPart[] = [];
       const reasoningParts: ReasoningPart[] = [];
       let textBuf = "";
+      // Transcript size this request carries, to anchor the usage it reports.
+      let sentChars = transcriptChars(this.history);
+      let overflowRecovered = false;
 
       try {
         // Transient provider failures (429/5xx, network resets) are retried
@@ -483,6 +531,20 @@ export class Agent {
             }
             break;
           } catch (err) {
+            // The request no longer fits the model's window (the window was
+            // unknown or larger than the server's real limit, or one step
+            // added more than the headroom). Shrink the transcript once and
+            // retry, instead of ending the turn on an error every later
+            // request would repeat.
+            if (!yieldedThisStep && !overflowRecovered && !signal?.aborted && isContextOverflowError(err)) {
+              overflowRecovered = true;
+              this.learnContextWindow(err);
+              const recovered = yield* this.recoverFromOverflow();
+              if (!recovered) throw err;
+              reasoningParts.length = 0;
+              sentChars = transcriptChars(this.history);
+              continue;
+            }
             if (
               yieldedThisStep ||
               signal?.aborted ||
@@ -529,7 +591,7 @@ export class Agent {
         this.history.push({ role: "assistant", content: assistantBlocks });
       }
 
-      if (usage) this.recordUsage(usage);
+      if (usage) this.recordUsage(usage, sentChars);
 
       // About to finish after editing files: in end-of-turn mode, check the
       // work first and hand a failure back to the model instead of ending.
@@ -574,7 +636,7 @@ export class Agent {
         // we just sent, so it is an authoritative measure of used context —
         // mark it "provider" so compaction can act on it even when a provider
         // (e.g. Claude OAuth) cannot pre-count via countTokens.
-        if (usage) yield { type: "context", status: this.contextStatusFromUsage(usage, undefined, "provider") };
+        if (usage) yield { type: "context", status: this.statusFor(this.usedTokensOf(usage), "provider") };
         yield usage ? { type: "turn_end", usage } : { type: "turn_end" };
         return;
       }
@@ -910,24 +972,11 @@ export class Agent {
       }
       if (usage) this.countCache = { fingerprint, usage };
     }
-    const info = this.currentModelInfo();
-    const contextWindow = info.contextWindow;
-    const maxInputTokens = info.maxInputTokens;
-    const maxOutputTokens = info.maxOutputTokens;
-    const base: ContextStatus = {
-      model: this.model,
-      ...(contextWindow !== undefined ? { contextWindow } : {}),
-      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
-      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-      ...(info.source ? { source: info.source } : {}),
-      tokenCounter: "unavailable",
-    };
-
-    // If pre-counting failed, fall back to the last stream usage. That usage
-    // measured the full transcript actually sent, so it is authoritative for
-    // compaction — mark it "provider", not "usage".
-    if (!usage) return this.lastUsage ? this.contextStatusFromUsage(this.lastUsage, undefined, "provider") : base;
-    return this.contextStatusFromUsage(usage, { ...base, tokenCounter: "provider" });
+    // A provider that can't count (no endpoint, e.g. OpenAI-compatible
+    // servers) gets the anchored estimate: the last measured request plus
+    // what changed since — never a stale usage from before a compaction.
+    if (!usage) return this.estimatedStatus();
+    return this.statusFor(this.usedTokensOf(usage), "provider");
   }
 
   /**
@@ -977,6 +1026,63 @@ export class Agent {
     // summarizing until there's history older than the recent turns we keep.
     if (this.history.length <= this.compaction.keepRecentTurns * 2) return false;
     return status.usedTokens >= trigger;
+  }
+
+  /**
+   * After a compaction this turn, compact again only once the context has
+   * grown by a meaningful share of the trigger: a summary that still leaves
+   * the context above it must not be redone on every following step.
+   */
+  private grewSinceCompaction(status: ContextStatus, compactedAt: number | undefined): boolean {
+    if (compactedAt === undefined) return true;
+    const trigger = this.compactionTrigger(status);
+    if (!status.usedTokens || trigger === undefined) return false;
+    return status.usedTokens - compactedAt >= trigger * RECOMPACT_GROWTH_RATIO;
+  }
+
+  /**
+   * Automatic compaction that never breaks the turn: if summarizing fails
+   * (provider error, rate limit) the turn goes on with the full transcript,
+   * and a later check — or the overflow recovery — tries again. Returns
+   * undefined when nothing was compacted.
+   */
+  private async tryCompact(
+    beforeTokens: number | undefined,
+    opts: { force?: boolean; midTurn?: boolean; deep?: boolean },
+  ): Promise<(CompactionResult & { status: ContextStatus }) | undefined> {
+    try {
+      const compacted = await this.compactHistory(beforeTokens, opts);
+      return compacted.removedMessages > 0 ? compacted : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Make room after the provider rejected a request as too large: clear old
+   * tool results, then compact as deeply as possible (older turns and this
+   * turn's older steps). Returns whether the transcript shrank.
+   */
+  private async *recoverFromOverflow(): AsyncGenerator<AgentEvent, boolean> {
+    const pruned = this.pruneOldToolResults() > 0;
+    const before = this.estimatedStatus();
+    const compacted = await this.tryCompact(before.usedTokens, { force: true, midTurn: true, deep: true });
+    if (compacted) {
+      const { status, ...result } = compacted;
+      yield { type: "context_compacted", result };
+      yield { type: "context", status };
+      return true;
+    }
+    if (pruned) yield { type: "context", status: this.estimatedStatus() };
+    return pruned;
+  }
+
+  /** Remember the real window a provider states in its overflow error. */
+  private learnContextWindow(err: unknown): void {
+    const window = contextWindowFromError(err);
+    if (window === undefined) return;
+    const current = this.currentModelInfo().contextWindow;
+    if (current === undefined || window < current) this.learnedContextWindow = window;
   }
 
   /**
@@ -1038,31 +1144,45 @@ export class Agent {
     this.countCache = undefined;
     // A cleared read can no longer be pointed back to.
     this.readLedger.forgetCalls(clearedCalls);
-    const freedTokens = Math.round(freedChars / CHARS_PER_TOKEN);
-    this.prunedTokensSinceUsage += freedTokens;
-    return freedTokens;
+    // No bookkeeping needed for the context estimate: it measures the
+    // transcript as it is now, so the shorter results already count.
+    return Math.round(freedChars / this.charsPerToken);
   }
 
   /**
    * Compact the transcript. Returns the usual {@link CompactionResult} plus the
    * post-compaction {@link ContextStatus} it had to compute anyway, so callers
    * can report the new context size without paying for a second measurement.
+   *
+   * Normally the last keepRecentTurns user turns stay verbatim and everything
+   * before them is summarized. That alone can't shrink a single long turn (one
+   * request driving dozens of tool steps), so mid-turn the current turn's
+   * older steps are summarized too when the older turns are not where the
+   * bulk is: the request itself stays verbatim, followed by its most recent
+   * steps.
    */
   private async compactHistory(
     beforeTokens?: number,
-    opts: { force?: boolean } = {},
+    opts: { force?: boolean; midTurn?: boolean; deep?: boolean } = {},
   ): Promise<CompactionResult & { status: ContextStatus }> {
-    // Normally we keep the last keepRecentTurns user turns verbatim and compact
-    // everything before them. On a short conversation that split point is 0
-    // (not enough turns yet). The automatic path bails there — it only fires
-    // when the context is genuinely large. A manual /compact instead forces a
-    // split that keeps just the final user turn verbatim, so it always makes
-    // progress as long as there is older history to summarize.
+    // On a short conversation the turn split is 0 (not enough turns yet). The
+    // automatic path bails there unless the current turn can be split; a
+    // manual /compact instead forces a split that keeps just the final user
+    // turn verbatim, so it makes progress whenever there is older history.
     let splitIndex = findRecentTurnStart(this.history, this.compaction.keepRecentTurns);
     if (splitIndex <= 0 && opts.force) {
       splitIndex = findRecentTurnStart(this.history, 1);
     }
-    if (splitIndex <= 0) {
+    const turnStart = lastUserIndex(this.history);
+    const stepSplit = opts.midTurn ? this.currentTurnSplit(turnStart) : -1;
+    const useStepSplit =
+      stepSplit > 0 &&
+      (opts.deep ||
+        splitIndex <= 0 ||
+        transcriptChars(this.history.slice(0, splitIndex)) <
+          transcriptChars(this.history) * TURN_SPLIT_MIN_SHARE);
+
+    if (!useStepSplit && splitIndex <= 0) {
       // Nothing changed, so the caller's pre-compaction view is still accurate:
       // reuse it rather than paying for a measurement of an untouched history.
       return {
@@ -1075,9 +1195,19 @@ export class Agent {
       };
     }
 
-    const compactable = this.history.slice(0, splitIndex);
-    const tail = this.history.slice(splitIndex);
-    const summary = await this.summarizeMessages(compactable);
+    let summary: string;
+    let kept: Message[];
+    if (useStepSplit) {
+      // The request goes to the summarizer too (it needs the goal), and is
+      // also kept verbatim right after the summary.
+      const request = this.history[turnStart]!;
+      summary = await this.summarizeMessages(this.history.slice(0, stepSplit), IN_PROGRESS_NOTE);
+      kept = [request, ...this.history.slice(stepSplit)];
+    } else {
+      summary = await this.summarizeMessages(this.history.slice(0, splitIndex));
+      kept = this.history.slice(splitIndex);
+    }
+    const removedMessages = this.history.length - kept.length;
     const summaryMessage: Message = {
       role: "system",
       content: [
@@ -1087,7 +1217,7 @@ export class Agent {
         },
       ],
     };
-    this.history.splice(0, this.history.length, summaryMessage, ...tail);
+    this.history.splice(0, this.history.length, summaryMessage, ...kept);
     // Earlier reads now live only in the summary: re-reads must send content.
     this.readLedger.clear();
     // The transcript was rewritten wholesale; any memoized count is now stale.
@@ -1096,16 +1226,49 @@ export class Agent {
     return {
       beforeTokens,
       ...(after.usedTokens !== undefined ? { afterTokens: after.usedTokens } : {}),
-      removedMessages: compactable.length,
-      keptMessages: tail.length,
+      removedMessages,
+      keptMessages: kept.length,
       summary,
       status: after,
     };
   }
 
-  private async summarizeMessages(messages: Message[]): Promise<string> {
-    const transcript = serializeForSummary(messages);
-    const prompt = `${buildSummarizationPrompt()}\n\n${transcript}`;
+  /**
+   * Where to split the current turn: the start of its most recent steps, so
+   * older steps can be summarized. Always an assistant message, so every kept
+   * tool result still follows the call that produced it. -1 when the turn is
+   * too short to split.
+   */
+  private currentTurnSplit(turnStart: number): number {
+    if (turnStart < 0) return -1;
+    const steps: number[] = [];
+    for (let i = turnStart + 1; i < this.history.length; i++) {
+      if (this.history[i]?.role === "assistant") steps.push(i);
+    }
+    if (steps.length <= KEEP_RECENT_STEPS) return -1;
+    return steps[steps.length - KEEP_RECENT_STEPS]!;
+  }
+
+  /**
+   * Summarize a slice of the transcript. A slice too large for one request
+   * (e.g. compacting only after the provider already rejected the context as
+   * too long) is summarized in parts, each folding in the summary so far.
+   */
+  private async summarizeMessages(messages: Message[], note?: string): Promise<string> {
+    const blocks = serializeForSummary(messages);
+    const budget = this.summaryInputBudgetChars();
+    let summary = "";
+    for (const chunk of chunkBlocks(blocks, budget)) {
+      summary = await this.summarizeChunk(chunk, summary, note);
+    }
+    return summary || "Earlier conversation was compacted, but the provider returned an empty summary.";
+  }
+
+  private async summarizeChunk(transcript: string, previous: string, note?: string): Promise<string> {
+    const intro = previous
+      ? `Summary of the conversation before the part below:\n${previous}\n\nThe conversation continues (fold it into one updated summary):\n\n`
+      : "";
+    const prompt = `${buildSummarizationPrompt()}${note ? `\n\n${note}` : ""}\n\n${intro}${transcript}`;
     const model = this.summarizationModel();
     // Deliberately no systemPrompt: the summarization prompt is self-contained,
     // and the agent's system prompt (identity, tool-use, skills, environment —
@@ -1119,12 +1282,20 @@ export class Agent {
         maxTokens: Math.min(2048, this.currentModelInfo().maxOutputTokens ?? 2048),
       },
     );
-    const text = response.content
+    return response.content
       .filter((part): part is TextPart => part.type === "text")
       .map((part) => part.text)
       .join("\n")
       .trim();
-    return text || "Earlier conversation was compacted, but the provider returned an empty summary.";
+  }
+
+  /** How much transcript one summarization request may carry, in chars. */
+  private summaryInputBudgetChars(): number {
+    const info = this.currentModelInfo();
+    const usable = info.contextWindow ? this.usableInputTokens(info.contextWindow) : undefined;
+    const window = usable ?? (this.compaction.maxContextTokens > 0 ? this.compaction.maxContextTokens : SUMMARY_INPUT_MAX_TOKENS);
+    const tokens = Math.min(SUMMARY_INPUT_MAX_TOKENS, Math.floor(window * SUMMARY_INPUT_WINDOW_SHARE));
+    return Math.max(MIN_SUMMARY_CHUNK_CHARS, Math.floor(tokens * this.charsPerToken));
   }
 
   /**
@@ -1139,41 +1310,46 @@ export class Agent {
     return this.model;
   }
 
-  private contextStatusFromUsage(
-    usage: TokenUsage,
-    base?: ContextStatus,
-    tokenCounter: "provider" | "usage" = "usage",
-  ): ContextStatus {
-    const info = this.currentModelInfo();
-    const contextWindow = base?.contextWindow ?? info.contextWindow;
-    // The sum (input + cache read + cache write) is the total request size for
-    // providers whose `input_tokens` excludes cached tokens (Claude, Gemini).
-    // OpenAI-family providers already include cached tokens inside
-    // `input_tokens`/`prompt_tokens`, so adding them again would double count
-    // and inflate the used-context percentage toward premature compaction.
-    const usedTokens =
+  /**
+   * Total request size from a usage report. The sum (input + cache read +
+   * cache write) is the total for providers whose `input_tokens` excludes
+   * cached tokens (Claude, Gemini). OpenAI-family providers already include
+   * cached tokens inside `input_tokens`/`prompt_tokens`, so adding them again
+   * would double count and inflate the used-context percentage toward
+   * premature compaction.
+   */
+  private usedTokensOf(usage: TokenUsage): number {
+    return (
       usage.inputTokens +
       (this.provider.info.usageTokensIncludeCache
         ? 0
-        : (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0));
+        : (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0))
+    );
+  }
+
+  private statusFor(usedTokens: number, tokenCounter: ContextStatus["tokenCounter"]): ContextStatus {
+    const info = this.currentModelInfo();
+    const contextWindow = info.contextWindow;
     const usableTokens = contextWindow ? this.usableInputTokens(contextWindow) : undefined;
     const ratio = usableTokens ? usedTokens / usableTokens : undefined;
     const usedPercentage = ratio !== undefined ? Math.min(100, Math.max(0, Math.round(ratio * 100))) : undefined;
+    const usage = this.lastUsage;
     return {
-      ...(base ?? {
-        model: this.model,
-        ...(contextWindow !== undefined ? { contextWindow } : {}),
-        ...(info.maxInputTokens !== undefined ? { maxInputTokens: info.maxInputTokens } : {}),
-        ...(info.maxOutputTokens !== undefined ? { maxOutputTokens: info.maxOutputTokens } : {}),
-        ...(info.source ? { source: info.source } : {}),
-        tokenCounter,
-      }),
-      tokenCounter: base?.tokenCounter === "provider" ? "provider" : tokenCounter,
+      model: this.model,
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(info.maxInputTokens !== undefined ? { maxInputTokens: info.maxInputTokens } : {}),
+      ...(info.maxOutputTokens !== undefined ? { maxOutputTokens: info.maxOutputTokens } : {}),
+      ...(info.source ? { source: info.source } : {}),
+      tokenCounter,
       usedTokens,
-      currentInputTokens: usage.inputTokens,
-      currentOutputTokens: usage.outputTokens,
-      currentCacheReadTokens: usage.cacheReadTokens ?? 0,
-      currentCacheWriteTokens: usage.cacheWriteTokens ?? 0,
+      ...(usage
+        ? {
+            currentInputTokens: usage.inputTokens,
+            currentOutputTokens: usage.outputTokens,
+            currentCacheReadTokens: usage.cacheReadTokens ?? 0,
+            currentCacheWriteTokens: usage.cacheWriteTokens ?? 0,
+          }
+        : {}),
       totalInputTokens: this.totalUsage.inputTokens,
       totalOutputTokens: this.totalUsage.outputTokens,
       totalCacheReadTokens: this.totalUsage.cacheReadTokens ?? 0,
@@ -1184,15 +1360,29 @@ export class Agent {
     };
   }
 
-  private recordUsage(usage: TokenUsage): void {
+  /**
+   * Record a stream's usage. With the size of the transcript that request
+   * carried, it also becomes the anchor for later context estimates, and
+   * calibrates chars-per-token for this conversation's content.
+   */
+  private recordUsage(usage: TokenUsage, sentChars?: number): void {
     this.lastUsage = usage;
-    this.prunedTokensSinceUsage = 0;
     this.totalUsage = {
       inputTokens: this.totalUsage.inputTokens + usage.inputTokens,
       outputTokens: this.totalUsage.outputTokens + usage.outputTokens,
       cacheReadTokens: (this.totalUsage.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0),
       cacheWriteTokens: (this.totalUsage.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0),
     };
+    if (sentChars === undefined) return;
+    const usedTokens = this.usedTokensOf(usage);
+    // Some servers report zero prompt tokens; that measures nothing.
+    if (usedTokens <= 0) return;
+    this.usageAnchor = { usedTokens, historyChars: sentChars };
+    // A tiny request says little about the tokenizer (per-message framing
+    // dominates it); keep the previous ratio until there is real text.
+    const requestChars = sentChars + this.overheadChars();
+    if (requestChars < MIN_CALIBRATION_CHARS) return;
+    this.charsPerToken = Math.min(MAX_CHARS_PER_TOKEN, Math.max(MIN_CHARS_PER_TOKEN, requestChars / usedTokens));
   }
 
   private usableInputTokens(contextWindow: number): number {
@@ -1230,8 +1420,12 @@ function isAbortError(err: unknown): boolean {
 /** A resumed history at least this large (estimated) is compacted before its first turn. */
 const RESUME_COMPACT_MIN_TOKENS = 30_000;
 
-/** Rough token estimate of a transcript, without a provider round-trip. */
-function estimateTokens(messages: Message[]): number {
+/**
+ * Size of a transcript in chars, the unit of the agent's token estimates.
+ * Images have no text, so each counts as a typical image's token cost;
+ * opaque reasoning state is left out.
+ */
+function transcriptChars(messages: Message[]): number {
   let chars = 0;
   for (const message of messages) {
     for (const part of message.content) {
@@ -1240,18 +1434,20 @@ function estimateTokens(messages: Message[]): number {
           chars += part.text.length;
           break;
         case "tool_call":
-          chars += JSON.stringify(part.arguments).length;
+          chars += part.name.length + JSON.stringify(part.arguments).length;
           break;
         case "tool_result":
           chars += part.content.length;
           break;
         case "image":
+          chars += IMAGE_CHARS;
+          break;
         case "reasoning":
           break;
       }
     }
   }
-  return Math.round(chars / CHARS_PER_TOKEN);
+  return chars;
 }
 
 /** Default absolute compaction ceiling (see compaction.maxContextTokens). */
@@ -1264,18 +1460,34 @@ const KEEP_RECENT_TOOL_RESULTS = 8;
 const PRUNE_MIN_RESULT_CHARS = 2_000;
 const PRUNE_MIN_BATCH_CHARS = 20_000;
 const PRUNED_PREFIX = "[Earlier";
-/** Rough chars-per-token ratio for estimating freed context. */
+/** Default chars-per-token, until measured usage calibrates it. */
 const CHARS_PER_TOKEN = 4;
-
-/** Copy of a status with `freed` tokens removed from the used count. */
-function withFreedTokens(status: ContextStatus, freed: number): ContextStatus {
-  if (status.usedTokens === undefined) return status;
-  const usedTokens = Math.max(0, status.usedTokens - freed);
-  if (!status.usableTokens) return { ...status, usedTokens };
-  const ratio = usedTokens / status.usableTokens;
-  const usedPercentage = Math.min(100, Math.max(0, Math.round(ratio * 100)));
-  return { ...status, usedTokens, ratio, usedPercentage, remainingPercentage: 100 - usedPercentage };
-}
+// Bounds for the calibrated ratio: real tokenizers land around 3-4.5 on code
+// and prose; anything outside means a server's usage report is off, not that
+// the text is unusual.
+const MIN_CHARS_PER_TOKEN = 2;
+const MAX_CHARS_PER_TOKEN = 6;
+/** Smallest request (chars) whose usage is trusted to calibrate the ratio. */
+const MIN_CALIBRATION_CHARS = 4_000;
+/** Rough token cost of one image, in the chars unit of transcriptChars. */
+const IMAGE_CHARS = 1_500 * CHARS_PER_TOKEN;
+/** Steps of the current turn kept verbatim when compaction splits that turn. */
+const KEEP_RECENT_STEPS = 3;
+/**
+ * Mid-turn, the older turns must hold at least this share of the transcript
+ * for a turn-only compaction to be worth it; otherwise the current turn's
+ * older steps are summarized too.
+ */
+const TURN_SPLIT_MIN_SHARE = 0.3;
+/** Growth (share of the trigger) needed before compacting again in the same turn. */
+const RECOMPACT_GROWTH_RATIO = 0.25;
+/** Cap on the transcript one summarization request carries, in tokens. */
+const SUMMARY_INPUT_MAX_TOKENS = 100_000;
+/** Share of the usable window one summarization request may fill. */
+const SUMMARY_INPUT_WINDOW_SHARE = 0.5;
+const MIN_SUMMARY_CHUNK_CHARS = 8_000;
+const IN_PROGRESS_NOTE =
+  "The last user request in this transcript is still being worked on and will be repeated verbatim after your summary, followed by the most recent steps. Summarize the progress made on it so far: what was done, what was found, and what remains.";
 
 /** How many times a transient provider failure is retried per step. */
 const MAX_TRANSIENT_RETRIES = 2;
@@ -1319,14 +1531,68 @@ function findRecentTurnStart(messages: Message[], keepRecentTurns: number): numb
   return 0;
 }
 
-function serializeForSummary(messages: Message[]): string {
-  return messages
-    .map((message, index) => {
-      const content = message.content.map(serializePart).filter(Boolean).join("\n");
-      return `#${index + 1} ${message.role}\n${content}`;
-    })
-    .join("\n\n");
+function lastUserIndex(messages: Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return i;
+  }
+  return -1;
 }
+
+/** One serialized block per message, numbered in transcript order. */
+function serializeForSummary(messages: Message[]): string[] {
+  return messages.map((message, index) => {
+    const content = message.content.map(serializePart).filter(Boolean).join("\n");
+    return `#${index + 1} ${message.role}\n${content}`;
+  });
+}
+
+/** Group serialized blocks into transcripts of at most `budget` chars each. */
+function chunkBlocks(blocks: string[], budget: number): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  for (const raw of blocks) {
+    const block = truncate(raw, budget);
+    if (current && current.length + block.length + 2 > budget) {
+      chunks.push(current);
+      current = "";
+    }
+    current = current ? `${current}\n\n${block}` : block;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+/**
+ * Whether a provider error says the request exceeded the model's context.
+ * Covers the wordings of OpenAI, OpenAI-compatible servers (vLLM, llama.cpp,
+ * LM Studio, gateways), Anthropic and Gemini.
+ */
+function isContextOverflowError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /context[_ ]length[_ ]exceeded|maximum context length|context window|exceeds? (the )?(available |maximum )?context|context size|prompt is too long|input is too long|too many (input |prompt )?tokens|reduce the length of the (messages|prompt)|input token count.*exceeds/i.test(
+    message,
+  );
+}
+
+/** The context window an overflow error states, when it states one. */
+function contextWindowFromError(err: unknown): number | undefined {
+  const message = err instanceof Error ? err.message : String(err);
+  const patterns = [
+    /maximum context length is (\d+)/i,
+    /context (?:length|size|window)(?: of| is|:)? (\d+)/i,
+    /n_ctx(?:_slot)?["']?\s*[:=]\s*(\d+)/i,
+    /> ?(\d+) (?:tokens )?maximum/i,
+    /maximum (?:number of tokens allowed|input tokens?)(?: is)? \(?(\d+)/i,
+  ];
+  for (const pattern of patterns) {
+    const value = Number(pattern.exec(message)?.[1]);
+    if (Number.isFinite(value) && value >= MIN_LEARNED_CONTEXT_WINDOW) return value;
+  }
+  return undefined;
+}
+
+/** Smaller "windows" parsed from an error are more likely other numbers. */
+const MIN_LEARNED_CONTEXT_WINDOW = 1_024;
 
 function serializePart(part: ContentPart): string {
   switch (part.type) {
