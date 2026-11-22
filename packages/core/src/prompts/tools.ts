@@ -91,6 +91,7 @@ const GROUPS: ToolGroup[] = [
       { name: "http_fetch", text: "fetch external public content only when the task needs something not already in the project." },
       { name: "project_memory", text: "store durable, project-specific facts that should persist across sessions — never guesses, transient tasks, or secrets." },
       { name: "ask_user", text: "ask the human only for a genuine decision they must make, not for facts the repository can answer." },
+      { name: "computer", text: "on macOS, control an app through Accessibility: list apps/windows, read a text UI tree, click, type, press a key, screenshot." },
     ],
   },
 ];

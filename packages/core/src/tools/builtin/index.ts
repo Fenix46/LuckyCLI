@@ -1,6 +1,7 @@
 import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { askUserTool } from "./ask-user.js";
+import { computerTool } from "./computer.js";
 import { editFileTool } from "./edit-file.js";
 import { execTool } from "./exec.js";
 import { processTool } from "./background.js";
@@ -40,6 +41,7 @@ export function defaultToolRegistry(platform: NodeJS.Platform = process.platform
   // PowerShell is only useful on Windows; elsewhere its definition would just
   // add tokens to every request.
   if (platform === "win32") registry.register(powerShellTool);
+  if (platform === "darwin") registry.register(computerTool);
   return registry
     .register(listDirTool)
     .register(globTool)
@@ -73,6 +75,7 @@ export {
   editFileTool,
   applyPatchTool,
   notebookEditTool,
+  computerTool,
   listDirTool,
   globTool,
   grepTool,

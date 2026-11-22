@@ -387,6 +387,35 @@ Create Lucky worktrees under .lucky/worktrees and rebuild the live agent in the
 selected checkout without losing the conversation.
 ```
 
+## T17 — Computer use (macOS MVP)
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- Tool `computer` registrato solo su Darwin: list_apps, list_windows, ui_tree,
+  click, type, key (con modifier), screenshot.
+- Backend `osascript`/System Events e `screencapture`; nessun addon nativo.
+- UI tree testuale bounded (250 nodi, profondità 8) e screenshot sotto
+  `.lucky/screenshots/`.
+- Permesso `ask`; errori chiari senza Accessibility o su altri OS.
+- Test con runner iniettato per script, escaping, key map e screenshot.
+
+**Limiti**
+
+- È automazione macOS via Accessibility, non il computer-use con visione di
+  Claude Code. Il modello riceve testo/path, non l'immagine. Per la parità
+  visiva servirebbe supportare immagini nei tool result e un backend nativo.
+
+**Commit**
+
+```text
+feat(tools): add macOS computer use via Accessibility
+
+Control visible apps, read a bounded text UI tree, click, type, press keys and
+save screenshots without shipping a native addon.
+```
+
 ## Fuori da questa iterazione
 
 Restano in roadmap, non in questo branch:

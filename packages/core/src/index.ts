@@ -64,6 +64,7 @@ export {
   editFileTool,
   applyPatchTool,
   notebookEditTool,
+  computerTool,
   listDirTool,
   globTool,
   grepTool,

@@ -354,6 +354,7 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `graph_query` · `graph_overview` | allow | Query the knowledge graph: find, callers, callees, neighbors, impact |
 | `http_fetch` | allow | Fetch a public URL (private and metadata addresses are blocked) |
 | `web_search` | allow | Search the web through Brave, Tavily or a custom endpoint |
+| `computer` | ask | macOS Accessibility: list apps/windows, read a UI tree, click, type, key, screenshot |
 | `task_create` · `task_update` · `task_list` · `task_get` | allow | A structured task list the user can follow |
 | `present_plan` | allow | Present a plan for approval before implementing |
 | `spawn_agent` | allow | Delegate a sub-task to a sub-agent; with `files`, several run in parallel |
@@ -369,6 +370,9 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 
 MCP tools appear next to these as `<server>_<tool>`; tools a server marks
 read-only default to allow, everything else asks.
+
+`computer` is macOS-only, uses `osascript`/`screencapture`, and needs
+Accessibility permission for the terminal running Lucky.
 
 `web_search` is configured with `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, or
 `LUCKY_WEB_SEARCH_URL` + `LUCKY_WEB_SEARCH_API_KEY`; set
