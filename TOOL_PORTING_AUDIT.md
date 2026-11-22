@@ -105,15 +105,35 @@ allo scopo, e aggiungerebbero superficie e dipendenze):
 - risoluzione simboli cross-file (per ora le `calls` sono intra-file);
 - i ~25 linguaggi extra (si aggiungono uno alla volta dietro `Extractor`).
 
+## Adattamenti da Claude Code (2026-11)
+
+Portati come comportamenti, non come copia di codice:
+
+- **File state ledger / read-before-edit.** `read_file` registra l'hash del
+  contenuto; `edit_file`, `write_file` (overwrite) e `apply_patch`
+  (update/delete) rifiutano un file mai letto o cambiato dopo la lettura.
+  `apply_patch` fa preflight di tutti i file prima di scrivere, quindi una patch
+  multi-file non lascia modifiche parziali. Lo stato vive nell'agente e viene
+  ripulito da pruning e compaction.
+- **Persisted tool output.** Quando `exec` supera il budget di 30k caratteri,
+  l'output completo finisce in `.lucky/tool-results/` (0600) e il risultato
+  contiene path e dimensione; il modello può rileggerlo con `read_file`.
+- **Plan mode enforced.** `Agent.setPlanMode(true)` nega i tool non-readonly e i
+  comandi shell mutanti, lasciando disponibili i tool read-only e i comandi
+  read-only. La TUI lo espone nel ciclo `Shift+Tab` e nel footer; ACP lo espone
+  nella roster. L'accettazione del piano esce dalla modalità.
+
 ## Prossimo focus
 
-1. MCP stdio minimo + risorse (estensibilità).
-2. `web_search` con adapter configurabile via env e fallback chiaro (HOLD finché
+1. Hook lifecycle (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`,
+   `SessionStart`, `Stop`) con comandi shell, timeout e JSON su stdin.
+2. LSP per code intelligence (lifecycle server, output formatting).
+3. `web_search` con adapter configurabile via env e fallback chiaro (HOLD finché
    non si decide il provider).
-3. Più linguaggi per il grafo (Go, Rust, Java, C/C++, …).
-4. Risoluzione `calls` cross-file nel grafo.
-5. Skill loader locale, plan mode, sub-agent — solo dopo aver stabilizzato MCP.
-6. LSP per code intelligence (costoso: lifecycle server, output formatting).
+4. Tool differiti (`ToolSearch`) per non spedire tutti gli schema MCP.
+5. Session fork/branch della conversazione.
+6. Team/teammate sopra il task store e `spawn_agent`.
+7. Risoluzione `calls` cross-file nel grafo e più linguaggi dove serve.
 
 ## Cose da non portare subito
 
@@ -126,9 +146,9 @@ Valide ma creano superficie/permessi prima che le fondamenta siano mature.
 ## Stato versione
 
 - Base tool (14, inclusi i due tool grafo) completa e verificata.
-- Permission UX e knowledge graph nativo completati.
-- Prossimo lavoro strutturale: MCP, poi più linguaggi/risoluzione cross-file e
-  skill/plan/sub-agent.
+- Permission UX, knowledge graph, MCP, skill, sub-agent e plan mode completati.
+- Read-before-edit, persisted output e plan mode enforced (core + TUI + ACP).
+- Prossimo lavoro strutturale: hook lifecycle, LSP, web search e tool differiti.
 
 ## Note licenza
 

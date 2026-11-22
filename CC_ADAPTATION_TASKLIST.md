@@ -49,7 +49,7 @@ La failure è corretta in T0, così i task successivi partono da una suite verde
 
 ## T0 — Igiene baseline: nome reale del file skill
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `72b2628`.
 
 **Scope**
 
@@ -83,7 +83,7 @@ reports the file that actually exists on case-insensitive filesystems.
 
 ## T1 — Documentazione del piano
 
-**Stato:** in corso.
+**Stato:** fatto — `2e973ea`.
 
 **Scope**
 
@@ -115,7 +115,7 @@ missing Claude Code patterns into LuckyCLI without copying its implementation.
 
 ## T2 — File state ledger: read-before-edit enforced
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `5edfa89`.
 
 **Scope**
 
@@ -159,7 +159,7 @@ the file tools, and keep the ledger in sync with pruning and compaction.
 
 ## T3 — Persistenza degli output lunghi
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `20f1cf0`.
 
 **Scope**
 
@@ -196,7 +196,7 @@ costs detail rather than information.
 
 ## T4 — Plan mode enforced (core + TUI)
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `be7f8ec`.
 
 **Scope**
 
@@ -234,7 +234,7 @@ available, and expose the mode in the TUI cycle and footer.
 
 ## T5 — Plan mode in ACP
 
-**Stato:** fatto (commit di chiusura).
+**Stato:** fatto — `ee889cf`.
 
 **Scope**
 
@@ -262,7 +262,7 @@ accepts the plan.
 
 ## T6 — Aggiornamento documentazione e audit
 
-**Stato:** da fare.
+**Stato:** fatto (commit di chiusura).
 
 **Scope**
 

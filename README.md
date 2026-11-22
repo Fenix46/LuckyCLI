@@ -365,6 +365,11 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 MCP tools appear next to these as `<server>_<tool>`; tools a server marks
 read-only default to allow, everything else asks.
 
+Mutation tools require a **fresh read** of an existing file: editing or
+overwriting a file the model has not read, or that changed since that read, is
+refused with a clear message. New files need no prior read; a successful write
+updates the known state so consecutive edits do not re-read.
+
 ### Safety model
 
 - **Approval prompts.** Tools resolved to `ask` pause for `Allow once` /
@@ -375,7 +380,9 @@ read-only default to allow, everything else asks.
   shell commands; *auto* approves everything (and accepts presented plans) except
   risky shell commands, which always ask: pushes, publishes, deploys, downloaded or
   inline scripts (`curl … | sh`, `bash -c`), destructive commands, and
-  `npm run`/`make` scripts whose body does any of that.
+  `npm run`/`make` scripts whose body does any of that; *plan* keeps the session
+  read-only until you accept a presented plan (read-only tools and read-only shell
+  commands stay available).
 - **Command rules.** `/rules allow|ask|deny <pattern>` (or `LUCKY_COMMAND_RULES`,
   e.g. `allow=npm test;deny=git push --force*`) decides per command in every mode.
   Patterns match a command and its longer forms by whole words, or as globs with
@@ -402,6 +409,9 @@ into cost (or, on a local model, into time). LuckyCLI keeps it small:
   a stable per-conversation cache key.
 - **Bounded output.** `read_file` returns at most 2,000 lines per call and cuts
   overlong lines; shell output is trimmed to 30k characters, keeping both ends.
+  When a command's output exceeds that budget, the full text is saved under
+  `.lucky/tool-results/` and the result points at it, so the model can read the
+  rest instead of losing it.
 - **Old tool results cleared.** Once the context reaches half of the compaction
   point, the bodies of old, large tool results are replaced by a short note (the
   newest eight stay intact); the agent re-runs a tool if it needs the content.
@@ -796,6 +806,7 @@ approach.
 ## Roadmap
 
 - [x] Approval prompts, remembered approvals, approval modes and command rules
+- [x] Read-before-edit gate with stale-file detection, plan mode, persisted tool output
 - [x] Automatic context compaction, old tool output clearing, bounded tool output
 - [x] Prompt caching across providers, ChatGPT reasoning replay, warm session resumes
 - [x] Browser OAuth for Claude, ChatGPT, Gemini and Antigravity
