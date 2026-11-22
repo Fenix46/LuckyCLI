@@ -164,9 +164,6 @@ export class OpenAiOAuthProvider implements IProvider {
   private tokens: OpenAiOAuthTokens;
   private liveModels: Promise<void> | undefined;
   private refreshPromise: Promise<OpenAiOAuthTokens> | undefined;
-  // Cached from the last stream's response.completed event. No dedicated
-  // counting endpoint exists, so agent.ts gets this on the next countTokens() call.
-  private _lastUsage: TokenUsage | undefined;
 
   constructor(
     credentials: OpenAiOAuthCredentials,
@@ -296,7 +293,6 @@ export class OpenAiOAuthProvider implements IProvider {
               outputTokens: eventUsage.output_tokens ?? 0,
               ...(cached != null ? { cacheReadTokens: cached } : {}),
             };
-            this._lastUsage = usage;
           }
           emittedFinal = true;
           yield {
@@ -316,7 +312,9 @@ export class OpenAiOAuthProvider implements IProvider {
   }
 
   async countTokens(): Promise<TokenUsage | undefined> {
-    return this._lastUsage;
+    // No counting endpoint. The last stream's usage would answer for a
+    // different transcript; the agent estimates from it plus what changed.
+    return undefined;
   }
 
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {

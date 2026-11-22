@@ -1489,10 +1489,11 @@ describe("acp server context usage", () => {
     ).toMatchObject({ model: "mock", usedTokens: 5 });
   });
 
-  it("does not attach _meta to updates when there is no reading to report", async () => {
-    // No usage in the script → the engine reports no context event.
+  it("publishes an estimate, marked as such, when the provider never measured usage", async () => {
+    // No usage in the script and no token counter: the engine still reports
+    // its own estimate of the context, flagged so the editor can tell.
     const agent = engineAgent([[{ textDelta: "plain" }, { finishReason: "stop" }]]);
-    const { editor, updates } = connect({
+    const { editor } = connect({
       config: fakeConfig(),
       buildRuntime: (async () => fakeRuntime(agent)) as RuntimeBuilder,
     });
@@ -1502,8 +1503,10 @@ describe("acp server context usage", () => {
       prompt: [{ type: "text", text: "hi" }],
     });
 
-    expect(metas(updates)).toEqual([]);
-    expect(response._meta).toBeUndefined();
+    expect((response._meta as Record<string, unknown>)["dev.luckycli/context"]).toMatchObject({
+      tokenCounter: "estimate",
+      usedTokens: expect.any(Number),
+    });
   });
 
   it("reports the same figures through /context as through _meta", async () => {

@@ -20,7 +20,12 @@ export interface ContextStatus {
   totalCacheReadTokens?: number;
   totalCacheWriteTokens?: number;
   source?: string;
-  tokenCounter: "provider" | "usage" | "unavailable";
+  /**
+   * How usedTokens was obtained: "provider" when measured by the provider,
+   * "estimate" when it includes a local estimate (the last measure plus what
+   * changed since, or the whole request when the provider never measured).
+   */
+  tokenCounter: "provider" | "estimate" | "usage" | "unavailable";
 }
 
 export interface CompactionResult {
