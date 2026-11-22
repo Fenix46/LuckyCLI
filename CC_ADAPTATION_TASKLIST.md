@@ -297,3 +297,121 @@ Restano in roadmap, non in questo branch:
 
 Queste aree richiedono contratti, configurazione e superficie UI/permessi
 dedicati; vanno affrontate una alla volta con la stessa disciplina.
+
+---
+
+# Wave 2 — performance & UX
+
+Obiettivo: ridurre il costo CPU per step e rendere l'interfaccia più
+scopribile, senza cambiare il comportamento dell'agente.
+
+## T7 — Cache delle definizioni tool e del loro costo in caratteri
+
+**Stato:** fatto (commit di chiusura).
+
+**Scope**
+
+- `packages/core/src/tools/registry.ts`:
+  - cache della conversione zod → JSON Schema per tool (WeakMap);
+  - cache dell'array `definitions()` invalidata da `register`;
+  - `definitionsJsonLength()` cache del `JSON.stringify` usato dal calcolo del
+    contesto.
+- `packages/core/src/agent/agent.ts`: `overheadChars()` usa la lunghezza
+  cacheata invece di serializzare tutti gli schema a ogni controllo.
+
+**Perché**
+
+`Agent` chiama `definitions()` a ogni step e `overheadChars()` più volte per
+step; ogni chiamata rigenera gli schema con `zod-to-json-schema` e li
+serializza. Con MCP e molti tool è un hotspot CPU puro, senza alcun beneficio.
+
+**Done when**
+
+- Registrare un tool invalida le cache; i tool esistenti non rigenerano lo
+  schema.
+- `definitions()` restituisce lo stesso contenuto di prima.
+- Test: cache hit, invalidazione su register, schema di un tool MCP
+  `parametersSchema` preservato, lunghezza JSON coerente.
+
+**Commit**
+
+```text
+perf(tools): cache tool schemas and their serialized size
+
+Avoid regenerating every JSON Schema on each agent step and every context
+estimate; invalidate only what a newly registered tool changes.
+```
+
+## T8 — Un solo conteggio del transcript per step
+
+**Stato:** da fare.
+
+**Scope**
+
+- `packages/core/src/agent/agent.ts`:
+  - `estimatedStatus`/`cheapContextStatus` accettano una lunghezza già calcolata;
+  - in `send`, calcolare `transcriptChars` una volta per step e riusarlo per
+    `pruneStatus` e `midStatus`, ricalcolandolo solo dopo un pruning.
+- Nessun cambio di semantica: gli stessi numeri, meno scansioni O(history).
+
+**Done when**
+
+- I test di compaction/context accounting restano verdi.
+- Un turno con molti step non scandisce il transcript 2–3 volte per step.
+
+**Commit**
+
+```text
+perf(agent): count the transcript once per step
+
+Reuse one character count for the pruning and compaction checks, recomputing
+only when pruning actually changes the transcript.
+```
+
+## T9 — Scopribilità: `/keys` e scorciatoie nell'intro
+
+**Stato:** da fare.
+
+**Scope**
+
+- `packages/cli/src/ui/lib/shortcuts.ts`: elenco unico delle scorciatoie.
+- `packages/cli/src/ui/commands/basic.ts`: comando `/keys` che le elenca.
+- `IntroBanner`: una riga compatta con `shift+tab`, `/`, `esc`.
+- Test del comando `/keys` e del testo nell'intro.
+
+**Done when**
+
+- `/help` resta la lista comandi; `/keys` è la lista scorciatoie.
+- L'intro resta su una riga per terminali stretti.
+
+**Commit**
+
+```text
+feat(cli): make keyboard shortcuts discoverable
+
+Add a /keys command and a compact shortcut hint to the welcome card.
+```
+
+## T10 — Avviso di contesto pieno una tantum
+
+**Stato:** da fare.
+
+**Scope**
+
+- `packages/cli/src/ui/lib/context-warning.ts`: soglia e testo.
+- `packages/cli/src/ui/App.tsx`: quando `contextStatus.usedPercentage` supera la
+  soglia, emettere un solo notice con `/compact` e la nota sul pruning.
+- Test della funzione pura; nessun test fragile sull'effetto React.
+
+**Done when**
+
+- Un solo avviso per sessione, non a ogni render.
+- Sotto soglia non appare nulla.
+
+**Commit**
+
+```text
+feat(cli): warn once when the context window fills up
+
+Surface the existing context meter as an actionable notice with /compact.
+```

@@ -27,12 +27,24 @@ function toToolParameters(schema: ZodTypeAny): Record<string, unknown> {
  */
 export class ToolRegistry {
   private readonly tools = new Map<string, Tool>();
+  /**
+   * JSON Schema is expensive to derive and never changes for a given tool, so
+   * keep it per tool. Registering a new tool (e.g. a late MCP server) only has
+   * to derive that tool's schema; the existing ones stay cached.
+   */
+  private readonly schemaCache = new WeakMap<Tool, Record<string, unknown>>();
+  /** The built definitions array; invalidated by register. Treat as read-only. */
+  private definitionsCache: ToolDefinition[] | undefined;
+  /** JSON.stringify(definitions).length, used by the context estimate. */
+  private definitionsLengthCache: number | undefined;
 
   register(tool: Tool): this {
     if (this.tools.has(tool.name)) {
       throw new Error(`Tool already registered: ${tool.name}`);
     }
     this.tools.set(tool.name, tool);
+    this.definitionsCache = undefined;
+    this.definitionsLengthCache = undefined;
     return this;
   }
 
@@ -51,11 +63,34 @@ export class ToolRegistry {
 
   /** Provider-facing definitions for every registered tool. */
   definitions(): ToolDefinition[] {
-    return [...this.tools.values()].map((tool) => ({
+    if (this.definitionsCache !== undefined) return this.definitionsCache;
+    const definitions = [...this.tools.values()].map((tool) => ({
       name: tool.name,
       description: tool.description,
-      parameters: tool.parametersSchema ?? toToolParameters(tool.schema),
+      parameters: tool.parametersSchema ?? this.schemaFor(tool),
     }));
+    this.definitionsCache = definitions;
+    return definitions;
+  }
+
+  /**
+   * Character length of the serialized definitions. The agent's context
+   * estimate asks for this several times per step; serializing every schema
+   * each time is pure CPU, so compute it once per registry revision.
+   */
+  definitionsJsonLength(): number {
+    if (this.definitionsLengthCache === undefined) {
+      this.definitionsLengthCache = JSON.stringify(this.definitions()).length;
+    }
+    return this.definitionsLengthCache;
+  }
+
+  private schemaFor(tool: Tool): Record<string, unknown> {
+    const cached = this.schemaCache.get(tool);
+    if (cached !== undefined) return cached;
+    const schema = toToolParameters(tool.schema);
+    this.schemaCache.set(tool, schema);
+    return schema;
   }
 
   /**

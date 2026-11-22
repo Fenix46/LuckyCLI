@@ -70,6 +70,29 @@ describe("ToolRegistry", () => {
     });
   });
 
+  it("caches definitions and invalidates them only when a tool is registered", () => {
+    const reg = new ToolRegistry().register(echo);
+    const first = reg.definitions();
+    expect(reg.definitions()).toBe(first);
+    expect(reg.definitionsJsonLength()).toBe(JSON.stringify(first).length);
+
+    const another = defineTool({
+      name: "another",
+      description: "Another tool.",
+      schema: z.object({ flag: z.boolean() }),
+      async execute() {
+        return { content: "ok" };
+      },
+    });
+    reg.register(another);
+    const second = reg.definitions();
+    expect(second).not.toBe(first);
+    expect(second).toHaveLength(2);
+    // The existing tool's schema was not regenerated.
+    expect(second[0]?.parameters).toBe(first[0]?.parameters);
+    expect(reg.definitionsJsonLength()).toBe(JSON.stringify(second).length);
+  });
+
   it("validates input and runs the tool", async () => {
     const reg = new ToolRegistry().register(echo);
     const ok = await reg.execute("echo", { message: "hi" }, { cwd: "/" });

@@ -378,7 +378,7 @@ export class Agent {
 
   /** Size of what every request carries besides the transcript: system prompt and tool schemas. */
   private overheadChars(): number {
-    return (this.effectiveSystemPrompt()?.length ?? 0) + JSON.stringify(this.tools.definitions()).length;
+    return (this.effectiveSystemPrompt()?.length ?? 0) + this.tools.definitionsJsonLength();
   }
 
   async providerStatus(): Promise<ProviderStatus> {
