@@ -234,7 +234,7 @@ available, and expose the mode in the TUI cycle and footer.
 
 ## T5 — Plan mode in ACP
 
-**Stato:** da fare.
+**Stato:** fatto (commit di chiusura).
 
 **Scope**
 

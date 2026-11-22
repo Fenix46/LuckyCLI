@@ -789,6 +789,21 @@ describe("acp server permissions and modes", () => {
     expect((end as { update: { status: string } }).update.status).toBe("completed");
   });
 
+  it("plan mode blocks a mutating tool without a round trip", async () => {
+    const { tools, turn, done } = await askToolSetup();
+    const { editor, updates, sessionId } = await editorWithApprovalSession(
+      [turn("c1"), done],
+      tools,
+      async () => {
+        throw new Error("must not ask in plan mode");
+      },
+    );
+    await editor.setSessionMode({ sessionId, modeId: "plan" });
+    await editor.prompt({ sessionId, prompt: [{ type: "text", text: "write" }] });
+    const end = terminalToolUpdates(updates)[0];
+    expect((end as { update: { status: string } }).update.status).toBe("failed");
+  });
+
   it("rejects an unknown session mode", async () => {
     const agent = engineAgent([[{ textDelta: "hi" }, { finishReason: "stop" }]]);
     const { editor, sessionId } = await editorWithSession(agent);
@@ -875,6 +890,7 @@ describe("acp server permissions and modes", () => {
         { id: "default" },
         { id: "accept-edits" },
         { id: "bypass-permissions" },
+        { id: "plan" },
       ],
     });
   });

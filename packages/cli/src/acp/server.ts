@@ -488,6 +488,7 @@ export class LuckyAcpAgent implements Agent {
     // session's "always" approvals, so the user starts from a clean slate.
     if (mode.id === "default" && session.mode !== "default") session.approved.clear();
     session.mode = mode.id as AcpSessionMode;
+    session.agent.setPlanMode(mode.id === "plan");
     return {};
   }
 
@@ -547,6 +548,14 @@ export class LuckyAcpAgent implements Agent {
     });
     const accepted =
       response.outcome.outcome === "selected" && response.outcome.optionId === "accept";
+    if (accepted) {
+      const session = this.requireSession(sessionId);
+      if (session.mode === "plan") {
+        // Accepting the plan is the plan-mode exit: implementation may start.
+        session.mode = "default";
+        session.agent.setPlanMode(false);
+      }
+    }
     return { action: accepted ? "accept" : "reject" };
   }
 

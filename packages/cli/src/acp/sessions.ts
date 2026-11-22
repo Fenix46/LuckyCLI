@@ -14,13 +14,14 @@ import type {
 import { RequestError, type ContentBlock, type McpServer } from "@zed-industries/agent-client-protocol";
 
 /** Permission modes a session can operate in, advertised in session/new. */
-export type AcpSessionMode = "default" | "accept-edits" | "bypass-permissions";
+export type AcpSessionMode = "default" | "accept-edits" | "bypass-permissions" | "plan";
 
 /** The mode roster shown by editors (Zed's mode picker, etc.). */
 export const ACP_SESSION_MODES: { id: AcpSessionMode; name: string; description: string }[] = [
   { id: "default", name: "Ask before acting", description: "Side-effecting tools ask for approval." },
   { id: "accept-edits", name: "Accept edits", description: "File edits run without asking; shell commands still ask." },
   { id: "bypass-permissions", name: "Bypass permissions", description: "Every tool runs without asking." },
+  { id: "plan", name: "Plan mode", description: "Explore read-only; mutating tools wait for plan approval." },
 ];
 
 /** One live editor conversation: the engine agent plus its turn state. */
