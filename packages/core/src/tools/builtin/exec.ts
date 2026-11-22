@@ -1,7 +1,8 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { defineTool } from "../types.js";
+import { defineTool, type ToolContext, type ToolResultMetadata } from "../types.js";
+import { persistToolOutput } from "../output-store.js";
 import { formatStarted, startBackgroundProcess } from "./background.js";
 
 const execAsync = promisify(exec);
@@ -63,7 +64,8 @@ export const execTool = defineTool({
       try {
         const proc = await startBackgroundProcess(command, ctx.cwd);
         const failedFast = proc.exitCode !== null && proc.exitCode !== 0;
-        return { content: truncateOutput(formatStarted(proc)), ...(failedFast ? { isError: true } : {}) };
+        const started = await persistIfTruncated(ctx, proc.output, truncateOutput(formatStarted(proc)));
+        return { ...started, ...(failedFast ? { isError: true } : {}) };
       } catch (err) {
         return { content: err instanceof Error ? err.message : String(err), isError: true };
       }
@@ -84,18 +86,48 @@ export const execTool = defineTool({
       }
       const { stdout, stderr } = await pending;
       const out = [stdout, stderr].filter(Boolean).join("\n").trim();
-      return { content: truncateOutput(out || "(no output)") };
+      return await persistIfTruncated(ctx, out, truncateOutput(out || "(no output)"));
     } catch (err) {
       const e = err as { stdout?: string; stderr?: string; message?: string; code?: unknown; signal?: unknown; killed?: unknown };
       const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n").trim();
       const prefix = formatFailurePrefix(e, timeoutMs ?? DEFAULT_TIMEOUT_MS);
-      return { content: truncateOutput([prefix, out || "command failed"].filter(Boolean).join("\n")), isError: true };
+      const failed = await persistIfTruncated(
+        ctx,
+        out,
+        truncateOutput([prefix, out || "command failed"].filter(Boolean).join("\n")),
+      );
+      return { ...failed, isError: true };
     } finally {
       // Even a failed command may have written files part-way.
       if (semantics.category !== "read_only") ctx.onWorkspaceChanged?.();
     }
   },
 });
+
+/**
+ * If the model-visible body was truncated, write the complete output under
+ * `.lucky/tool-results/` and point at it. The note stays after the head/tail
+ * view, so the model sees both the verdict and where the rest lives.
+ */
+async function persistIfTruncated(
+  ctx: Pick<ToolContext, "cwd" | "toolCallId">,
+  output: string,
+  body: string,
+): Promise<{ content: string; metadata?: ToolResultMetadata }> {
+  if (output.length <= MAX_RETURN_CHARS) return { content: body };
+  const persisted = await persistToolOutput(ctx.cwd, "exec", ctx.toolCallId, output);
+  if (!persisted) return { content: body };
+  const note = persisted.truncated
+    ? `[full output saved to ${persisted.relativePath} (first ${persisted.bytes} bytes)]`
+    : `[full output saved to ${persisted.relativePath} (${persisted.bytes} bytes)]`;
+  return {
+    content: `${body}\n\n${note}`,
+    metadata: {
+      persistedOutputPath: persisted.relativePath,
+      persistedOutputBytes: persisted.bytes,
+    },
+  };
+}
 
 export function classifyDangerousCommand(command: string): string | undefined {
   const semantics = classifyCommandSemantics(command);

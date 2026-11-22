@@ -37,6 +37,12 @@ export {
 export type { CommandAction, CommandRules, CommandVerdict } from "./tools/command-policy.js";
 export { FileStateLedger, contentHash } from "./tools/file-state.js";
 export type { FileStateCheck } from "./tools/file-state.js";
+export {
+  MAX_PERSISTED_OUTPUT_BYTES,
+  TOOL_RESULTS_DIR,
+  persistToolOutput,
+} from "./tools/output-store.js";
+export type { PersistedToolOutput } from "./tools/output-store.js";
 export { defineTool } from "./tools/types.js";
 export type {
   AskUserRequest,

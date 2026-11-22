@@ -368,6 +368,48 @@ describe("robust built-in tools", () => {
     expect(trimmed).toMatch(/\[truncated \d+ chars\]/);
   });
 
+  it("persists oversized exec output and points at the file", async () => {
+    const registry = new ToolRegistry().register(execTool);
+    const result = await registry.execute(
+      "exec",
+      { command: `node -e "process.stdout.write('x'.repeat(40000))"` },
+      { cwd: root, toolCallId: "call-large" },
+    );
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain(".lucky/tool-results/");
+    expect(result.metadata?.persistedOutputBytes).toBe(40_000);
+    const match = /\[full output saved to ([^ ]+) \(/.exec(result.content);
+    expect(match?.[1]).toBeTruthy();
+    const full = await readFile(join(root, match![1]!), "utf8");
+    expect(full.length).toBe(40_000);
+  });
+
+  it("does not persist small exec output", async () => {
+    const registry = new ToolRegistry().register(execTool);
+    const result = await registry.execute(
+      "exec",
+      { command: "printf ok" },
+      { cwd: root, toolCallId: "call-small" },
+    );
+    expect(result.metadata?.persistedOutputPath).toBeUndefined();
+    await expect(stat(join(root, ".lucky", "tool-results"))).rejects.toThrow();
+  });
+
+  it("persists oversized output from a failed command", async () => {
+    const registry = new ToolRegistry().register(execTool);
+    const result = await registry.execute(
+      "exec",
+      { command: `node -e "process.stdout.write('y'.repeat(40000)); process.exit(7)"` },
+      { cwd: root, toolCallId: "call-fail" },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(".lucky/tool-results/");
+    const match = /\[full output saved to ([^ ]+) \(/.exec(result.content);
+    expect(match?.[1]).toBeTruthy();
+    const full = await readFile(join(root, match![1]!), "utf8");
+    expect(full.length).toBeGreaterThanOrEqual(40_000);
+  });
+
   it("does not kill commands with large output", async () => {
     const registry = new ToolRegistry().register(execTool);
     const result = await registry.execute(
@@ -376,7 +418,8 @@ describe("robust built-in tools", () => {
       { cwd: root },
     );
     expect(result.isError).toBeUndefined();
-    expect(result.content.trimEnd().endsWith("DONE")).toBe(true);
+    expect(result.content).toContain("DONE");
+    expect(result.content).toContain(".lucky/tool-results/");
   });
 
   it("relays exec output live through onOutput", async () => {

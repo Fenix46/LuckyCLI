@@ -159,7 +159,7 @@ the file tools, and keep the ledger in sync with pruning and compaction.
 
 ## T3 — Persistenza degli output lunghi
 
-**Stato:** da fare.
+**Stato:** fatto (commit di chiusura).
 
 **Scope**
 
