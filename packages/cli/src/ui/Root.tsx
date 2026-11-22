@@ -41,7 +41,7 @@ import {
   requiresApprovalInAutoMode,
   shellCommandVerdict,
 } from "../approval.js";
-import { nextPermissionMode, QUESTION_SKIPPED, verificationModeFor } from "./lib/requests.js";
+import { modeAfterPlanAccept, nextPermissionMode, QUESTION_SKIPPED, verificationModeFor } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
@@ -174,9 +174,10 @@ export function Root({
 
   function cyclePermissionMode() {
     // The ref is the source of truth (the agent's captured approveTool reads it);
-    // state just mirrors it for rendering. normal → acceptEdits → auto → normal.
+    // state just mirrors it for rendering. normal → acceptEdits → auto → plan → normal.
     const next = nextPermissionMode(permissionModeRef.current);
     permissionModeRef.current = next;
+    runtimeRef.current?.agent.setPlanMode(next === "plan");
     runtimeRef.current?.agent.setVerificationMode(verificationModeFor(next));
     // Returning to normal also forgets the session's "always" approvals, so the
     // user starts asking again from a clean slate.
@@ -255,7 +256,16 @@ export function Root({
         })
       ).trim();
 
-      if (answer === ACCEPT) return { action: "accept" };
+      if (answer === ACCEPT) {
+        if (permissionModeRef.current === "plan") {
+          const next = modeAfterPlanAccept(permissionModeRef.current);
+          permissionModeRef.current = next;
+          setPermissionMode(next);
+          runtimeRef.current?.agent.setPlanMode(false);
+          runtimeRef.current?.agent.setVerificationMode(verificationModeFor(next));
+        }
+        return { action: "accept" };
+      }
       // Esc on the plan question skips it: treat that as a rejection rather
       // than as modification feedback.
       if (answer === REJECT || answer === QUESTION_SKIPPED || /^(reject|no|cancel|annulla|rifiuta)$/i.test(answer)) {
@@ -363,6 +373,7 @@ export function Root({
       // graph presence, sub-agent profiles) so conditional sections react to it.
       composeSystemFromContext: true,
       permissions: permissionsRef.current,
+      planMode: permissionModeRef.current === "plan",
       ...(config.skills ? { allowedSkills: config.skills } : {}),
       approveTool,
       askUser,

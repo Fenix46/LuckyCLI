@@ -196,7 +196,7 @@ costs detail rather than information.
 
 ## T4 — Plan mode enforced (core + TUI)
 
-**Stato:** da fare.
+**Stato:** fatto (commit di chiusura).
 
 **Scope**
 

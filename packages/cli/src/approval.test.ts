@@ -7,7 +7,7 @@ import {
   requiresApprovalInAutoMode,
   shellCommandVerdict,
 } from "./approval.js";
-import { nextPermissionMode, verificationModeFor } from "./ui/lib/requests.js";
+import { modeAfterPlanAccept, nextPermissionMode, verificationModeFor } from "./ui/lib/requests.js";
 
 const cwd = tmpdir();
 
@@ -48,10 +48,20 @@ describe("loadCommandRules", () => {
 });
 
 describe("nextPermissionMode", () => {
-  it("cycles normal → acceptEdits → auto → normal", () => {
+  it("cycles normal → acceptEdits → auto → plan → normal", () => {
     expect(nextPermissionMode("normal")).toBe("acceptEdits");
     expect(nextPermissionMode("acceptEdits")).toBe("auto");
-    expect(nextPermissionMode("auto")).toBe("normal");
+    expect(nextPermissionMode("auto")).toBe("plan");
+    expect(nextPermissionMode("plan")).toBe("normal");
+  });
+});
+
+describe("modeAfterPlanAccept", () => {
+  it("leaves plan mode for the ask-first mode and keeps every other mode", () => {
+    expect(modeAfterPlanAccept("plan")).toBe("normal");
+    expect(modeAfterPlanAccept("normal")).toBe("normal");
+    expect(modeAfterPlanAccept("acceptEdits")).toBe("acceptEdits");
+    expect(modeAfterPlanAccept("auto")).toBe("auto");
   });
 });
 
@@ -84,5 +94,6 @@ describe("verificationModeFor", () => {
     expect(verificationModeFor("auto", { LUCKY_AUTO_VERIFY: "off" })).toBe("manual");
     expect(verificationModeFor("normal", {})).toBe("manual");
     expect(verificationModeFor("acceptEdits", {})).toBe("manual");
+    expect(verificationModeFor("plan", {})).toBe("manual");
   });
 });

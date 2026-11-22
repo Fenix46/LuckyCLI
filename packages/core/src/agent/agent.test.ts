@@ -277,6 +277,71 @@ describe("Agent loop", () => {
     }
   });
 
+  it("blocks mutating tools in plan mode and releases them when the plan is accepted", async () => {
+    let mutations = 0;
+    let peeks = 0;
+    const mutate = defineTool({
+      name: "mutate",
+      description: "Change the workspace.",
+      schema: z.object({ value: z.string() }),
+      async execute({ value }) {
+        mutations += 1;
+        return { content: `mutated:${value}` };
+      },
+    });
+    const peek = defineTool({
+      name: "peek",
+      description: "Read-only inspection.",
+      schema: z.object({}),
+      readonly: true,
+      async execute() {
+        peeks += 1;
+        return { content: "peeked" };
+      },
+    });
+    const provider = new ScriptedProvider([
+      [
+        { toolCall: { type: "tool_call", id: "m1", name: "mutate", arguments: { value: "x" } } },
+        { toolCall: { type: "tool_call", id: "p1", name: "peek", arguments: {} } },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "planned" }, { finishReason: "stop" }],
+      [
+        { toolCall: { type: "tool_call", id: "m2", name: "mutate", arguments: { value: "y" } } },
+        { finishReason: "tool_calls" },
+      ],
+      [{ textDelta: "implemented" }, { finishReason: "stop" }],
+    ]);
+    const agent = new Agent({
+      provider,
+      model: "mock",
+      tools: new ToolRegistry().register(mutate).register(peek),
+      planMode: true,
+    });
+
+    const first = await collect(agent.send("make a plan"));
+    const ends = first.filter((e) => e.type === "tool_end") as Array<{
+      name: string;
+      content: string;
+      isError: boolean;
+    }>;
+    expect(ends.find((e) => e.name === "mutate")).toMatchObject({ isError: true });
+    expect(ends.find((e) => e.name === "mutate")?.content).toMatch(/plan mode/i);
+    expect(ends.find((e) => e.name === "peek")).toMatchObject({ content: "peeked" });
+    expect(mutations).toBe(0);
+    expect(peeks).toBe(1);
+    expect(agent.planModeEnabled).toBe(true);
+
+    agent.setPlanMode(false);
+    const second = await collect(agent.send("implement it"));
+    const secondEnd = second.find((e) => e.type === "tool_end") as
+      | { name: string; content: string }
+      | undefined;
+    expect(secondEnd).toMatchObject({ name: "mutate", content: "mutated:y" });
+    expect(mutations).toBe(1);
+    expect(agent.planModeEnabled).toBe(false);
+  });
+
   it("runs verification after an approved edit that reports a diff", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "lucky-agent-verify-"));
     try {

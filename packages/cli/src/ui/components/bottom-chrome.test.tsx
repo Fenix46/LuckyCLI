@@ -137,6 +137,20 @@ describe("StatusFooter", () => {
     expect(scanPositions(screen, "auto mode on").length).toBeGreaterThan(0);
   });
 
+  it("shows the plan-mode banner when the mode is on", () => {
+    const { screen } = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={80}
+        permissionMode="plan"
+        showScrollHint={false}
+        contextStatus={null}
+      />,
+      80,
+    );
+    expect(scanPositions(screen, "plan mode on").length).toBeGreaterThan(0);
+  });
+
   it("shows the cycle hint, and the scroll hint only when there is room", () => {
     const wide = renderToScreen(
       <StatusFooter

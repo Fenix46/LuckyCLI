@@ -35,9 +35,13 @@ import type { VerificationResult } from "../workflow/types.js";
 import type { AgentEvent, CompactionResult, ContextStatus } from "./types.js";
 import { ReadLedger } from "../tools/read-ledger.js";
 import { FileStateLedger } from "../tools/file-state.js";
+import { classifyCommandSemantics } from "../tools/builtin/exec.js";
+import { classifyPowerShellCommandSemantics } from "../tools/builtin/powershell.js";
 import { ownershipOverlaps } from "../agents/ownership.js";
 
 const INTERRUPTED_MARKER = "[Request interrupted by user]";
+const PLAN_MODE_PROMPT = `# Plan mode
+Plan mode is on. Do not edit files, run mutating commands, or change the workspace. Explore with read-only tools and read-only shell commands, resolve open questions with ask_user, then call present_plan. When the user accepts the plan, plan mode ends and you can implement its tasks. If they ask for changes, revise the plan and present it again.`;
 // Compaction summaries are a mechanical, low-stakes task: run them on the
 // cheapest model the provider exposes rather than the (possibly Opus-class)
 // model driving the conversation. Falls back to the main model if the provider
@@ -60,6 +64,12 @@ export interface AgentConfig {
   reasoningEffort?: string;
   /** Optional provider-specific thinking toggle (currently Claude). */
   thinkingEnabled?: boolean;
+  /**
+   * Start in plan mode: read-only exploration only. Mutating tools are denied
+   * until the host calls setPlanMode(false), which the TUI/ACP do when the user
+   * accepts a plan. Read-only tools and read-only shell commands stay available.
+   */
+  planMode?: boolean;
   /**
    * Optional safety bound on provider round-trips per user turn. Unset means
    * unlimited: the agent keeps working until the model stops requesting tools
@@ -181,6 +191,7 @@ export class Agent {
   private readonly maxTokens: number | undefined;
   private readonly reasoningEffort: string | undefined;
   private readonly thinkingEnabled: boolean | undefined;
+  private planMode: boolean;
   private readonly maxSteps: number | undefined;
   private readonly compaction: RequiredCompactionConfig;
   private readonly modelInfo: ModelInfo;
@@ -238,6 +249,7 @@ export class Agent {
     this.maxTokens = cfg.maxTokens;
     this.reasoningEffort = cfg.reasoningEffort;
     this.thinkingEnabled = cfg.thinkingEnabled;
+    this.planMode = cfg.planMode === true;
     this.maxSteps = cfg.maxSteps;
     this.compaction = {
       enabled: cfg.compaction?.enabled ?? true,
@@ -278,6 +290,20 @@ export class Agent {
   /** The system prompt sent with every request (persisted to resume with a warm cache). */
   get systemPrompt(): string | undefined {
     return this.system;
+  }
+
+  /** True while mutating tools are denied and only read-only work is allowed. */
+  get planModeEnabled(): boolean {
+    return this.planMode;
+  }
+
+  /**
+   * Enter or leave plan mode. The host calls this when the user toggles the
+   * mode (Shift+Tab) or accepts a presented plan. It deliberately does not
+   * touch the transcript: the next request carries the updated system prompt.
+   */
+  setPlanMode(enabled: boolean): void {
+    this.planMode = enabled;
   }
 
   /** The conversation's prompt-cache key (persisted alongside the session). */
@@ -352,7 +378,7 @@ export class Agent {
 
   /** Size of what every request carries besides the transcript: system prompt and tool schemas. */
   private overheadChars(): number {
-    return (this.system?.length ?? 0) + JSON.stringify(this.tools.definitions()).length;
+    return (this.effectiveSystemPrompt()?.length ?? 0) + JSON.stringify(this.tools.definitions()).length;
   }
 
   async providerStatus(): Promise<ProviderStatus> {
@@ -652,7 +678,7 @@ export class Agent {
       const parallelCalls = toolCalls.filter(
         (call) =>
           this.tools.get(call.name)?.concurrencySafe === true &&
-          this.permissionFor(call.name) === "allow",
+          this.permissionFor(call.name, call.arguments) === "allow",
       );
       if (parallelCalls.length > 1) {
         for (const call of parallelCalls) {
@@ -674,7 +700,7 @@ export class Agent {
           // A rejection that interrupted the turn must not keep prompting for
           // the rest of the group.
           const decision = signal?.aborted
-            ? { permission: this.permissionFor(call.name), approved: false }
+            ? { permission: this.permissionFor(call.name, call.arguments), approved: false }
             : await this.decide(call);
           decided.set(call, decision);
         }
@@ -701,7 +727,9 @@ export class Agent {
         let result;
         if (permission === "deny") {
           result = {
-            content: `Tool '${call.name}' execution is denied by policy.`,
+            content: this.planMode
+              ? `Tool '${call.name}' is blocked in plan mode. Explore read-only and call present_plan before changing the workspace.`
+              : `Tool '${call.name}' execution is denied by policy.`,
             isError: true,
           };
         } else if (!approved) {
@@ -875,7 +903,7 @@ export class Agent {
   /** Resolve a call's permission and, when it asks, the user's decision. */
   private async decide(call: ToolCallPart): Promise<{ permission: ToolPermission; approved: boolean }> {
     const hasExplicitPolicy = this.permissions !== undefined;
-    const permission = this.permissionFor(call.name);
+    const permission = this.permissionFor(call.name, call.arguments);
     // Backward compatibility: without an explicit policy, an ask-level tool
     // is allowed when no approval bridge exists, matching the original
     // Agent behavior. With an explicit policy, ask requires approval.
@@ -891,13 +919,33 @@ export class Agent {
     return { permission, approved };
   }
 
-  /** The effective permission for a tool, honoring an explicit policy. */
-  private permissionFor(name: string): ToolPermission {
+  /** The effective permission for a tool, honoring plan mode and an explicit policy. */
+  private permissionFor(name: string, input?: unknown): ToolPermission {
     const tool = this.tools.get(name);
+    if (this.planMode) {
+      // Plan mode is read-only exploration. Read-only tools (and read-only
+      // shell commands) are safe; everything that could change the workspace
+      // waits for the plan to be accepted.
+      if (tool?.readonly === true) return "allow";
+      if (this.isReadOnlyShellCall(name, input)) return "allow";
+      return "deny";
+    }
     if (this.permissions !== undefined) {
       return resolveToolPermission(this.permissions, name, tool?.readonly ?? false);
     }
     return tool?.readonly ? "allow" : "ask";
+  }
+
+  /** A shell call whose command the existing classifiers consider read-only. */
+  private isReadOnlyShellCall(name: string, input: unknown): boolean {
+    if (name !== "exec" && name !== "PowerShell") return false;
+    const command = (input as { command?: unknown } | null)?.command;
+    if (typeof command !== "string" || command.trim() === "") return false;
+    const semantics =
+      name === "exec"
+        ? classifyCommandSemantics(command)
+        : classifyPowerShellCommandSemantics(command);
+    return semantics.category === "read_only";
   }
 
   /** Execute one approved tool call with the agent's full tool context. */
@@ -942,10 +990,16 @@ export class Agent {
     });
   }
 
+  private effectiveSystemPrompt(): string | undefined {
+    if (!this.planMode) return this.system;
+    return this.system ? `${this.system}\n\n${PLAN_MODE_PROMPT}` : PLAN_MODE_PROMPT;
+  }
+
   private generationConfig(signal?: AbortSignal) {
+    const systemPrompt = this.effectiveSystemPrompt();
     return {
       model: this.model,
-      ...(this.system ? { systemPrompt: this.system } : {}),
+      ...(systemPrompt ? { systemPrompt } : {}),
       tools: this.tools.definitions(),
       ...(this.temperature !== undefined
         ? { temperature: this.temperature }

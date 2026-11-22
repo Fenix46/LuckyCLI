@@ -127,6 +127,8 @@ export interface BuildAgentOptions {
   thinkingEnabled?: boolean;
   allowedSkills?: readonly string[];
   permissions?: ToolPermissionPolicy;
+  /** Start the agent in read-only plan mode. */
+  planMode?: boolean;
   approveTool?: (name: string, input: unknown) => Promise<ToolApproval> | ToolApproval;
   askUser?: (request: AskUserRequest) => Promise<string>;
   presentPlan?: (plan: PlanProposal) => Promise<PlanDecision>;
@@ -278,6 +280,7 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
     ...(opts.cacheHints?.promptCacheKey ? { promptCacheKey: opts.cacheHints.promptCacheKey } : {}),
     ...(opts.compactOnResume ? { compactOnResume: true } : {}),
     permissions: opts.permissions,
+    ...(opts.planMode ? { planMode: true } : {}),
     ...(opts.allowedSkills ? { allowedSkills: opts.allowedSkills } : {}),
     approveTool: opts.approveTool,
     askUser: opts.askUser,
