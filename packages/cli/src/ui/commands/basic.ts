@@ -11,6 +11,7 @@ import {
 import { setClipboard } from "../../vendor/ink/termio/osc.js";
 import { THEMES } from "../themes.js";
 import { formatNumber } from "../lib/format.js";
+import { KEYBOARD_SHORTCUTS } from "../lib/shortcuts.js";
 import { unknownCommand } from "./helpers.js";
 import type { Command } from "./types.js";
 
@@ -246,6 +247,21 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
           rows: ctx.registry
             .filter((command) => !command.hidden)
             .map((command) => ({ label: command.name, value: command.description })),
+        });
+      },
+    },
+    {
+      name: "/keys",
+      description: "Show keyboard shortcuts",
+      run(args, ctx) {
+        if (args) {
+          unknownCommand(ctx, `/keys ${args}`);
+          return;
+        }
+        ctx.emit({
+          kind: "command",
+          title: "Keyboard shortcuts",
+          rows: KEYBOARD_SHORTCUTS.map(({ keys, what }) => ({ label: keys, value: what })),
         });
       },
     },

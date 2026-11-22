@@ -75,6 +75,18 @@ describe("/theme", () => {
   });
 });
 
+describe("/keys", () => {
+  it("lists the keyboard shortcuts", () => {
+    const h = harness();
+    h.run("/keys");
+    const item = h.emitted[0];
+    if (item?.kind !== "command") throw new Error("expected command item");
+    expect(item.title).toBe("Keyboard shortcuts");
+    expect(item.rows.some((row) => row.label === "shift+tab")).toBe(true);
+    expect(item.rows.some((row) => row.label === "esc")).toBe(true);
+  });
+});
+
 describe("/task", () => {
   it("renders the empty-list hint", () => {
     const h = harness();

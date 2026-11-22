@@ -370,7 +370,7 @@ only when pruning actually changes the transcript.
 
 ## T9 — Scopribilità: `/keys` e scorciatoie nell'intro
 
-**Stato:** da fare.
+**Stato:** fatto (commit di chiusura).
 
 **Scope**
 

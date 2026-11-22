@@ -154,6 +154,7 @@ describe("slashMenuEntries", () => {
       "/rules",
       "/graph",
       "/task",
+      "/keys",
       "/exit",
       "/checkpoint",
       "/undo",

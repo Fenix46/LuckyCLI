@@ -4,6 +4,7 @@ import React from "react";
 import { PROVIDER_CATALOG, type ProviderId } from "@luckycli/core";
 import type { Theme } from "../themes.js";
 import { firstName, prettyCwd, truncateMiddle } from "../lib/format.js";
+import { SHORTCUT_HINT } from "../lib/shortcuts.js";
 import { APP_VERSION } from "./constants.js";
 import { GLYPH } from "./kit.js";
 
@@ -69,6 +70,11 @@ export function IntroBanner({
             <Text color={theme.muted}> {what}</Text>
           </Text>
         ))}
+      </Box>
+      <Box paddingLeft={2} marginTop={1} width={cardWidth}>
+        <Text color={theme.subtle} wrap="truncate-end">
+          {SHORTCUT_HINT}
+        </Text>
       </Box>
     </Box>
   );

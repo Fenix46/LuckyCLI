@@ -28,6 +28,7 @@ const MENU_ORDER = [
   "/rules",
   "/graph",
   "/task",
+  "/keys",
   "/exit",
   "/checkpoint",
   "/undo",
