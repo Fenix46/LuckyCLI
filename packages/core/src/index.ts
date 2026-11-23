@@ -430,6 +430,19 @@ export {
 } from "./skills/install.js";
 export type { InstallResult } from "./skills/install.js";
 export {
+  findSkillDirs,
+  gitClone,
+  installSkillFromSource,
+  parseSkillSource,
+} from "./skills/source.js";
+export type {
+  InstallFromSourceOptions,
+  SkillSource,
+  SkillSourceCandidate,
+  SkillSourceCloner,
+  SkillSourceOptions,
+} from "./skills/source.js";
+export {
   CatalogSkillSchema,
   SkillCatalog,
   installCatalogSkill,
