@@ -68,6 +68,7 @@ import {
 } from "./lib/image-input.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import { buildMarkdownCommands } from "./commands/markdown.js";
+import { buildMcpPromptCommands, type McpPromptCommand } from "./commands/mcp-prompts.js";
 import type { Command, CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
 import { useModelCatalogs } from "./hooks/useModelCatalogs.js";
@@ -129,6 +130,8 @@ interface AppProps {
   planRequest: PlanRequest | null;
   agentUsage: AgentUsageMap;
   mcpManager?: McpManager;
+  /** Resolves once the manager finished its first connection pass. */
+  mcpReady?: Promise<void>;
   tokenCosts?: Record<string, TokenCostRates>;
   mcpConfig: Record<string, McpServerConfig>;
   onMcpConfigChange: (nextMcpConfig: Record<string, McpServerConfig>) => void;
@@ -162,6 +165,7 @@ export function App({
   planRequest,
   agentUsage,
   mcpManager,
+  mcpReady,
   tokenCosts,
   mcpConfig,
   onMcpConfigChange,
@@ -601,12 +605,37 @@ export function App({
     }
   }, []);
 
-  // Slash commands: registry derived from the static set plus skill aliases and
-  // discovered markdown commands; per-dispatch state travels in the
-  // CommandContext. The menu and /help derive from the same list.
+  // Slash commands: registry derived from the static set plus skill aliases,
+  // discovered markdown commands and MCP prompts; per-dispatch state travels in
+  // the CommandContext. The menu and /help derive from the same list.
+  const [mcpPromptCommands, setMcpPromptCommands] = useState<Command[]>([]);
+  const refreshMcpPrompts = useCallback(async () => {
+    if (!mcpManager) {
+      setMcpPromptCommands([]);
+      return;
+    }
+    const entries: McpPromptCommand[] = [];
+    for (const [server, status] of Object.entries(mcpManager.status())) {
+      if (status.status !== "connected") continue;
+      const prompts = await mcpManager.listPrompts(server).catch(() => []);
+      for (const prompt of prompts) entries.push({ server, prompt });
+    }
+    setMcpPromptCommands(buildMcpPromptCommands(entries));
+  }, [mcpManager]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await mcpReady?.catch(() => {});
+      if (!cancelled) await refreshMcpPrompts();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mcpReady, refreshMcpPrompts]);
+
   const commandRegistry = useMemo(
-    () => buildCommandRegistry(skillCommandNames, markdownCommands),
-    [skillCommandNames, markdownCommands],
+    () => buildCommandRegistry(skillCommandNames, [...markdownCommands, ...mcpPromptCommands]),
+    [skillCommandNames, markdownCommands, mcpPromptCommands],
   );
   const menuEntries = useMemo(() => slashMenuEntries(commandRegistry), [commandRegistry]);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -1142,6 +1171,25 @@ export function App({
             runPrompt: async (text: string) => {
               await runTurnAndDrain(text);
             },
+            runMcpPrompt: async (server: string, prompt: string, promptArgs: Record<string, string>) => {
+              if (!mcpManager) return false;
+              try {
+                const text = await mcpManager.getPrompt(server, prompt, promptArgs);
+                await runTurnAndDrain(text);
+                return true;
+              } catch (error) {
+                setItems((prev) => [
+                  ...prev,
+                  {
+                    kind: "error",
+                    text: `MCP prompt "${prompt}" on "${server}" failed: ${
+                      error instanceof Error ? error.message : String(error)
+                    }`,
+                  },
+                ]);
+                return false;
+              }
+            },
             triggerSetup: onTriggerSetup,
             triggerResume: onTriggerResume,
             applyTheme: selectTheme,
@@ -1190,7 +1238,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands, mcpManager],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

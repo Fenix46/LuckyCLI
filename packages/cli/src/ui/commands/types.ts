@@ -40,6 +40,15 @@ export interface CommandContext {
      * message. Used by markdown commands and MCP prompts.
      */
     runPrompt(text: string): Promise<void>;
+    /**
+     * Fetch an MCP prompt (flattened to text) and send it as an operative turn.
+     * Resolves false when the server is unavailable or the prompt fails.
+     */
+    runMcpPrompt(
+      server: string,
+      prompt: string,
+      args: Record<string, string>,
+    ): Promise<boolean>;
     openAgentsPanel(): void;
     triggerSetup(): void;
     triggerResume(): void;
