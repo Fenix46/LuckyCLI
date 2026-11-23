@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolveConfig } from "./config.js";
 import type { StoredConfig } from "./store.js";
 
@@ -40,6 +43,55 @@ describe("resolveConfig", () => {
 
   it("always resolves an MCP record, even when config is empty", () => {
     expect(resolveConfig({}, {}, {}).mcp).toEqual({});
+  });
+
+  it("expands environment variables in stored MCP config", () => {
+    const stored: StoredConfig = {
+      mcp: {
+        terraform: {
+          type: "local",
+          command: ["docker", "run", "-e", "TFE_TOKEN=${TFE_TOKEN}", "hashicorp/terraform-mcp"],
+          environment: { HOST: "${MCP_HOST:-127.0.0.1}" },
+        },
+      },
+    };
+
+    const resolved = resolveConfig({}, stored, { TFE_TOKEN: "secret" });
+
+    expect(resolved.mcp.terraform).toEqual({
+      type: "local",
+      command: ["docker", "run", "-e", "TFE_TOKEN=secret", "hashicorp/terraform-mcp"],
+      environment: { HOST: "127.0.0.1" },
+    });
+  });
+
+  it("expands project .mcp.json placeholders in a trusted folder", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "lucky-config-mcp-"));
+    try {
+      writeFileSync(
+        join(cwd, ".mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            local: { command: "npx", args: ["-y", "server", "--port", "${PORT:-3000}"] },
+          },
+        }),
+        "utf8",
+      );
+      const stored: StoredConfig = {
+        projects: {
+          [cwd]: { trusted: true, firstOpenedAt: "2026-01-01T00:00:00.000Z" },
+        },
+      };
+
+      const resolved = resolveConfig({}, stored, { PORT: "8080" }, cwd);
+
+      expect(resolved.mcp.local).toEqual({
+        type: "local",
+        command: ["npx", "-y", "server", "--port", "8080"],
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   describe("reasoning effort", () => {

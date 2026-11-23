@@ -590,6 +590,11 @@ export {
   withoutMcpServer,
 } from "./mcp/config.js";
 export {
+  expandEnvString,
+  expandMcpServerConfig,
+  expandMcpServers,
+} from "./mcp/expand.js";
+export {
   adaptMcpTool,
   makeMcpToolName,
   uniqueMcpToolName,
