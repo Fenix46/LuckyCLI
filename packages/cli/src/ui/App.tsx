@@ -634,6 +634,36 @@ export function App({
     };
   }, [mcpReady, refreshMcpPrompts]);
 
+  // Footer MCP summary: enabled servers only, so a deliberately disabled one
+  // does not look like a pending connection.
+  const [mcpConnecting, setMcpConnecting] = useState(false);
+  useEffect(() => {
+    if (!mcpReady) {
+      setMcpConnecting(false);
+      return;
+    }
+    let cancelled = false;
+    setMcpConnecting(true);
+    void mcpReady.finally(() => {
+      if (!cancelled) setMcpConnecting(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mcpReady]);
+  const mcpServerNames = Object.entries(mcpConfig)
+    .filter(([, config]) => config.enabled !== false)
+    .map(([name]) => name);
+  const mcpStatus = mcpManager?.status() ?? {};
+  const mcpFooter =
+    mcpServerNames.length > 0
+      ? {
+          connected: mcpServerNames.filter((name) => mcpStatus[name]?.status === "connected").length,
+          total: mcpServerNames.length,
+          pending: mcpConnecting,
+        }
+      : undefined;
+
   const commandRegistry = useMemo(
     () => buildCommandRegistry(skillCommandNames, [...markdownCommands, ...mcpPromptCommands]),
     [skillCommandNames, markdownCommands, mcpPromptCommands],
@@ -1589,6 +1619,8 @@ export function App({
           tokenCosts?.[`${meta.provider}/${meta.model}`],
           PROVIDER_CATALOG[meta.provider].usageTokensIncludeCache === true,
         )}
+        {...(queuedPrompts.length > 0 ? { queued: queuedPrompts.length } : {})}
+        {...(mcpFooter ? { mcp: mcpFooter } : {})}
       />
       </Box>
     </Box>

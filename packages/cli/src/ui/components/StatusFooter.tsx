@@ -22,6 +22,8 @@ export function StatusFooter({
   effort,
   thinking,
   usage,
+  queued,
+  mcp,
 }: {
   theme: Theme;
   /** Content width (terminal width minus the root's paddingX). */
@@ -36,6 +38,10 @@ export function StatusFooter({
   thinking?: string | undefined;
   /** Session tokens (and cost, when rates are configured). */
   usage?: string | undefined;
+  /** Prompts waiting behind the running turn. */
+  queued?: number;
+  /** MCP connection summary; omitted when no server is configured. */
+  mcp?: { connected: number; total: number; pending: boolean };
 }): React.JSX.Element {
   const ctx = contextFooter(contextStatus);
   const settings = [
@@ -54,6 +60,14 @@ export function StatusFooter({
       <Box flexGrow={1} />
       <Box flexDirection="row" flexShrink={1}>
         <Text wrap="truncate-end">
+          {queued ? <Text color={theme.warning}>{`${queued} queued   `}</Text> : null}
+          {mcp ? (
+            <Text color={theme.subtle}>
+              {mcp.pending
+                ? `mcp connecting…   `
+                : `mcp ${mcp.connected}/${mcp.total}   `}
+            </Text>
+          ) : null}
           <Text color={theme.muted}>ctx </Text>
           {ctx.percent !== undefined ? (
             <Text>

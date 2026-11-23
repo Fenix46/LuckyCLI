@@ -157,6 +157,53 @@ describe("SlashMenu", () => {
 });
 
 describe("StatusFooter", () => {
+  it("shows the queued prompts and the MCP summary", () => {
+    const { screen } = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={100}
+        permissionMode="normal"
+        showScrollHint={false}
+        contextStatus={null}
+        queued={2}
+        mcp={{ connected: 1, total: 3, pending: false }}
+      />,
+      100,
+    );
+    expect(scanPositions(screen, "2 queued")).toHaveLength(1);
+    expect(scanPositions(screen, "mcp 1/3")).toHaveLength(1);
+  });
+
+  it("shows the pending MCP state", () => {
+    const { screen } = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={100}
+        permissionMode="normal"
+        showScrollHint={false}
+        contextStatus={null}
+        mcp={{ connected: 0, total: 1, pending: true }}
+      />,
+      100,
+    );
+    expect(scanPositions(screen, "mcp connecting")).toHaveLength(1);
+  });
+
+  it("stays quiet when there is no queue or MCP server", () => {
+    const { screen } = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={100}
+        permissionMode="normal"
+        showScrollHint={false}
+        contextStatus={null}
+      />,
+      100,
+    );
+    expect(scanPositions(screen, "queued")).toHaveLength(0);
+    expect(scanPositions(screen, "mcp ")).toHaveLength(0);
+  });
+
   it("shows the accept-edits banner when the mode is on", () => {
     const { screen } = renderToScreen(
       <StatusFooter
