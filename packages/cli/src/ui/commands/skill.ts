@@ -1,7 +1,7 @@
 import {
   SkillCatalog,
   installCatalogSkill,
-  installSkillFromPath,
+  installSkillFromSource,
   listAvailableSkills,
   seedStarterSkills,
   setSkillEnabled,
@@ -20,7 +20,7 @@ import type { Command, CommandContext } from "./types.js";
 export interface SkillCommandDeps {
   createCatalog(): Pick<SkillCatalog, "search" | "get" | "fetchBody">;
   listAvailable: typeof listAvailableSkills;
-  installFromPath: typeof installSkillFromPath;
+  installFromSource: typeof installSkillFromSource;
   installFromCatalog: typeof installCatalogSkill;
   uninstall: typeof uninstallSkill;
   setEnabled: typeof setSkillEnabled;
@@ -30,7 +30,7 @@ export interface SkillCommandDeps {
 const defaultDeps: SkillCommandDeps = {
   createCatalog: () => new SkillCatalog(),
   listAvailable: listAvailableSkills,
-  installFromPath: installSkillFromPath,
+  installFromSource: installSkillFromSource,
   installFromCatalog: installCatalogSkill,
   uninstall: uninstallSkill,
   setEnabled: setSkillEnabled,
@@ -136,22 +136,27 @@ export function skillCommands(deps: SkillCommandDeps = defaultDeps): Command[] {
 
         if (sub === "add" || sub === "install") {
           if (!tail) {
-            ctx.emit({ kind: "error", text: "usage: /skill add <name-in-catalog | local-path>" });
+            ctx.emit({ kind: "error", text: "usage: /skill add <name-in-catalog | local-path | owner/repo>" });
             return;
           }
           try {
-            // A path-like argument installs from disk; otherwise treat it as a
-            // catalog name.
-            const looksLikePath = tail.includes("/") || tail.startsWith(".") || tail.startsWith("~");
-            const res = looksLikePath
-              ? await deps.installFromPath(tail)
-              : await deps.installFromCatalog(tail);
+            // A path-like argument (including owner/repo and git URLs) is a
+            // source; otherwise treat it as a catalog name.
+            const looksLikeSource =
+              tail.includes("/") ||
+              tail.startsWith(".") ||
+              tail.startsWith("~") ||
+              tail.includes("://") ||
+              tail.startsWith("git@");
+            const res = looksLikeSource
+              ? (await deps.installFromSource(tail)).map((r) => r.name)
+              : [(await deps.installFromCatalog(tail)).name];
             ctx.emit({
               kind: "command",
               title: "Skill installed",
               rows: [
-                { label: "skill", value: res.name },
-                { label: "source", value: looksLikePath ? "local path" : "catalog" },
+                { label: "skill", value: res.join(", ") },
+                { label: "source", value: looksLikeSource ? "path or git" : "catalog" },
               ],
             });
           } catch (error) {

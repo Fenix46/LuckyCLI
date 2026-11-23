@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { Root } from "./ui/Root.js";
 import { runAcpCommand } from "./acp/acp-cli.js";
 import { runMcpCommand } from "./mcp-cli.js";
+import { runSkillCommand } from "./skill-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
 import { runCommand } from "./run-cli.js";
 import { runReviewCommand, runVerifyCommand } from "./workflow-cli.js";
@@ -67,6 +68,13 @@ Commands:
   mcp inspect <name>    show prompts and resources exposed by a server
   mcp login <name>      authorize a remote MCP server via OAuth
   mcp logout <name>     forget a remote MCP server's stored tokens
+  skill list            list installed skills (lucky, .agents and .claude roots)
+  skill add <path>      install a skill folder or a single SKILL.md
+  skill add <owner/repo> install the skill(s) in a git repository
+  skill add <name>      install a skill from the catalog
+  skill remove <name>   remove a skill installed in ~/.luckycli/skills
+  skill enable|disable <name>
+  skill search <query>  search the catalog
   update                check for a newer release
   update --apply        download, verify, and install the latest release
   update --auto <mode>  set auto-update: off | notify | auto (default auto)
@@ -217,6 +225,18 @@ function main(): void {
       })
       .catch((err) => {
         process.stderr.write(`mcp command failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
+    return;
+  }
+
+  if (rawArgs[0] === "skill" || rawArgs[0] === "skills") {
+    runSkillCommand(rawArgs.slice(1))
+      .then((code) => {
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        process.stderr.write(`skill command failed: ${err instanceof Error ? err.message : err}\n`);
         process.exit(1);
       });
     return;
