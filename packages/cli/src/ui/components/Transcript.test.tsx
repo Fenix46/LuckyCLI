@@ -101,4 +101,34 @@ describe("ActivityIndicator", () => {
     expect(scanPositions(screen, "12s")).toHaveLength(1);
     expect(scanPositions(screen, "esc to interrupt")).toHaveLength(1);
   });
+
+  it("uses a contextual verb and shows a retry", () => {
+    const reading = renderToScreen(
+      <ActivityIndicator
+        theme={theme}
+        elapsedSeconds={3}
+        frame={0}
+        phase="working"
+        verb="Reading"
+        detail="src/app.ts"
+        width={90}
+      />,
+      90,
+    );
+    expect(scanPositions(reading.screen, "Reading")).toHaveLength(1);
+    expect(scanPositions(reading.screen, "src/app.ts")).toHaveLength(1);
+
+    const retrying = renderToScreen(
+      <ActivityIndicator
+        theme={theme}
+        elapsedSeconds={3}
+        frame={0}
+        phase="thinking"
+        retry={{ attempt: 2, maxAttempts: 3 }}
+        width={90}
+      />,
+      90,
+    );
+    expect(scanPositions(retrying.screen, "Retrying (2/3)")).toHaveLength(1);
+  });
 });

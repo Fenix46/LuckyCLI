@@ -45,7 +45,7 @@ import { THEMES, themeById, type Theme } from "./themes.js";
 import { contextWarning } from "./lib/context-warning.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { appendLiveOutput, collectDiffs, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
-import { formatToolAction } from "./lib/format.js";
+import { activityDetail, activityVerbForTool } from "./lib/activity.js";
 import { formatUsageFooter } from "./lib/status.js";
 import {
   getAvailableModels,
@@ -491,7 +491,7 @@ export function App({
     (id: string, chunk: string) => setItems((prev) => appendLiveOutput(prev, id, chunk)),
     [],
   );
-  const { busy, startedAt, streaming, reasoning, abort, runTurn } = useTurnRunner({
+  const { busy, startedAt, streaming, reasoning, retry, abort, runTurn } = useTurnRunner({
     agent,
     appendItems,
     patchTool,
@@ -1279,17 +1279,23 @@ export function App({
   // deltas) don't make the "lucky thinking" header flicker or appear to stall.
   const { phase: activityPhase } = useStableActivity(busy, streamingPreview.length > 0);
   const messageWidth = Math.max(32, terminalSize.width - 4);
-  // The tool call in flight, for the activity line ("working · Run npm test").
-  const runningToolAction = useMemo(() => {
+  // The tool call in flight: its name picks the verb ("Reading…") and its
+  // input picks the target, so the activity line never says a generic
+  // "Working" when the tool is known.
+  const runningTool = useMemo(() => {
     if (!busy) return undefined;
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i];
       if (item?.kind === "tool" && item.output === undefined) {
-        return formatToolAction(item.name, item.input, true);
+        return { name: item.name, input: item.input };
       }
     }
     return undefined;
   }, [busy, items]);
+  const toolVerb = runningTool ? activityVerbForTool(runningTool.name) : undefined;
+  const toolDetail = runningTool
+    ? activityDetail({ toolName: runningTool.name, toolInput: runningTool.input })
+    : undefined;
   // Content width inside the bordered input frame: the frame consumes 4 more
   // columns (left/right border + paddingX) on top of the root's paddingX.
   // Sizing the inner content to messageWidth instead pushes the right border
@@ -1487,7 +1493,7 @@ export function App({
           elapsedSeconds={elapsedSeconds}
           frame={activityFrame}
           phase={
-            runningToolAction
+            runningTool
               ? "working"
               : activityPhase === "streaming"
                 ? "responding"
@@ -1495,9 +1501,11 @@ export function App({
                   ? "reasoning"
                   : "thinking"
           }
-          {...(runningToolAction && !compacting ? { detail: runningToolAction } : {})}
+          verb={toolVerb}
+          {...(retry ? { retry } : {})}
+          {...(toolDetail && !compacting ? { detail: toolDetail } : {})}
           width={messageWidth}
-          {...(compacting ? { label: "compacting" } : {})}
+          {...(compacting ? { label: "summarizing" } : {})}
         />
       ) : null}
 

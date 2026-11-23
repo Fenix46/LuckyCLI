@@ -3,6 +3,7 @@ import React from "react";
 import type { Theme } from "../themes.js";
 import { SPINNER_FRAMES } from "./constants.js";
 import { formatElapsed, truncateSingleLine } from "../lib/format.js";
+import { thinkingSynonym } from "../lib/activity.js";
 
 /**
  * The persistent "working" indicator, fixed above the input frame.
@@ -22,6 +23,8 @@ function ActivityIndicatorInner({
   elapsedSeconds,
   frame,
   phase,
+  verb,
+  retry,
   label: labelOverride,
   detail,
   width,
@@ -29,26 +32,33 @@ function ActivityIndicatorInner({
   theme: Theme;
   elapsedSeconds: number;
   frame: number;
-  /** Coarse activity phase; picks the verb. */
+  /** Coarse activity phase; picks the fallback verb. */
   phase: "thinking" | "reasoning" | "responding" | "working";
-  /** Explicit override (e.g. "compacting") wins over the phase verb. */
+  /** Contextual verb (e.g. "Reading"); wins over the phase. */
+  verb?: string;
+  /** A provider retry in progress; wins over the verb. */
+  retry?: { attempt: number; maxAttempts: number };
+  /** Explicit override (e.g. "summarizing") wins over everything. */
   label?: string;
-  /** What is running right now (e.g. the tool call), shown after the verb. */
+  /** What is running right now (e.g. the tool target), shown after the verb. */
   detail?: string;
   /** Available width, so a long detail truncates instead of wrapping. */
   width?: number;
 }): React.JSX.Element {
   const pulse = SPINNER_FRAMES[frame % SPINNER_FRAMES.length] ?? "⠋";
-  const verb =
+  const titleBase =
     labelOverride ??
-    (phase === "reasoning"
-      ? "reasoning"
-      : phase === "responding"
-        ? "responding"
-        : phase === "working"
-          ? "working"
-          : "thinking");
-  const title = `${verb.charAt(0).toUpperCase()}${verb.slice(1)}…`;
+    (retry
+      ? `Retrying (${retry.attempt}/${retry.maxAttempts})`
+      : verb ??
+        (phase === "reasoning"
+          ? "Reasoning"
+          : phase === "responding"
+            ? "Responding"
+            : phase === "working"
+              ? "Working"
+              : thinkingSynonym(elapsedSeconds)));
+  const title = `${titleBase.charAt(0).toUpperCase()}${titleBase.slice(1)}…`;
   const elapsed = formatElapsed(elapsedSeconds);
   // "⠋ Working… · <detail>   12s · esc to interrupt": fixed parts first,
   // the detail gets whatever width remains.
