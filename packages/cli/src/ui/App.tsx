@@ -61,6 +61,7 @@ import {
 } from "./lib/paste.js";
 import { clampSelection, slashMenuAction } from "./lib/slash-menu.js";
 import { filterCommands } from "./lib/fuzzy.js";
+import { argumentCompletions } from "./lib/completions.js";
 import {
   buildTurnContent,
   formatImageRef,
@@ -85,6 +86,7 @@ import { useTerminalStatus } from "./hooks/useTerminalStatus.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { EffortPickerView, ModelPickerView, ThemePickerView } from "./components/Pickers.js";
 import { SlashMenu } from "./components/SlashMenu.js";
+import { CompletionMenu } from "./components/CompletionMenu.js";
 import { StatusFooter } from "./components/StatusFooter.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { AgentUsagePanel } from "./components/AgentUsagePanel.js";
@@ -578,15 +580,21 @@ export function App({
   // mount, when the skill panel changes the set, and after `/skill …` runs, so
   // a skill installed in-session gets its alias without a restart.
   const [skillCommandNames, setSkillCommandNames] = useState<string[]>([]);
+  const [installedSkillNames, setInstalledSkillNames] = useState<string[]>([]);
   const refreshSkillCommands = useCallback(() => {
     try {
-      const names = listAvailableSkills(process.cwd())
-        .filter((s) => s.enabled)
-        .map((s) => s.name);
+      const skills = listAvailableSkills(process.cwd());
+      const names = skills.filter((s) => s.enabled).map((s) => s.name);
       setSkillCommandNames((previous) =>
         previous.length === names.length && previous.every((name, index) => name === names[index])
           ? previous
           : names,
+      );
+      const all = skills.map((s) => s.name);
+      setInstalledSkillNames((previous) =>
+        previous.length === all.length && previous.every((name, index) => name === all[index])
+          ? previous
+          : all,
       );
     } catch {
       /* no skills dir, or unreadable — leave the list unchanged */
@@ -689,12 +697,19 @@ export function App({
     selectedCommandIndex,
   );
 
+  // Argument completions: only for commands whose value set the App already
+  // knows. The menu is dismissed on Esc and recomputed on every input change.
+  const [completionIndex, setCompletionIndex] = useState(0);
+  const [completionDismissed, setCompletionDismissed] = useState(false);
+
   // A new query invalidates the old selection: reset to the first row so the
   // highlight always matches what Enter would run. Arrow navigation does not
   // change the input, so it is unaffected.
   useEffect(() => {
     setSelectedCommandIndex(0);
     setSlashMenuDismissed(false);
+    setCompletionIndex(0);
+    setCompletionDismissed(false);
   }, [input]);
   // Panel state machines (state + keys + actions) live in their hooks; App
   // keeps the open() calls, the modal-chain slots and the render slots.
@@ -717,6 +732,21 @@ export function App({
     input,
     emit: useCallback((item: Item) => setItems((prev) => [...prev, item]), []),
   });
+
+  // Argument completions: only for commands whose value set the App already
+  // knows. The menu is dismissed on Esc and recomputed on every input change.
+  const completion = argumentCompletions(input, {
+    themes: THEMES.map((theme) => ({ id: theme.id, name: theme.name })),
+    models: [
+      ...new Set([...(liveModels ?? []), ...getAvailableModels(meta.provider, meta.model)]),
+    ],
+    providers: Object.keys(PROVIDER_CATALOG),
+    skills: installedSkillNames,
+    enabledSkills: skillCommandNames,
+    mcpServers: Object.keys(mcpConfig),
+  });
+  const showCompletionMenu = completion !== null && !completionDismissed;
+  const completionIndexClamped = clampSelection(completion?.items.length ?? 0, completionIndex);
 
   const modelPicker = getModelPickerState(input, meta.provider, meta.model, liveModels);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
@@ -947,6 +977,33 @@ export function App({
         if (key.return) {
           const selected = themePicker.items[selectedThemeIndex];
           if (selected) selectTheme(selected.id);
+          return true;
+        }
+        return false;
+      },
+    },
+    // 3.9 Argument completion menu (values for the current token)
+    {
+      active: showCompletionMenu && !modelPicker.open && !themePicker.open,
+      onInput(_in, key) {
+        if (!completion || completion.items.length === 0) return false;
+        if (key.escape) {
+          setCompletionDismissed(true);
+          return true;
+        }
+        if (key.return && (key.ctrl || key.meta)) return false;
+        const count = completion.items.length;
+        if (key.downArrow) {
+          setCompletionIndex((prev) => (prev + 1) % count);
+          return true;
+        }
+        if (key.upArrow) {
+          setCompletionIndex((prev) => (prev - 1 + count) % count);
+          return true;
+        }
+        if (key.tab || key.return) {
+          const item = completion.items[clampSelection(count, completionIndex)];
+          if (item) setInput(input.slice(0, completion.replaceFrom) + item.value);
           return true;
         }
         return false;
@@ -1462,6 +1519,7 @@ export function App({
           filteredCommands.length > 0 &&
           !filteredCommands.some((cmd) => cmd.name === input)
         ) &&
+        !showCompletionMenu &&
         !approvalRequest &&
         !compacting
       }
@@ -1601,8 +1659,19 @@ export function App({
         )}
       </Box>
 
+      {/* Argument completion sits directly under the prompt; the command menu
+          takes its place when the input has no known value set. */}
+      {showCompletionMenu && completion ? (
+        <CompletionMenu
+          theme={activeTheme}
+          items={completion.items}
+          selectedIndex={completionIndexClamped}
+          width={messageWidth}
+          hint="↑↓ move · tab insert · enter insert · esc close"
+        />
+      ) : null}
       {/* Slash-command menu sits just below the prompt (Claude Code style). */}
-      {showSlashMenu ? (
+      {showSlashMenu && !showCompletionMenu ? (
         <SlashMenu
           theme={activeTheme}
           commands={filteredCommands}

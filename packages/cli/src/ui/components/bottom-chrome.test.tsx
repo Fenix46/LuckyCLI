@@ -9,6 +9,7 @@ import { renderToScreen, scanPositions } from "../../vendor/ink/render-to-screen
 import { THEMES, type Theme } from "../themes.js";
 import { EffortPickerView, ModelPickerView, ThemePickerView } from "./Pickers.js";
 import { SlashMenu } from "./SlashMenu.js";
+import { CompletionMenu } from "./CompletionMenu.js";
 import { StatusFooter } from "./StatusFooter.js";
 
 const theme = THEMES[0] as Theme;
@@ -156,8 +157,28 @@ describe("SlashMenu", () => {
   });
 });
 
-describe("StatusFooter", () => {
-  it("shows the queued prompts and the MCP summary", () => {
+describe("CompletionMenu", () => {
+  it("renders values and descriptions with the cursor on the selection", () => {
+    const { screen } = renderToScreen(
+      <CompletionMenu
+        theme={theme}
+        items={[
+          { value: "lucky-dark", description: "Lucky Dark" },
+          { value: "lucky-light", description: "Lucky Light" },
+        ]}
+        selectedIndex={1}
+        width={80}
+        hint="↑↓ move · tab insert · esc close"
+      />,
+      80,
+    );
+    expect(scanPositions(screen, "❯ lucky-light")).toHaveLength(1);
+    expect(scanPositions(screen, "Lucky Dark")).toHaveLength(1);
+    expect(scanPositions(screen, "tab insert")).toHaveLength(1);
+  });
+});
+
+describe("StatusFooter", () => {  it("shows the queued prompts and the MCP summary", () => {
     const { screen } = renderToScreen(
       <StatusFooter
         theme={theme}
