@@ -108,25 +108,28 @@ Panoramica:
 
 | Task | Area | Commit |
 |---|---|---|
-| T0 | Docs: questo piano | `docs: plan standard skills and MCP compatibility` |
-| T1 | Skill: root standard + precedenza | `feat(skills): read the standard skill roots` |
-| T2 | Skill: parser frontmatter reale | `fix(skills): parse multi-line quoted frontmatter` |
-| T3 | Skill: path tilde/assoluti | `fix(skills): expand ~ in skill install paths` |
-| T4 | Skill: install da git/URL | `feat(skills): install skills from a git source` |
-| T5 | CLI: comandi skill headless | `feat(cli): add headless skill commands` |
-| T6 | Skill: uninstall solo nella root lucky | `fix(skills): keep uninstall inside the lucky root` |
-| T7 | MCP: expansion variabili | `feat(mcp): expand environment variables in server config` |
-| T8 | MCP: lettura config altri client | `feat(mcp): read MCP servers from other clients` |
-| T9 | MCP: import esplicito spento | `feat(mcp): import servers from other clients disabled` |
-| T10 | MCP: forme `.mcp.json` | `feat(mcp): accept bare and typed .mcp.json shapes` |
-| T11 | CLI: `mcp add-json` | `feat(cli): add mcp add-json` |
-| T12 | Docs: README + riferimenti | `docs: document standard skills and MCP support` |
+| T0 | Docs: questo piano | `docs: plan standard skills and MCP compatibility` — `9273ecb` |
+| T1 | Skill: root standard + precedenza | `feat(skills): read the standard skill roots` — `60e3caa` |
+| T2 | Skill: parser frontmatter reale | `fix(skills): parse multi-line quoted frontmatter` — `7aa56b8` |
+| T3 | Skill: path tilde/assoluti | `fix(skills): expand ~ in skill install paths` — `24b67ca` |
+| T4 | Skill: install da git/URL | `feat(skills): install skills from a git source` — `a085bcf` |
+| T5 | CLI: comandi skill headless | `feat(cli): add headless skill commands` — `69aa3b3` |
+| T6 | Skill: uninstall solo nella root lucky | `fix(skills): keep uninstall inside the lucky root` — `39e6498` |
+| T7 | MCP: expansion variabili | `feat(mcp): expand environment variables in server config` — `294ec30` |
+| T8 | MCP: lettura config altri client | `feat(mcp): read MCP servers from other clients` — `83cd11d` |
+| T9 | MCP: import esplicito spento | `feat(mcp): import servers from other clients disabled` — `486a10b` |
+| T10 | MCP: forme `.mcp.json` | `feat(mcp): accept bare and typed .mcp.json shapes` — `39c7ab5` |
+| T11 | CLI: `mcp add-json` | `feat(cli): add mcp add-json` — `0de4ff4` |
+| T12 | Docs: README + riferimenti | `docs: document standard skills and MCP support` — questo commit |
+
+T0–T12 sono implementati su `feat/standard-skills-mcp`; ogni task è un commit
+indipendente con typecheck, test e build verdi.
 
 ---
 
 ### T0 — Documentazione del piano
 
-**Stato:** fatto con questo file.
+**Stato:** fatto — `9273ecb`.
 
 **Scope**
 

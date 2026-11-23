@@ -197,7 +197,8 @@ lucky -c                                # continue this project's latest session
 | `lucky verify` | Run the project's checks |
 | `lucky review [head]` | Review the current diff |
 | `lucky graph build\|rebuild\|view\|impact` | Build, render or query the knowledge graph |
-| `lucky mcp list\|add\|remove\|status\|inspect\|login\|logout` | Manage MCP servers ([MCP servers](#mcp-servers)) |
+| `lucky mcp list\|add\|add-json\|import\|remove\|status\|inspect\|login\|logout` | Manage MCP servers ([MCP servers](#mcp-servers)) |
+| `lucky skill list\|search\|add\|import\|remove\|enable\|disable` | Manage skills ([Skills](#skills)) |
 | `lucky update` | Check for and install updates |
 | `lucky acp` | Serve the Agent Client Protocol on stdio, for editors |
 
@@ -595,14 +596,24 @@ description: Cut a versioned release with a changelog and a tag
 1. Decide the next version from the changes since the last tag (semver)…
 ```
 
-Skills are found in three places; a project skill shadows a global one with the
-same name:
+Skills are found in lucky's own roots and in the standard roots other agents
+use. A project skill shadows a global one with the same name; within a scope,
+lucky's root wins over the compatibility roots:
 
-| Where | Scope |
-|-------|-------|
-| `.lucky/skills/<name>/` | This project (commit it to share with your team) |
-| `.claude/skills/<name>/` | This project — skills written for Claude Code work as-is |
-| `~/.luckycli/skills/<name>/` | Every project (installed with `/skill add`) |
+| Where | Scope | Kind |
+|-------|-------|------|
+| `.lucky/skills/<name>/` | This project (commit it to share with your team) | canonical |
+| `<cwd>/.agents/skills/<name>/` | This project, cross-agent standard | compatibility |
+| `.claude/skills/<name>/` | This project — skills written for Claude Code work as-is | compatibility |
+| `~/.luckycli/skills/<name>/` | Every project (`/skill add` installs here) | canonical |
+| `~/.agents/skills/<name>/` | Every project, cross-agent standard | compatibility |
+| `~/.claude/skills/<name>/` | Every project, Claude Code | compatibility |
+
+Only the two canonical roots are written to. Installing from a compatibility
+root copies the skill into `~/.luckycli/skills`; removing a skill that lives
+outside it is refused (disable it instead), so lucky never deletes files another
+tool owns. Symlinked skill directories are followed, which is what `npx skills`
+creates.
 
 The system prompt lists each usable skill's name and description, so the model
 knows when one fits and loads it with `skill_load` before starting; you can run
@@ -619,14 +630,34 @@ each tagged; toggle with `enter`, remove a global one with `d`) and **Search** (
 remote catalog; `enter` installs). Or:
 
 ```
-/skill list                 # installed skills and their state
+/skill list                 # installed skills, scope, origin and state
 /skill search <query>       # search the catalog
 /skill add <name>           # install from the catalog
 /skill add ./path/to/skill  # install a folder (or a single SKILL.md)
+/skill add owner/repo       # install the skill(s) in a git repository
 /skill enable  <name>
 /skill disable <name>
 /skill remove  <name>
 ```
+
+The same operations are available headless, for scripts and CI:
+
+```bash
+lucky skill list
+lucky skill add ./path/to/skill
+lucky skill add owner/repo --skill release-flow
+lucky skill add owner/repo --all --overwrite --ref main --path skills
+lucky skill add docker-build            # a catalog name
+lucky skill import ~/.agents/skills/reverse-engineer-anything
+lucky skill remove release-flow
+lucky skill enable release-flow
+lucky skill disable release-flow
+```
+
+A git source is cloned shallow into a temporary directory, its `SKILL.md`
+directories are discovered, and only the selected skill (with its `references/`
+and `scripts/`) is copied into `~/.luckycli/skills`. Nothing from the repository
+is executed. `~` is expanded in paths.
 
 The catalog URL can be changed with `LUCKY_SKILL_CATALOG_URL`. The first time you
 open `/skill`, three starter skills (`conventional-commits`, `release-flow`,
@@ -647,6 +678,8 @@ limit providers enforce.
 lucky mcp add files -- npx -y @modelcontextprotocol/server-filesystem .
 lucky mcp add github --env GITHUB_TOKEN=… -- npx -y @modelcontextprotocol/server-github
 lucky mcp add docs https://mcp.example.com/mcp --header "Authorization: Bearer …"
+lucky mcp add-json docs '{"type":"http","url":"https://mcp.example.com/mcp"}'
+lucky mcp add-json docs --file server.json     # or - for stdin
 lucky mcp remove docs
 ```
 
@@ -654,6 +687,25 @@ In the REPL, `/mcp add <name>` installs a server from the official MCP registry,
 and `/mcp add <name> <url>` or `/mcp add <name> -- <command>` adds your own. The
 `/mcp` panel browses the registry, toggles and removes servers, and shows each
 server's prompts and resources.
+
+### Importing from other clients
+
+If Claude Code, Claude Desktop or Cursor is installed on the same machine,
+`lucky mcp import` reads their server lists and adds them to lucky's config:
+
+```bash
+lucky mcp import --dry-run          # show what would be imported
+lucky mcp import                    # write them disabled
+lucky mcp import --from cursor      # all | claude | claude-desktop | cursor
+lucky mcp import --enable           # import ready to run instead
+lucky mcp import --force            # replace an existing name
+```
+
+Imported servers are written with `enabled: false`, so no third-party process
+starts until you enable it from `/mcp` (or import with `--enable`). Existing
+names are left untouched unless `--force`; each entry records where it came from
+in `importedFrom`. Inside the REPL, `/mcp import [--enable] [--force]` does the
+same and refreshes the live server list.
 
 ### Configuration files
 
@@ -680,11 +732,18 @@ Common fields: `enabled` (`false` keeps a server configured but off) and `timeou
 (connection timeout in ms).
 
 A project can declare servers too, in the **`.mcp.json`** format other clients
-read (`{ "mcpServers": { "name": { "command", "args", "env" } } }`, or
-`"type": "http" | "sse"` with `url` and `headers`) or under `mcp` in
-`.lucky/config.json`. Project servers load only in trusted folders; on a name
-clash `.lucky/config.json` wins over `.mcp.json`, which wins over your global
-config.
+read. Both the wrapped shape (`{ "mcpServers": { … } }`) and the bare map
+(`{ "name": { … } }`, used by plugin bundles) work, as do `command`/`args`/`env`
+and `type: "http" | "sse" | "streamable-http"` with `url` and `headers`. The same
+servers can also live under `mcp` in `.lucky/config.json`. Project servers load
+only in trusted folders; on a name clash `.lucky/config.json` wins over
+`.mcp.json`, which wins over your global config.
+
+`${VAR}` and `${VAR:-default}` are expanded in `command`, `args`, `env`, `url` and
+`headers` when the config is resolved, so files written for other clients work
+unchanged. An unset variable without a default becomes an empty string. `$VAR`
+without braces is left alone. Transports with no lucky equivalent (for example
+`websocket`) are ignored with a clear error rather than guessed at.
 
 ### OAuth and status
 
