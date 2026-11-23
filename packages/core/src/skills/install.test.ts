@@ -100,6 +100,30 @@ describe("uninstallSkill", () => {
     expect(await uninstallSkill("ghost", root)).toBe(false);
   });
 
+  it("refuses to delete a skill that lives in a compatibility root", async () => {
+    const home = srcRoot;
+    const compatRoot = join(home, ".luckycli", "skills");
+    await makeSource(
+      ".agents/skills/rea",
+      `---\nname: rea\ndescription: reverse engineer\n---\nbody`,
+    );
+    await expect(uninstallSkill("rea", compatRoot, { home })).rejects.toThrow(
+      /outside lucky's skills root/,
+    );
+    expect((await stat(join(home, ".agents", "skills", "rea", "skill.md"))).isFile()).toBe(true);
+  });
+
+  it("disables a skill that lives in a compatibility root", async () => {
+    const home = srcRoot;
+    const compatRoot = join(home, ".luckycli", "skills");
+    await makeSource(
+      ".agents/skills/rea",
+      `---\nname: rea\ndescription: reverse engineer\n---\nbody`,
+    );
+    expect(await setSkillEnabled("rea", false, compatRoot, home, home)).toBe(true);
+    expect((await loadDisabledSet(compatRoot)).has("rea")).toBe(true);
+  });
+
   it("clears a disabled entry on uninstall", async () => {
     await installSkillFromPath(await makeSource("d"), { root });
     await setSkillEnabled("release-flow", false, root);

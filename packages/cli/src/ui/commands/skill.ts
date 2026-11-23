@@ -191,12 +191,16 @@ export function skillCommands(deps: SkillCommandDeps = defaultDeps): Command[] {
             ctx.emit({ kind: "error", text: "usage: /skill remove <name>" });
             return;
           }
-          const ok = await deps.uninstall(tail);
-          ctx.emit(
-            ok
-              ? { kind: "command", title: "Skill removed", rows: [{ label: "skill", value: tail }] }
-              : { kind: "error", text: `no installed skill named "${tail}"` },
-          );
+          try {
+            const ok = await deps.uninstall(tail);
+            ctx.emit(
+              ok
+                ? { kind: "command", title: "Skill removed", rows: [{ label: "skill", value: tail }] }
+                : { kind: "error", text: `no installed skill named "${tail}"` },
+            );
+          } catch (error) {
+            emitError(ctx, error, "failed to remove the skill");
+          }
           return;
         }
 

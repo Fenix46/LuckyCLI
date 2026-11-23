@@ -250,7 +250,13 @@ export async function runSkillCommand(args: string[], io: SkillCommandIO = {}): 
       err("Usage: lucky skill remove <name>");
       return 1;
     }
-    const removed = await (io.uninstall ?? uninstallSkill)(name);
+    let removed: boolean;
+    try {
+      removed = await (io.uninstall ?? uninstallSkill)(name);
+    } catch (error) {
+      err(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
     if (!removed) {
       err(`No skill named "${name}" installed in the lucky skills root.`);
       return 1;

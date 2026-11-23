@@ -153,6 +153,16 @@ describe("runSkillCommand", () => {
     expect(missing.err[0]).toMatch(/lucky skills root/);
   });
 
+  it("reports a skill installed outside the lucky root", async () => {
+    const { io, err } = fakeIO({
+      uninstall: vi.fn(async () => {
+        throw new Error("Skill \"rea\" is installed in ~/.agents/skills/rea, outside lucky's skills root.");
+      }) as SkillCommandIO["uninstall"],
+    });
+    expect(await runSkillCommand(["remove", "rea"], io)).toBe(1);
+    expect(err[0]).toMatch(/outside lucky's skills root/);
+  });
+
   it("enables and disables by name", async () => {
     const { io } = fakeIO();
     expect(await runSkillCommand(["enable", "release-flow"], io)).toBe(0);

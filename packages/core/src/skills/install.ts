@@ -99,15 +99,36 @@ export async function installSkillFromPath(
  * Remove an installed skill's directory entirely and rebuild the graph. Also
  * drops it from the disabled set so a later reinstall starts enabled. Returns
  * false if no such skill was installed.
+ *
+ * Only the canonical lucky root is writable: a skill that exists only in a
+ * compatibility root (`.agents/skills`, `.claude/skills`) or in a project root
+ * is never deleted. That throws with the path and the origin, so the caller can
+ * suggest `disable` instead.
  */
-export async function uninstallSkill(name: string, root = skillsRootDir()): Promise<boolean> {
-  const dir = skillDirPath(name, root);
+export async function uninstallSkill(
+  name: string,
+  root = skillsRootDir(),
+  options: { cwd?: string; home?: string } = {},
+): Promise<boolean> {
+  const normalized = normalizeSkillName(name);
+  const dir = skillDirPath(normalized, root);
   const exists = await stat(dir).catch(() => null);
-  if (!exists) return false;
+  if (!exists) {
+    const elsewhere = listAvailableSkills(options.cwd ?? process.cwd(), root, options.home).find(
+      (skill) => skill.name === normalized,
+    );
+    if (elsewhere) {
+      throw new Error(
+        `Skill "${normalized}" is installed in ${elsewhere.dir} (${elsewhere.scope}, ${elsewhere.origin}), ` +
+          "outside lucky's skills root. Disable it instead of removing it.",
+      );
+    }
+    return false;
+  }
   await rm(dir, { recursive: true, force: true });
 
   const disabled = await loadDisabledSet(root);
-  if (disabled.delete(normalizeSkillName(name))) await saveDisabledSet(disabled, root);
+  if (disabled.delete(normalized)) await saveDisabledSet(disabled, root);
 
   await rebuildSkillGraph(root);
   return true;
@@ -124,10 +145,11 @@ export async function setSkillEnabled(
   enabled: boolean,
   root = skillsRootDir(),
   cwd = process.cwd(),
+  home?: string,
 ): Promise<boolean> {
   const exists =
     findSkillFile(skillDirPath(name, root)) !== undefined ||
-    listAvailableSkills(cwd, root).some((skill) => skill.name === normalizeSkillName(name));
+    listAvailableSkills(cwd, root, home).some((skill) => skill.name === normalizeSkillName(name));
   if (!exists) return false;
 
   const normalized = normalizeSkillName(name);
