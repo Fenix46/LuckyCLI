@@ -28,10 +28,22 @@ export interface ImportableMcpServer {
   origin: McpImportOrigin;
 }
 
+/** Sources accepted by `--from`; `all` means every reader. */
+export type McpImportSource = "all" | "claude" | "claude-desktop" | "cursor";
+
 export interface CollectImportOptions {
   home?: string;
   cwd?: string;
   platform?: NodeJS.Platform;
+}
+
+export interface McpImportPlan {
+  /** Servers that would be written (or are written, when not a dry run). */
+  imported: ImportableMcpServer[];
+  /** Existing names left untouched because `force` was not set. */
+  skipped: string[];
+  /** The resulting server map, existing entries preserved. */
+  mcp: Record<string, McpServerConfig>;
 }
 
 function readJson(path: string): unknown {
@@ -134,4 +146,48 @@ export function collectImportableServers(
     }
   }
   return out;
+}
+
+function matchesSource(origin: McpImportOrigin, source: McpImportSource): boolean {
+  if (source === "all") return true;
+  if (source === "claude") return origin === "claude" || origin === "claude-project";
+  return origin === source;
+}
+
+/**
+ * Merge importable servers into an existing map without writing anything.
+ * Existing names are skipped unless `force`; imported entries are disabled
+ * unless `enable`, and carry `importedFrom` for provenance in the UI.
+ */
+export function planMcpImport(
+  existing: Record<string, McpServerConfig>,
+  options: CollectImportOptions & {
+    from?: McpImportSource;
+    enable?: boolean;
+    force?: boolean;
+    /** Pre-collected servers, for callers that already read the sources. */
+    servers?: ImportableMcpServer[];
+  } = {},
+): McpImportPlan {
+  const source = options.from ?? "all";
+  const mcp: Record<string, McpServerConfig> = { ...existing };
+  const imported: ImportableMcpServer[] = [];
+  const skipped: string[] = [];
+
+  for (const server of options.servers ?? collectImportableServers(options)) {
+    if (!matchesSource(server.origin, source)) continue;
+    if (mcp[server.name] && !options.force) {
+      skipped.push(server.name);
+      continue;
+    }
+    const config: McpServerConfig = {
+      ...server.config,
+      importedFrom: server.origin,
+      ...(options.enable ? {} : { enabled: false }),
+    };
+    mcp[server.name] = config;
+    imported.push(server);
+  }
+
+  return { imported, skipped, mcp };
 }

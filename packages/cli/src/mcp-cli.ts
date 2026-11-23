@@ -9,11 +9,15 @@ import {
   clearMcpAuthEntry,
   loadStoredConfig,
   parseMcpAddArgs,
+  planMcpImport,
   resolveConfig,
   saveStoredConfig,
   withMcpServer,
   withoutMcpServer,
+  type ImportableMcpServer,
   type McpConnectionStatus,
+  type McpImportPlan,
+  type McpImportSource,
   type McpPromptDescriptor,
   type McpResourceDescriptor,
   type McpServerConfig,
@@ -28,6 +32,8 @@ export interface McpCommandIO {
   /** Global config access for add/remove, injectable for tests. */
   loadConfig?: typeof loadStoredConfig;
   saveConfig?: typeof saveStoredConfig;
+  /** Servers read from other clients, injectable for tests. */
+  importServers?: () => ImportableMcpServer[];
 }
 
 /** Lines for `lucky mcp list` — what's configured, without connecting. */
@@ -98,6 +104,73 @@ export function mcpInspectLines(
   return lines;
 }
 
+/** Parsed `mcp import` options. */
+export interface McpImportArgs {
+  from: McpImportSource;
+  dryRun: boolean;
+  enable: boolean;
+  force: boolean;
+  error?: string;
+}
+
+export function parseMcpImportArgs(args: string[]): McpImportArgs {
+  const result: McpImportArgs = { from: "all", dryRun: false, enable: false, force: false };
+  const sources: McpImportSource[] = ["all", "claude", "claude-desktop", "cursor"];
+  let i = 0;
+  while (i < args.length) {
+    const token = args[i]!;
+    if (token === "--dry-run") {
+      result.dryRun = true;
+      i++;
+      continue;
+    }
+    if (token === "--enable") {
+      result.enable = true;
+      i++;
+      continue;
+    }
+    if (token === "--force") {
+      result.force = true;
+      i++;
+      continue;
+    }
+    if (token === "--from" || token.startsWith("--from=")) {
+      const equals = token.indexOf("=");
+      const value = equals !== -1 ? token.slice(equals + 1) : args[i + 1];
+      if (!value) return { ...result, error: "--from expects claude, claude-desktop, cursor or all." };
+      if (!sources.includes(value as McpImportSource)) {
+        return { ...result, error: `Unknown source "${value}". Use claude, claude-desktop, cursor or all.` };
+      }
+      result.from = value as McpImportSource;
+      i += equals !== -1 ? 1 : 2;
+      continue;
+    }
+    return { ...result, error: `Unknown option: ${token}` };
+  }
+  return result;
+}
+
+/** Lines describing an import plan, shared by the dry run and the real run. */
+export function mcpImportLines(plan: McpImportPlan, args: Pick<McpImportArgs, "dryRun" | "enable">): string[] {
+  const lines: string[] = [];
+  if (plan.imported.length === 0) {
+    lines.push("No MCP servers to import from other clients.");
+  } else {
+    const count = `${plan.imported.length} MCP server${plan.imported.length === 1 ? "" : "s"}`;
+    const state = args.dryRun ? ":" : args.enable ? " (enabled):" : " (disabled; enable them from /mcp):";
+    lines.push(`${args.dryRun ? "Would import" : "Imported"} ${count}${state}`);
+    for (const server of plan.imported) {
+      const target =
+        server.config.type === "local" ? server.config.command.join(" ") : server.config.url;
+      lines.push(`  ${server.name}  ${server.origin}  ${target}`);
+    }
+  }
+  if (plan.skipped.length > 0) {
+    lines.push(`Skipped existing (use --force to overwrite): ${plan.skipped.join(", ")}`);
+  }
+  return lines;
+}
+
 /**
  * Run an `mcp` subcommand. Returns a process exit code. `list` reads config;
  * `status`/`doctor` actually connects to each server, reports the outcome, then
@@ -127,6 +200,28 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
     const target = parsed.server.type === "local" ? parsed.server.command.join(" ") : parsed.server.url;
     out(`${existed ? "Updated" : "Added"} MCP server "${parsed.name}" (${parsed.server.type}): ${target}`);
     out(`Check it with: lucky mcp status`);
+    return 0;
+  }
+
+  if (sub === "import") {
+    const flags = parseMcpImportArgs(args.slice(1));
+    if (flags.error) {
+      err(flags.error);
+      return 1;
+    }
+    const load = io.loadConfig ?? loadStoredConfig;
+    const save = io.saveConfig ?? saveStoredConfig;
+    const cfg = load();
+    const plan = planMcpImport(cfg.mcp ?? {}, {
+      from: flags.from,
+      enable: flags.enable,
+      force: flags.force,
+      ...(io.importServers ? { servers: io.importServers() } : {}),
+    });
+    if (!flags.dryRun && plan.imported.length > 0) {
+      save({ ...cfg, mcp: plan.mcp });
+    }
+    mcpImportLines(plan, flags).forEach(out);
     return 0;
   }
 

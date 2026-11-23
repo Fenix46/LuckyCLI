@@ -68,6 +68,8 @@ Commands:
   mcp inspect <name>    show prompts and resources exposed by a server
   mcp login <name>      authorize a remote MCP server via OAuth
   mcp logout <name>     forget a remote MCP server's stored tokens
+  mcp import            import servers from Claude Code, Claude Desktop or Cursor
+                        (disabled; --enable, --force, --dry-run, --from <source>)
   skill list            list installed skills (lucky, .agents and .claude roots)
   skill add <path>      install a skill folder or a single SKILL.md
   skill add <owner/repo> install the skill(s) in a git repository

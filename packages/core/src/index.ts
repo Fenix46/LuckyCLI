@@ -603,7 +603,14 @@ export {
   readCursorMcp,
   readCursorProjectMcp,
 } from "./mcp/import.js";
-export type { CollectImportOptions, ImportableMcpServer, McpImportOrigin } from "./mcp/import.js";
+export { planMcpImport } from "./mcp/import.js";
+export type {
+  CollectImportOptions,
+  ImportableMcpServer,
+  McpImportPlan,
+  McpImportOrigin,
+  McpImportSource,
+} from "./mcp/import.js";
 export {
   adaptMcpTool,
   makeMcpToolName,

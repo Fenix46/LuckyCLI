@@ -5,11 +5,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   claudeDesktopConfigPath,
   collectImportableServers,
+  planMcpImport,
   readClaudeDesktopMcp,
   readClaudeProjectMcp,
   readClaudeUserMcp,
   readCursorMcp,
 } from "./import.js";
+import type { ImportableMcpServer } from "./import.js";
 
 const temps: string[] = [];
 
@@ -134,5 +136,53 @@ describe("collectImportableServers", () => {
       ["project_cursor", "cursor"],
     ]);
     expect(servers[0]?.config).toEqual({ type: "local", command: ["claude-server"] });
+  });
+});
+
+describe("planMcpImport", () => {
+  const servers: ImportableMcpServer[] = [
+    { name: "rea", origin: "claude", config: { type: "local", command: ["rea", "mcp"] } },
+    { name: "docs", origin: "claude-desktop", config: { type: "remote", url: "https://example.com/mcp" } },
+    { name: "cursor", origin: "cursor", config: { type: "remote", url: "https://cursor.example/mcp" } },
+  ];
+
+  it("imports every source disabled and records provenance", () => {
+    const plan = planMcpImport({}, { servers });
+    expect(plan.imported.map((s) => s.name)).toEqual(["rea", "docs", "cursor"]);
+    expect(plan.mcp.rea).toEqual({
+      type: "local",
+      command: ["rea", "mcp"],
+      enabled: false,
+      importedFrom: "claude",
+    });
+    expect(plan.mcp.docs).toMatchObject({ enabled: false, importedFrom: "claude-desktop" });
+  });
+
+  it("imports enabled when asked", () => {
+    const plan = planMcpImport({}, { servers, enable: true });
+    expect(plan.mcp.rea).toEqual({
+      type: "local",
+      command: ["rea", "mcp"],
+      importedFrom: "claude",
+    });
+  });
+
+  it("keeps existing names unless force is set", () => {
+    const existing = { rea: { type: "local" as const, command: ["mine"] } };
+    const kept = planMcpImport(existing, { servers });
+    expect(kept.skipped).toEqual(["rea"]);
+    expect(kept.mcp.rea).toEqual(existing.rea);
+
+    const replaced = planMcpImport(existing, { servers, force: true });
+    expect(replaced.skipped).toEqual([]);
+    expect(replaced.mcp.rea).toMatchObject({ command: ["rea", "mcp"], importedFrom: "claude" });
+  });
+
+  it("filters by source", () => {
+    expect(planMcpImport({}, { servers, from: "claude-desktop" }).imported.map((s) => s.name)).toEqual([
+      "docs",
+    ]);
+    expect(planMcpImport({}, { servers, from: "claude" }).imported.map((s) => s.name)).toEqual(["rea"]);
+    expect(planMcpImport({}, { servers, from: "cursor" }).imported.map((s) => s.name)).toEqual(["cursor"]);
   });
 });

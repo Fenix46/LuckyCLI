@@ -134,6 +134,50 @@ describe("/mcp add with a custom server", () => {
   });
 });
 
+describe("/mcp import", () => {
+  it("writes other clients' servers disabled and refreshes the live config", async () => {
+    const saved: Array<{ mcp?: Record<string, unknown> }> = [];
+    const deps = fakeDeps({
+      loadConfig: vi.fn(() => ({ mcp: {} })) as McpCommandDeps["loadConfig"],
+      saveConfig: vi.fn((next) => {
+        saved.push(next);
+        return next;
+      }) as McpCommandDeps["saveConfig"],
+      importServers: () => [
+        { name: "rea", origin: "claude", config: { type: "local", command: ["rea", "mcp"] } },
+      ],
+    });
+    const h = harness(deps);
+    await h.run("import");
+    expect(saved[0]?.mcp?.rea).toEqual({
+      type: "local",
+      command: ["rea", "mcp"],
+      enabled: false,
+      importedFrom: "claude",
+    });
+    expect(h.ui.setMcpConfig).toHaveBeenCalledOnce();
+    const item = h.emitted[0]!;
+    if (item.kind !== "command") throw new Error("expected command item");
+    expect(item.title).toBe("MCP Imported");
+  });
+
+  it("reports when there is nothing to import", async () => {
+    const deps = fakeDeps({ importServers: () => [] });
+    const h = harness(deps);
+    await h.run("import");
+    const item = h.emitted[0]!;
+    if (item.kind !== "command") throw new Error("expected command item");
+    expect(item.rows[0]?.value).toContain("no servers");
+  });
+
+  it("rejects an unknown import option", async () => {
+    const h = harness();
+    await h.run("import --wat");
+    const item = h.emitted[0]!;
+    expect(item.kind).toBe("error");
+  });
+});
+
 describe("installCatalogServer", () => {
   it("propagates the merged config to the live manager", async () => {
     const saved: unknown[] = [];
