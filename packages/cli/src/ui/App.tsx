@@ -1561,6 +1561,8 @@ export function App({
           theme={activeTheme}
           commands={filteredCommands}
           selectedIndex={selectedCommandIndexClamped}
+          query={input.slice(1)}
+          width={messageWidth}
           hint="↑↓ move · tab complete · enter run · esc close"
         />
       ) : null}

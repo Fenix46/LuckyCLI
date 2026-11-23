@@ -6,7 +6,7 @@ import { providerCommands } from "./provider.js";
 import { rulesCommands } from "./rules.js";
 import { skillCommands } from "./skill.js";
 import { workflowCommands } from "./workflow.js";
-import type { Command, CommandContext } from "./types.js";
+import type { Command, CommandCategory, CommandContext } from "./types.js";
 
 // Presentation order of the visible commands in the slash menu and /help
 // (the pre-registry menu order). Hidden and unlisted commands sort after,
@@ -55,6 +55,7 @@ function skillAliasCommands(skillNames: string[], reserved: Set<string>): Comman
       return {
         name: slash,
         description: `Run the ${name} skill`,
+        category: "skill",
         async run(_args, ctx) {
           const ok = await ctx.ui.runSkill(name);
           if (!ok) ctx.emit({ kind: "error", text: `skill "${name}" is unavailable — see /skill list` });
@@ -101,10 +102,16 @@ export function buildCommandRegistry(
 }
 
 /** Visible commands shaped for the slash menu (and /help), in menu order. */
-export function slashMenuEntries(registry: Command[]): { name: string; desc: string }[] {
+export function slashMenuEntries(
+  registry: Command[],
+): { name: string; desc: string; category: CommandCategory }[] {
   return registry
     .filter((command) => !command.hidden)
-    .map((command) => ({ name: command.name, desc: command.description }));
+    .map((command) => ({
+      name: command.name,
+      desc: command.description,
+      category: command.category ?? "builtin",
+    }));
 }
 
 function matchCommand(text: string, registry: Command[]): { command: Command; args: string } | null {

@@ -120,6 +120,40 @@ describe("SlashMenu", () => {
     expect(scanPositions(screen, "tab complete")).toHaveLength(1);
     expect(scanPositions(screen, "enter run")).toHaveLength(1);
   });
+
+  it("marks the category and highlights the typed prefix", () => {
+    const { screen } = renderToScreen(
+      <SlashMenu
+        theme={theme}
+        commands={[
+          { name: "/skill", desc: "manage skills", category: "skill" },
+          { name: "/mcp", desc: "manage servers", category: "mcp" },
+        ]}
+        selectedIndex={0}
+        query="ski"
+        width={80}
+      />,
+      80,
+    );
+    expect(scanPositions(screen, "/skill")).toHaveLength(1);
+    expect(scanPositions(screen, "[skill]")).toHaveLength(1);
+    expect(scanPositions(screen, "[mcp]")).toHaveLength(1);
+  });
+
+  it("truncates a long description to the available width", () => {
+    const long = "x".repeat(120);
+    const { screen } = renderToScreen(
+      <SlashMenu
+        theme={theme}
+        commands={[{ name: "/help", desc: long }]}
+        selectedIndex={0}
+        width={40}
+      />,
+      40,
+    );
+    expect(scanPositions(screen, "…").length).toBeGreaterThan(0);
+    expect(scanPositions(screen, long)).toHaveLength(0);
+  });
 });
 
 describe("StatusFooter", () => {

@@ -71,6 +71,7 @@ describe("buildMcpPromptCommands", () => {
     const [command] = buildMcpPromptCommands([{ server: "rea", prompt }]);
     expect(command?.name).toBe("/mcp__rea__review-code");
     expect(command?.description).toBe("Review a change");
+    expect(command?.category).toBe("mcp");
     expect(command?.hidden).toBeFalsy();
   });
 
