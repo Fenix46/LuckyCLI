@@ -663,6 +663,39 @@ The catalog URL can be changed with `LUCKY_SKILL_CATALOG_URL`. The first time yo
 open `/skill`, three starter skills (`conventional-commits`, `release-flow`,
 `code-review`) are added; they never overwrite a skill you've edited.
 
+Every enabled skill is also a slash command: `/<name>` appears in the `/` menu
+and refreshes when you install, remove or toggle a skill, so no restart is
+needed. A skill whose name collides with a built-in command keeps the built-in.
+
+## Slash commands
+
+Besides skills, LuckyCLI reads Markdown commands in the `.claude/commands`
+format. The canonical root is `.lucky/commands`; compatibility roots are
+`<cwd>/.claude/commands`, `~/.luckycli/commands` and `~/.claude/commands`. A
+project command shadows a global one, and lucky's root wins within a scope.
+
+```
+.lucky/commands/release.md          -> /release
+.lucky/commands/db/migrate.md       -> /db:migrate
+```
+
+The body is the prompt sent to the model. Frontmatter is optional:
+
+```markdown
+---
+description: Review a pull request
+argument-hint: <pr-number>
+---
+Review PR $1. Focus on correctness and tests. Extra context: $ARGUMENTS
+```
+
+- `$ARGUMENTS` is replaced with the full argument string; `$1`, `$2`, … with the
+  positional arguments (quotes group a value).
+- If the body uses neither and you passed arguments, they are appended.
+- `allowed-tools`, `model` and other frontmatter fields are accepted and
+  ignored for now. Inline shell execution (`!…`) and `@file` includes from other
+  clients are not executed.
+
 ## MCP servers
 
 LuckyCLI is an [MCP](https://modelcontextprotocol.io) client. **Local** servers
@@ -744,6 +777,21 @@ only in trusted folders; on a name clash `.lucky/config.json` wins over
 unchanged. An unset variable without a default becomes an empty string. `$VAR`
 without braces is left alone. Transports with no lucky equivalent (for example
 `websocket`) are ignored with a clear error rather than guessed at.
+
+### MCP prompts as slash commands
+
+Every prompt a connected server advertises becomes a slash command named
+`/mcp__<server>__<prompt>`, the same convention other clients use. Arguments are
+passed positionally in the order the server declares them, or by name:
+
+```
+/mcp__rea__review-code security deep
+/mcp__rea__review-code topic=security depth=deep
+```
+
+The prompt is fetched from the server, flattened to text, and sent as an
+operative turn. Prompts from servers that are disconnected or disabled are not
+listed.
 
 ### OAuth and status
 

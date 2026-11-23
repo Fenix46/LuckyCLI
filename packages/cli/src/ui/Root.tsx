@@ -66,6 +66,7 @@ interface ActiveRuntime {
   skillActivator: SkillActivator;
   graphEnricher: GraphContextEnricher;
   mcpManager?: McpManager;
+  mcpReady?: Promise<void>;
 }
 
 type SetupMode = "initial" | "provider";
@@ -427,6 +428,7 @@ export function Root({
         skillActivator: built.skillActivator,
         graphEnricher: built.graphEnricher,
         ...(built.mcpManager ? { mcpManager: built.mcpManager } : {}),
+        ...(built.mcpReady ? { mcpReady: built.mcpReady } : {}),
       };
     });
     setBooting(false);
@@ -665,6 +667,7 @@ export function Root({
       planRequest={planRequest}
       agentUsage={agentUsage}
       mcpManager={runtime.mcpManager}
+      mcpReady={runtime.mcpReady}
       tokenCosts={config.tokenCosts}
       mcpConfig={mcpConfig}
       onMcpConfigChange={onMcpConfigChange}

@@ -35,6 +35,20 @@ export interface CommandContext {
      * caller reports the error) when the skill is missing or disabled.
      */
     runSkill(name: string): Promise<boolean>;
+    /**
+     * Send text as an operative turn without echoing it as the user's own
+     * message. Used by markdown commands and MCP prompts.
+     */
+    runPrompt(text: string): Promise<void>;
+    /**
+     * Fetch an MCP prompt (flattened to text) and send it as an operative turn.
+     * Resolves false when the server is unavailable or the prompt fails.
+     */
+    runMcpPrompt(
+      server: string,
+      prompt: string,
+      args: Record<string, string>,
+    ): Promise<boolean>;
     openAgentsPanel(): void;
     triggerSetup(): void;
     triggerResume(): void;

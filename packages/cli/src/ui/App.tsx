@@ -20,6 +20,7 @@ import {
   claudeEffortLevelsForModel,
   createSessionId,
   createWorktree,
+  discoverMarkdownCommands,
   listWorktrees,
   removeWorktree,
   defaultEffortFor,
@@ -66,7 +67,9 @@ import {
   type AttachedImages,
 } from "./lib/image-input.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
-import type { CommandContext } from "./commands/types.js";
+import { buildMarkdownCommands } from "./commands/markdown.js";
+import { buildMcpPromptCommands, type McpPromptCommand } from "./commands/mcp-prompts.js";
+import type { Command, CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
 import { useModelCatalogs } from "./hooks/useModelCatalogs.js";
 import { useUpdateCheck } from "./hooks/useUpdateCheck.js";
@@ -127,6 +130,8 @@ interface AppProps {
   planRequest: PlanRequest | null;
   agentUsage: AgentUsageMap;
   mcpManager?: McpManager;
+  /** Resolves once the manager finished its first connection pass. */
+  mcpReady?: Promise<void>;
   tokenCosts?: Record<string, TokenCostRates>;
   mcpConfig: Record<string, McpServerConfig>;
   onMcpConfigChange: (nextMcpConfig: Record<string, McpServerConfig>) => void;
@@ -160,6 +165,7 @@ export function App({
   planRequest,
   agentUsage,
   mcpManager,
+  mcpReady,
   tokenCosts,
   mcpConfig,
   onMcpConfigChange,
@@ -566,33 +572,70 @@ export function App({
   // Launch-time update check (policy-driven); flow lives in useUpdateCheck.
   useUpdateCheck(useCallback((item) => setItems((prev) => [...prev, item]), []));
 
-  // Installed+enabled skills become direct `/<name>` commands. Discovered once
-  // at mount (best-effort); installing mid-session is still usable via
-  // `/skill use`. A changed list rebuilds the registry below.
+  // Installed+enabled skills become direct `/<name>` commands. Reloaded on
+  // mount, when the skill panel changes the set, and after `/skill …` runs, so
+  // a skill installed in-session gets its alias without a restart.
   const [skillCommandNames, setSkillCommandNames] = useState<string[]>([]);
+  const refreshSkillCommands = useCallback(() => {
+    try {
+      const names = listAvailableSkills(process.cwd())
+        .filter((s) => s.enabled)
+        .map((s) => s.name);
+      setSkillCommandNames((previous) =>
+        previous.length === names.length && previous.every((name, index) => name === names[index])
+          ? previous
+          : names,
+      );
+    } catch {
+      /* no skills dir, or unreadable — leave the list unchanged */
+    }
+  }, []);
+  useEffect(() => {
+    refreshSkillCommands();
+  }, [refreshSkillCommands]);
+
+  // Markdown commands (.lucky/commands, .claude/commands). Discovered at mount;
+  // they are files on disk, so a session restart is enough to pick up edits.
+  const [markdownCommands, setMarkdownCommands] = useState<Command[]>([]);
+  useEffect(() => {
+    try {
+      setMarkdownCommands(buildMarkdownCommands(discoverMarkdownCommands({ cwd: process.cwd() })));
+    } catch {
+      /* no commands dir, or unreadable — leave the list empty */
+    }
+  }, []);
+
+  // Slash commands: registry derived from the static set plus skill aliases,
+  // discovered markdown commands and MCP prompts; per-dispatch state travels in
+  // the CommandContext. The menu and /help derive from the same list.
+  const [mcpPromptCommands, setMcpPromptCommands] = useState<Command[]>([]);
+  const refreshMcpPrompts = useCallback(async () => {
+    if (!mcpManager) {
+      setMcpPromptCommands([]);
+      return;
+    }
+    const entries: McpPromptCommand[] = [];
+    for (const [server, status] of Object.entries(mcpManager.status())) {
+      if (status.status !== "connected") continue;
+      const prompts = await mcpManager.listPrompts(server).catch(() => []);
+      for (const prompt of prompts) entries.push({ server, prompt });
+    }
+    setMcpPromptCommands(buildMcpPromptCommands(entries));
+  }, [mcpManager]);
   useEffect(() => {
     let cancelled = false;
-    // Project skills (.lucky/skills, .claude/skills) and global ones alike.
-    Promise.resolve()
-      .then(() => listAvailableSkills(process.cwd()))
-      .then((skills) => {
-        if (cancelled) return;
-        setSkillCommandNames(skills.filter((s) => s.enabled).map((s) => s.name));
-      })
-      .catch(() => {
-        /* no skills dir, or unreadable — leave the list empty */
-      });
+    void (async () => {
+      await mcpReady?.catch(() => {});
+      if (!cancelled) await refreshMcpPrompts();
+    })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mcpReady, refreshMcpPrompts]);
 
-  // Slash commands: registry derived from the static set plus skill aliases;
-  // per-dispatch state travels in the CommandContext. The menu and /help derive
-  // from the same list.
   const commandRegistry = useMemo(
-    () => buildCommandRegistry(skillCommandNames),
-    [skillCommandNames],
+    () => buildCommandRegistry(skillCommandNames, [...markdownCommands, ...mcpPromptCommands]),
+    [skillCommandNames, markdownCommands, mcpPromptCommands],
   );
   const menuEntries = useMemo(() => slashMenuEntries(commandRegistry), [commandRegistry]);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -611,6 +654,7 @@ export function App({
   });
   const skillPanel = useSkillPanel({
     emit: (item) => setItems((prev) => [...prev, item]),
+    onSkillsChanged: refreshSkillCommands,
   });
   const agentsPanel = useAgentsPanel();
   // Live model catalogs (Codex/Antigravity/Ollama/Zen/OpenRouter), fetched on
@@ -1124,6 +1168,28 @@ export function App({
               await runTurnAndDrain(block);
               return true;
             },
+            runPrompt: async (text: string) => {
+              await runTurnAndDrain(text);
+            },
+            runMcpPrompt: async (server: string, prompt: string, promptArgs: Record<string, string>) => {
+              if (!mcpManager) return false;
+              try {
+                const text = await mcpManager.getPrompt(server, prompt, promptArgs);
+                await runTurnAndDrain(text);
+                return true;
+              } catch (error) {
+                setItems((prev) => [
+                  ...prev,
+                  {
+                    kind: "error",
+                    text: `MCP prompt "${prompt}" on "${server}" failed: ${
+                      error instanceof Error ? error.message : String(error)
+                    }`,
+                  },
+                ]);
+                return false;
+              }
+            },
             triggerSetup: onTriggerSetup,
             triggerResume: onTriggerResume,
             applyTheme: selectTheme,
@@ -1147,6 +1213,7 @@ export function App({
           },
         };
         await dispatchCommand(text, commandRegistry, ctx);
+        if (/^\/(skill|skills)(\s|$)/.test(text)) refreshSkillCommands();
         return;
       }
 
@@ -1171,7 +1238,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands, mcpManager],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in

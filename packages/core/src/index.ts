@@ -451,6 +451,14 @@ export type { CatalogSkill } from "./skills/catalog.js";
 export { STARTER_SKILLS, seedStarterSkills } from "./skills/starter.js";
 export type { StarterSkill } from "./skills/starter.js";
 export {
+  discoverMarkdownCommands,
+  expandMarkdownCommand,
+  globalCommandRoots,
+  projectCommandRoots,
+  splitArguments,
+} from "./commands/markdown.js";
+export type { MarkdownCommand, MarkdownCommandOptions } from "./commands/markdown.js";
+export {
   ACTIVATION_BUDGET,
   matchSkills,
   renderSkillInjection,
