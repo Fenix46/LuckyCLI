@@ -595,6 +595,16 @@ export {
   expandMcpServers,
 } from "./mcp/expand.js";
 export {
+  claudeDesktopConfigPath,
+  collectImportableServers,
+  readClaudeDesktopMcp,
+  readClaudeProjectMcp,
+  readClaudeUserMcp,
+  readCursorMcp,
+  readCursorProjectMcp,
+} from "./mcp/import.js";
+export type { CollectImportOptions, ImportableMcpServer, McpImportOrigin } from "./mcp/import.js";
+export {
   adaptMcpTool,
   makeMcpToolName,
   uniqueMcpToolName,
