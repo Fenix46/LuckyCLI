@@ -284,7 +284,12 @@ ran tools ends with a one-line recap: time, tool count and tokens.
 The status bar shows the approval mode, a context meter that turns amber and then
 red as it fills, the session's tokens split into **fresh input**, **cached input**
 and **output** (plus the estimated cost when rates are configured for the model),
-and the active model.
+and the active model. While a turn runs it also shows how many prompts are queued
+and whether MCP servers are connecting or connected (`mcp 2/3`).
+
+Above the input, the activity line names what is actually happening instead of a
+generic "thinking": `Reading src/app.ts`, `Searching "TODO"`, `Running npm test`,
+`Retrying (2/3)`, `Summarizing…`, or a rotating `Pondering…` during a long wait.
 
 You can keep typing while the agent works: prompts sent mid-turn are **queued**
 and run in order when the turn ends; `Esc` interrupts and puts them back into the
@@ -296,13 +301,13 @@ after 30s+ of unattended work the bell rings when a turn finishes or needs you
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Send the message |
+| `Enter` | Send the message; with the slash menu open, run the highlighted command |
 | `Option/Alt + Enter` (macOS) · `Ctrl + Enter` (Win/Linux) | Insert a newline |
-| `Esc` | Interrupt the running turn (queued prompts return to the input) |
+| `Esc` | Close the menu first; press again to clear the input, or interrupt the running turn |
 | `Shift + Tab` | Cycle approval mode: ask before edits → accept edits → auto → plan |
 | `Ctrl + C` | Cancel a running turn, or quit when idle |
-| `↑` / `↓` | Recall earlier prompts; navigate menus and pickers |
-| `Tab` | Complete the highlighted slash command |
+| `↑` / `↓` | Move in the slash/completion menu and pickers; recall earlier prompts when they are closed |
+| `Tab` | Complete the highlighted command or argument (never runs it) |
 | `Ctrl + O` | Expand the task list |
 
 Readline editing works in the prompt: `Ctrl+A`/`Ctrl+E`, `Ctrl+U`/`Ctrl+K`,
@@ -344,6 +349,24 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/exit` | Quit (alias `/quit`) |
 
 Every enabled skill is also available as its own `/<skill-name>` command.
+
+The menu that opens when you type `/` fuzzy-matches (`/mdl` finds `/model`),
+highlights the typed letters, and tags each row with its origin: built-ins have
+no badge, skills show `[skill]`, markdown commands `[cmd]`, and MCP prompts
+`[mcp]`. The last five commands used in the session move to the top. Selecting a
+row shows the rest of the name inline (fish-style ghost text) before you press
+`Tab` to complete it or `Enter` to run it.
+
+Arguments complete too, for the commands whose values LuckyCLI already knows:
+
+```
+/theme lu<Tab>          -> /theme lucky-dark
+/model opus<Tab>        -> /model claude-opus-4-8
+/skill use re<Tab>      -> /skill use release-flow
+/mcp inspect re<Tab>    -> /mcp inspect rea
+```
+
+`Tab` or `Enter` inserts the highlighted value, `↑`/`↓` move, `Esc` closes.
 
 ## Tools
 

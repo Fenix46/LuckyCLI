@@ -104,6 +104,9 @@ I test dei componenti usano `renderToScreen` del fork Ink (come
 | T7 | Ghost text inline | `feat(ui): preview the selected completion inline` |
 | T8 | Docs: README e /keys | `docs: document the TUI improvements` |
 
+T0–T8 sono implementati su `feat/tui-slash`; ogni task è un commit indipendente
+con typecheck, test e build verdi.
+
 ---
 
 ### T0 — Documentazione del piano
