@@ -43,9 +43,9 @@ export function SlashMenu({
   maxRows = SCROLL_LIST_MAX_ROWS,
 }: {
   theme: Theme;
-  commands: Array<{ name: string; desc: string; category?: CommandCategory }>;
+  commands: Array<{ name: string; desc: string; category?: CommandCategory; matchPositions?: number[] }>;
   selectedIndex: number;
-  /** Text typed after the slash, for match highlighting. */
+  /** Text typed after the slash; used only when positions are not provided. */
   query?: string;
   /** Available row width, so the description truncates instead of wrapping. */
   width?: number;
@@ -71,10 +71,11 @@ export function SlashMenu({
           const category = cmd.category ?? "builtin";
           const color = categoryColor(theme, category);
           const name = cmd.name.slice(1);
-          const matched = name.toLowerCase().startsWith(normalizedQuery)
-            ? normalizedQuery.length
-            : 0;
           const padded = name.padEnd(Math.max(0, labelWidth - 1));
+          const fallback = normalizedQuery && name.toLowerCase().startsWith(normalizedQuery)
+            ? Array.from({ length: normalizedQuery.length }, (_, index) => index)
+            : [];
+          const highlighted = new Set(cmd.matchPositions ?? fallback);
           const badge = BADGES[category];
           return (
             <Box key={cmd.name} flexDirection="row">
@@ -83,12 +84,15 @@ export function SlashMenu({
                 /
               </Text>
               <Text bold={selected} color={color}>
-                {matched > 0 ? (
-                  <Text bold underline>
-                    {padded.slice(0, matched)}
-                  </Text>
-                ) : null}
-                {padded.slice(matched)}
+                {padded.split("").map((char, index) =>
+                  highlighted.has(index) ? (
+                    <Text key={index} bold underline>
+                      {char}
+                    </Text>
+                  ) : (
+                    char
+                  ),
+                )}
               </Text>
               <Text color={theme.muted} wrap="truncate-end">
                 {`  ${truncateSingleLine(cmd.desc, descWidth)}`}

@@ -60,6 +60,7 @@ import {
   type PastedContents,
 } from "./lib/paste.js";
 import { clampSelection, slashMenuAction } from "./lib/slash-menu.js";
+import { filterCommands } from "./lib/fuzzy.js";
 import {
   buildTurnContent,
   formatImageRef,
@@ -672,9 +673,14 @@ export function App({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [recentCommands, setRecentCommands] = useState<string[]>([]);
+  const rememberCommand = useCallback((name: string) => {
+    setRecentCommands((previous) => [name, ...previous.filter((entry) => entry !== name)].slice(0, 5));
+  }, []);
   const slashInputActive = input.startsWith("/");
-  const filteredCommands = menuEntries.filter((cmd) =>
-    cmd.name.startsWith(input)
+  const commandQuery = slashInputActive ? input.slice(1) : "";
+  const filteredCommands = filterCommands(menuEntries, commandQuery, recentCommands).map(
+    ({ item, positions }) => ({ ...item, matchPositions: positions }),
   );
   const showSlashMenu =
     slashInputActive && !slashMenuDismissed && filteredCommands.length > 0;
@@ -1268,6 +1274,8 @@ export function App({
           },
         };
         await dispatchCommand(text, commandRegistry, ctx);
+        const commandName = text.split(/\s+/)[0] ?? "";
+        if (commandName) rememberCommand(commandName);
         if (/^\/(skill|skills)(\s|$)/.test(text)) refreshSkillCommands();
         return;
       }
@@ -1293,7 +1301,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands, mcpManager],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands, mcpManager, rememberCommand],
   );
 
   // Enter on a highlighted completion completes *and* runs it, while ChatInput
