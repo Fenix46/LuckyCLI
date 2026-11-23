@@ -8,7 +8,8 @@
  * enable/disable flips membership in `disabled.json` without touching skill.md.
  */
 import { cp, mkdir, readFile, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { normalizeSkillName, parseSkillFile } from "./skill-file.js";
 import { listAvailableSkills } from "./available.js";
 import {
@@ -30,6 +31,18 @@ export interface InstallResult {
 }
 
 /**
+ * Expand a leading `~` to the user's home (honoring an injected `home`, so
+ * tests never touch the real one). Only `~` and `~/...` are expanded; a `~user`
+ * form is left alone, matching the shells' stricter cases and keeping the
+ * behavior predictable.
+ */
+export function expandHomePath(path: string, home = homedir()): string {
+  if (path === "~") return home;
+  if (path.startsWith("~/") || path.startsWith("~\\")) return join(home, path.slice(2));
+  return path;
+}
+
+/**
  * Locate a `skill.md` given a path that may be the file itself or a directory
  * containing it. Returns the file path, or throws if neither exists.
  */
@@ -47,16 +60,17 @@ async function resolveSkillSource(source: string): Promise<string> {
 /**
  * Install a skill from a local file or directory into the global skills dir.
  * The skill's name comes from its frontmatter (not the source path), so the
- * installed directory is always the canonical normalized name. Rejects a name
- * collision unless `overwrite` is set. Rebuilds the graph and returns the
- * install location.
+ * installed directory is always the canonical normalized name. A leading `~`
+ * is expanded against `home`. Rejects a name collision unless `overwrite` is
+ * set. Rebuilds the graph and returns the install location.
  */
 export async function installSkillFromPath(
   source: string,
-  options: { overwrite?: boolean; root?: string } = {},
+  options: { overwrite?: boolean; root?: string; home?: string } = {},
 ): Promise<InstallResult> {
   const root = options.root ?? skillsRootDir();
-  const filePath = await resolveSkillSource(source);
+  const resolvedSource = resolve(expandHomePath(source, options.home));
+  const filePath = await resolveSkillSource(resolvedSource);
   const { frontmatter } = parseSkillFile(await readFile(filePath, "utf8"));
   const name = frontmatter.name;
   const destDir = skillDirPath(name, root);
@@ -70,7 +84,7 @@ export async function installSkillFromPath(
   await mkdir(destDir, { recursive: true });
   // Copy the whole source directory (a skill may ship assets beside skill.md),
   // or just the single file when the source was a bare skill.md.
-  const srcIsDir = (await stat(source).catch(() => null))?.isDirectory() ?? false;
+  const srcIsDir = (await stat(resolvedSource).catch(() => null))?.isDirectory() ?? false;
   if (srcIsDir) {
     await cp(dirname(filePath), destDir, { recursive: true });
   } else {

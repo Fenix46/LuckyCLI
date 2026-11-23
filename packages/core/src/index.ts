@@ -422,6 +422,7 @@ export {
 } from "./skills/available.js";
 export type { AvailableSkill, SkillOrigin } from "./skills/available.js";
 export {
+  expandHomePath,
   installSkillFromPath,
   setSkillEnabled,
   toggleSkillEnabled,

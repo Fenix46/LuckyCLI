@@ -71,6 +71,21 @@ describe("installSkillFromPath", () => {
   it("throws on a missing source", async () => {
     await expect(installSkillFromPath(join(srcRoot, "nope"), { root })).rejects.toThrow(/No such path/);
   });
+
+  it("expands a leading ~ against the injected home", async () => {
+    await makeSource(".agents/skills/tilde", RELEASE);
+    const home = srcRoot;
+    const res = await installSkillFromPath("~/.agents/skills/tilde", { root, home });
+    expect(res.name).toBe("release-flow");
+    expect(res.dir).toBe(join(root, "release-flow"));
+  });
+
+  it("reports the resolved path for a missing ~ source", async () => {
+    const home = srcRoot;
+    await expect(installSkillFromPath("~/.agents/skills/ghost", { root, home })).rejects.toThrow(
+      new RegExp(join(home, ".agents", "skills", "ghost").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+  });
 });
 
 describe("uninstallSkill", () => {
