@@ -10,6 +10,7 @@ import { THEMES, type Theme } from "../themes.js";
 import { EffortPickerView, ModelPickerView, ThemePickerView } from "./Pickers.js";
 import { SlashMenu } from "./SlashMenu.js";
 import { CompletionMenu } from "./CompletionMenu.js";
+import { PromptBlock } from "./PromptBlock.js";
 import { StatusFooter } from "./StatusFooter.js";
 
 const theme = THEMES[0] as Theme;
@@ -154,6 +155,22 @@ describe("SlashMenu", () => {
     );
     expect(scanPositions(screen, "…").length).toBeGreaterThan(0);
     expect(scanPositions(screen, long)).toHaveLength(0);
+  });
+});
+
+describe("PromptBlock", () => {
+  it("shows a ghost suffix only when the cursor is at the end", () => {
+    const atEnd = renderToScreen(
+      <PromptBlock theme={theme} text="/mo" cursorOffset={3} active width={60} ghost="del" />,
+      60,
+    );
+    expect(scanPositions(atEnd.screen, "del")).toHaveLength(1);
+
+    const mid = renderToScreen(
+      <PromptBlock theme={theme} text="/mo" cursorOffset={1} active width={60} ghost="del" />,
+      60,
+    );
+    expect(scanPositions(mid.screen, "del")).toHaveLength(0);
   });
 });
 

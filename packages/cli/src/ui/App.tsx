@@ -696,6 +696,13 @@ export function App({
     filteredCommands.length,
     selectedCommandIndex,
   );
+  const highlightedCommand = filteredCommands[selectedCommandIndexClamped];
+  const ghost =
+    showSlashMenu &&
+    !input.includes(" ") &&
+    highlightedCommand?.name.startsWith(input)
+      ? highlightedCommand.name.slice(input.length)
+      : undefined;
 
   // Argument completions: only for commands whose value set the App already
   // knows. The menu is dismissed on Esc and recomputed on every input change.
@@ -1498,6 +1505,7 @@ export function App({
       history={promptHistory}
       historyEnabled={historyEnabled}
       theme={activeTheme}
+      {...(ghost ? { ghost } : {})}
       placeholder={
         userQuestionRequest
           ? "Type your answer…"

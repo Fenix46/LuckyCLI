@@ -25,6 +25,7 @@ export function ChatInput({
   historyEnabled = false,
   theme,
   placeholder,
+  ghost,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -49,6 +50,8 @@ export function ChatInput({
   theme?: Theme;
   /** Muted hint shown while the input is empty. */
   placeholder?: string;
+  /** Inline completion preview shown after the typed prefix. */
+  ghost?: string;
 }): React.JSX.Element {
   const [cursorOffset, setCursorOffset] = useState(value.length);
   // Arrow-up history recall: null = composing, otherwise the index into
@@ -226,6 +229,7 @@ export function ChatInput({
       active
       {...(theme ? { theme } : {})}
       {...(placeholder ? { placeholder } : {})}
+      {...(ghost && cursorOffset === value.length ? { ghost } : {})}
     />
   );
 }
