@@ -16,6 +16,7 @@ export function fromMcpJsonEntry(entry: unknown): McpServerConfig | undefined {
   if (isMcpServerConfig(entry)) return entry;
   if (!entry || typeof entry !== "object") return undefined;
   const e = entry as {
+    type?: unknown;
     command?: unknown;
     args?: unknown;
     env?: unknown;
@@ -23,12 +24,19 @@ export function fromMcpJsonEntry(entry: unknown): McpServerConfig | undefined {
     headers?: unknown;
     disabled?: unknown;
   };
+  const declaredType = typeof e.type === "string" ? e.type.toLowerCase() : undefined;
+  // `websocket`, `sdk` and the other client-specific transports have no
+  // equivalent here; ignore them instead of guessing a URL/command.
+  if (declaredType && !SUPPORTED_MCP_JSON_TYPES.has(declaredType)) return undefined;
   const strings = (value: unknown): Record<string, string> | undefined =>
     value && typeof value === "object"
       ? Object.fromEntries(Object.entries(value).filter((pair): pair is [string, string] => typeof pair[1] === "string"))
       : undefined;
   const enabled = e.disabled === true ? { enabled: false } : {};
-  if (typeof e.command === "string") {
+  const wantsUrl =
+    declaredType === "http" || declaredType === "sse" || declaredType === "streamable-http" ||
+    declaredType === "remote";
+  if (!wantsUrl && typeof e.command === "string") {
     const args = Array.isArray(e.args) ? e.args.filter((a): a is string => typeof a === "string") : [];
     const environment = strings(e.env);
     return {
@@ -50,7 +58,23 @@ export function fromMcpJsonEntry(entry: unknown): McpServerConfig | undefined {
   return undefined;
 }
 
-/** Servers declared in the project's `.mcp.json` (`{ "mcpServers": { … } }`). */
+/** `type` values other clients use that map onto a transport lucky supports. */
+const SUPPORTED_MCP_JSON_TYPES = new Set([
+  "stdio",
+  "local",
+  "http",
+  "sse",
+  "streamable-http",
+  "streamable_http",
+  "remote",
+]);
+
+/** Servers declared in the project's `.mcp.json`.
+ *
+ * Accepts both the wrapped `{ "mcpServers": { … } }` shape and the bare map
+ * (`{ "name": { … } }`) some plugin bundles use. `$schema` and other metadata
+ * keys are ignored by the per-entry conversion.
+ */
 export function loadProjectMcpJson(cwd: string): Record<string, McpServerConfig> {
   let raw: unknown;
   try {
@@ -58,10 +82,13 @@ export function loadProjectMcpJson(cwd: string): Record<string, McpServerConfig>
   } catch {
     return {};
   }
-  const servers = (raw as { mcpServers?: unknown } | null)?.mcpServers;
-  if (!servers || typeof servers !== "object") return {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const object = raw as Record<string, unknown>;
+  const wrapped = object.mcpServers;
+  const servers = wrapped && typeof wrapped === "object" && !Array.isArray(wrapped) ? wrapped : object;
   const result: Record<string, McpServerConfig> = {};
   for (const [name, entry] of Object.entries(servers)) {
+    if (name === "$schema" || name === "mcpServers") continue;
     const server = fromMcpJsonEntry(entry);
     if (server) result[name] = server;
   }

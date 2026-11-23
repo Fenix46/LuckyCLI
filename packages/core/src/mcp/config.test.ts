@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   fromMcpJsonEntry,
+  loadProjectMcpJson,
   normalizeMcpServers,
   parseMcpAddArgs,
   withMcpServer,
@@ -107,5 +111,73 @@ describe("fromMcpJsonEntry", () => {
     });
     expect(fromMcpJsonEntry({ type: "sse", url: "https://x/sse" })).toEqual({ type: "remote", url: "https://x/sse" });
     expect(fromMcpJsonEntry({ nothing: true })).toBeUndefined();
+  });
+
+  it("accepts explicit stdio, http and streamable-http types", () => {
+    expect(fromMcpJsonEntry({ type: "stdio", command: "node", args: ["s.js"], env: { A: "1" } })).toEqual({
+      type: "local",
+      command: ["node", "s.js"],
+      environment: { A: "1" },
+    });
+    expect(fromMcpJsonEntry({ type: "http", url: "https://x/mcp", headers: { A: "b" } })).toEqual({
+      type: "remote",
+      url: "https://x/mcp",
+      headers: { A: "b" },
+    });
+    expect(fromMcpJsonEntry({ type: "streamable-http", url: "https://x/mcp" })).toEqual({
+      type: "remote",
+      url: "https://x/mcp",
+    });
+  });
+
+  it("ignores transports it cannot speak", () => {
+    expect(fromMcpJsonEntry({ type: "websocket", url: "wss://x/mcp" })).toBeUndefined();
+    expect(fromMcpJsonEntry({ type: "sdk", command: "node" })).toBeUndefined();
+  });
+});
+
+describe("loadProjectMcpJson", () => {
+  function withConfig(value: unknown): string {
+    const cwd = mkdtempSync(join(tmpdir(), "lucky-mcp-json-"));
+    writeFileSync(join(cwd, ".mcp.json"), JSON.stringify(value), "utf8");
+    return cwd;
+  }
+
+  it("reads the wrapped mcpServers shape", () => {
+    const cwd = withConfig({
+      mcpServers: { local: { command: "npx", args: ["-y", "server"] } },
+    });
+    try {
+      expect(loadProjectMcpJson(cwd)).toEqual({
+        local: { type: "local", command: ["npx", "-y", "server"] },
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("reads a bare map and ignores $schema", () => {
+    const cwd = withConfig({
+      $schema: "https://json.schemastore.org/mcp.json",
+      playwright: { command: "npx", args: ["@playwright/mcp@latest"] },
+      docs: { type: "http", url: "https://example.com/mcp" },
+    });
+    try {
+      expect(loadProjectMcpJson(cwd)).toEqual({
+        playwright: { type: "local", command: ["npx", "@playwright/mcp@latest"] },
+        docs: { type: "remote", url: "https://example.com/mcp" },
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an empty map for a missing or malformed file", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "lucky-mcp-json-"));
+    try {
+      expect(loadProjectMcpJson(cwd)).toEqual({});
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
