@@ -109,13 +109,12 @@ describe("skill alias commands", () => {
     return { ctx, calls, emitted };
   }
 
-  it("registers a hidden /<name> command per enabled skill", () => {
+  it("registers a visible /<name> command per enabled skill", () => {
     const reg = buildCommandRegistry(["code-review", "release-flow"]);
     const cr = reg.find((c) => c.name === "/code-review");
     expect(cr).toBeDefined();
-    expect(cr?.hidden).toBe(true);
-    // hidden: stays out of the menu.
-    expect(slashMenuEntries(reg).some((e) => e.name === "/code-review")).toBe(false);
+    expect(cr?.hidden).toBeFalsy();
+    expect(slashMenuEntries(reg).some((e) => e.name === "/code-review")).toBe(true);
   });
 
   it("dispatches /<name> to runSkill", async () => {

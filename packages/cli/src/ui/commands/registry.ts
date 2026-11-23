@@ -43,8 +43,8 @@ const MENU_ORDER = [
 /**
  * Direct `/<skill-name>` commands for each installed+enabled skill, mirroring
  * how other agents invoke skills. Each dispatches to the same logic as
- * `/skill use <name>`. Names colliding with a built-in command are skipped so a
- * skill can never shadow core functionality.
+ * `/skill use <name>`. Names colliding with a built-in command are skipped so
+ * a skill can never shadow core functionality.
  */
 function skillAliasCommands(skillNames: string[], reserved: Set<string>): Command[] {
   return skillNames
@@ -55,7 +55,6 @@ function skillAliasCommands(skillNames: string[], reserved: Set<string>): Comman
       return {
         name: slash,
         description: `Run the ${name} skill`,
-        hidden: true, // discoverable via /skill list; kept out of the core menu
         async run(_args, ctx) {
           const ok = await ctx.ui.runSkill(name);
           if (!ok) ctx.emit({ kind: "error", text: `skill "${name}" is unavailable — see /skill list` });

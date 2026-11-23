@@ -566,26 +566,27 @@ export function App({
   // Launch-time update check (policy-driven); flow lives in useUpdateCheck.
   useUpdateCheck(useCallback((item) => setItems((prev) => [...prev, item]), []));
 
-  // Installed+enabled skills become direct `/<name>` commands. Discovered once
-  // at mount (best-effort); installing mid-session is still usable via
-  // `/skill use`. A changed list rebuilds the registry below.
+  // Installed+enabled skills become direct `/<name>` commands. Reloaded on
+  // mount, when the skill panel changes the set, and after `/skill …` runs, so
+  // a skill installed in-session gets its alias without a restart.
   const [skillCommandNames, setSkillCommandNames] = useState<string[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    // Project skills (.lucky/skills, .claude/skills) and global ones alike.
-    Promise.resolve()
-      .then(() => listAvailableSkills(process.cwd()))
-      .then((skills) => {
-        if (cancelled) return;
-        setSkillCommandNames(skills.filter((s) => s.enabled).map((s) => s.name));
-      })
-      .catch(() => {
-        /* no skills dir, or unreadable — leave the list empty */
-      });
-    return () => {
-      cancelled = true;
-    };
+  const refreshSkillCommands = useCallback(() => {
+    try {
+      const names = listAvailableSkills(process.cwd())
+        .filter((s) => s.enabled)
+        .map((s) => s.name);
+      setSkillCommandNames((previous) =>
+        previous.length === names.length && previous.every((name, index) => name === names[index])
+          ? previous
+          : names,
+      );
+    } catch {
+      /* no skills dir, or unreadable — leave the list unchanged */
+    }
   }, []);
+  useEffect(() => {
+    refreshSkillCommands();
+  }, [refreshSkillCommands]);
 
   // Slash commands: registry derived from the static set plus skill aliases;
   // per-dispatch state travels in the CommandContext. The menu and /help derive
@@ -611,6 +612,7 @@ export function App({
   });
   const skillPanel = useSkillPanel({
     emit: (item) => setItems((prev) => [...prev, item]),
+    onSkillsChanged: refreshSkillCommands,
   });
   const agentsPanel = useAgentsPanel();
   // Live model catalogs (Codex/Antigravity/Ollama/Zen/OpenRouter), fetched on
@@ -1147,6 +1149,7 @@ export function App({
           },
         };
         await dispatchCommand(text, commandRegistry, ctx);
+        if (/^\/(skill|skills)(\s|$)/.test(text)) refreshSkillCommands();
         return;
       }
 
@@ -1171,7 +1174,7 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands],
   );
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in
