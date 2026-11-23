@@ -7,6 +7,8 @@ import {
   loadProjectMcpJson,
   normalizeMcpServers,
   parseMcpAddArgs,
+  parseMcpAddJsonArgs,
+  parseMcpJsonServer,
   withMcpServer,
   withoutMcpServer,
 } from "./config.js";
@@ -133,6 +135,44 @@ describe("fromMcpJsonEntry", () => {
   it("ignores transports it cannot speak", () => {
     expect(fromMcpJsonEntry({ type: "websocket", url: "wss://x/mcp" })).toBeUndefined();
     expect(fromMcpJsonEntry({ type: "sdk", command: "node" })).toBeUndefined();
+  });
+});
+
+describe("parseMcpAddJsonArgs", () => {
+  it("accepts inline JSON or a file", () => {
+    expect(parseMcpAddJsonArgs(["docs", '{"command":"npx","args":["-y","docs"]}'])).toEqual({
+      name: "docs",
+      json: '{"command":"npx","args":["-y","docs"]}',
+    });
+    expect(parseMcpAddJsonArgs(["docs", "--file", "server.json"])).toEqual({
+      name: "docs",
+      file: "server.json",
+    });
+    expect(parseMcpAddJsonArgs(["docs", "-f", "-"])).toEqual({ name: "docs", file: "-" });
+  });
+
+  it("explains missing or extra arguments", () => {
+    expect(parseMcpAddJsonArgs([])).toHaveProperty("error");
+    expect(parseMcpAddJsonArgs(["docs"])).toHaveProperty("error");
+    expect(parseMcpAddJsonArgs(["docs", "--file"])).toHaveProperty("error");
+    expect(parseMcpAddJsonArgs(["docs", "--file", "a", "b"])).toHaveProperty("error");
+    expect(parseMcpAddJsonArgs(["docs", "{}", "{}"])).toHaveProperty("error");
+  });
+});
+
+describe("parseMcpJsonServer", () => {
+  it("converts the same shapes as .mcp.json", () => {
+    expect(parseMcpJsonServer('{"command":"npx","args":["-y","x"]}')).toEqual({
+      server: { type: "local", command: ["npx", "-y", "x"] },
+    });
+    expect(parseMcpJsonServer('{"type":"http","url":"https://example.com/mcp"}')).toEqual({
+      server: { type: "remote", url: "https://example.com/mcp" },
+    });
+  });
+
+  it("rejects invalid JSON and unrecognized entries", () => {
+    expect(parseMcpJsonServer("{")).toHaveProperty("error");
+    expect(parseMcpJsonServer('{"nothing":true}')).toHaveProperty("error");
   });
 });
 

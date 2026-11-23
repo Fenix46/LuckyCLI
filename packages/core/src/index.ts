@@ -582,13 +582,17 @@ export {
 export {
   fromMcpJsonEntry,
   loadProjectMcpJson,
+  MCP_ADD_JSON_USAGE,
   MCP_ADD_USAGE,
   normalizeMcpServers,
   parseMcpAddArgs,
+  parseMcpAddJsonArgs,
+  parseMcpJsonServer,
   PROJECT_MCP_FILE,
   withMcpServer,
   withoutMcpServer,
 } from "./mcp/config.js";
+export type { McpAddJsonArgs } from "./mcp/config.js";
 export {
   expandEnvString,
   expandMcpServerConfig,

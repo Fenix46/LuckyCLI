@@ -126,6 +126,62 @@ describe("runMcpCommand", () => {
   });
 });
 
+describe("mcp add-json", () => {
+  it("adds a server from inline JSON", async () => {
+    let stored: { mcp?: Record<string, unknown> } = {};
+    const out: string[] = [];
+    const io = {
+      mcp: {},
+      out: (line: string) => out.push(line),
+      err: () => {},
+      loadConfig: () => stored,
+      saveConfig: (next: typeof stored) => {
+        stored = next;
+      },
+    } as unknown as Parameters<typeof runMcpCommand>[1];
+
+    const code = await runMcpCommand(
+      ["add-json", "docs", '{"type":"http","url":"https://example.com/mcp"}'],
+      io,
+    );
+    expect(code).toBe(0);
+    expect(stored.mcp?.docs).toEqual({ type: "remote", url: "https://example.com/mcp" });
+    expect(out.join("\n")).toContain('Added MCP server "docs"');
+  });
+
+  it("reads the entry from a file", async () => {
+    let stored: { mcp?: Record<string, unknown> } = {};
+    const io = {
+      mcp: {},
+      out: () => {},
+      err: () => {},
+      loadConfig: () => stored,
+      saveConfig: (next: typeof stored) => {
+        stored = next;
+      },
+      readFile: () => '{"command":"npx","args":["-y","files"]}',
+    } as unknown as Parameters<typeof runMcpCommand>[1];
+
+    expect(await runMcpCommand(["add-json", "files", "--file", "server.json"], io)).toBe(0);
+    expect(stored.mcp?.files).toEqual({ type: "local", command: ["npx", "-y", "files"] });
+  });
+
+  it("rejects invalid JSON and an unrecognized entry", async () => {
+    const err: string[] = [];
+    const io = {
+      mcp: {},
+      out: () => {},
+      err: (line: string) => err.push(line),
+      loadConfig: () => ({}),
+      saveConfig: () => {},
+    } as unknown as Parameters<typeof runMcpCommand>[1];
+
+    expect(await runMcpCommand(["add-json", "x", "{"], io)).toBe(1);
+    expect(await runMcpCommand(["add-json", "x", '{"nothing":true}'], io)).toBe(1);
+    expect(err.join("\n")).toMatch(/Invalid JSON/);
+  });
+});
+
 describe("parseMcpImportArgs", () => {
   it("defaults to all sources, disabled, not a dry run", () => {
     expect(parseMcpImportArgs([])).toEqual({

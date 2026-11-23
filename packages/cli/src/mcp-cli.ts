@@ -3,12 +3,16 @@
  * MCP config and live runtime status are inspectable from scripts and CI.
  */
 
+import { readFileSync } from "node:fs";
 import {
   McpManager,
+  MCP_ADD_JSON_USAGE,
   authorizeMcpServer,
   clearMcpAuthEntry,
   loadStoredConfig,
   parseMcpAddArgs,
+  parseMcpAddJsonArgs,
+  parseMcpJsonServer,
   planMcpImport,
   resolveConfig,
   saveStoredConfig,
@@ -34,6 +38,9 @@ export interface McpCommandIO {
   saveConfig?: typeof saveStoredConfig;
   /** Servers read from other clients, injectable for tests. */
   importServers?: () => ImportableMcpServer[];
+  /** Text readers for add-json; injectable for tests. */
+  readFile?: (path: string) => string;
+  readStdin?: () => string;
 }
 
 /** Lines for `lucky mcp list` — what's configured, without connecting. */
@@ -200,6 +207,39 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
     const target = parsed.server.type === "local" ? parsed.server.command.join(" ") : parsed.server.url;
     out(`${existed ? "Updated" : "Added"} MCP server "${parsed.name}" (${parsed.server.type}): ${target}`);
     out(`Check it with: lucky mcp status`);
+    return 0;
+  }
+
+  if (sub === "add-json") {
+    const parsed = parseMcpAddJsonArgs(args.slice(1));
+    if ("error" in parsed) {
+      err(parsed.error);
+      return 1;
+    }
+    let text: string;
+    try {
+      text =
+        "json" in parsed
+          ? parsed.json
+          : parsed.file === "-"
+            ? (io.readStdin ?? (() => readFileSync(0, "utf8")))()
+            : (io.readFile ?? ((path: string) => readFileSync(path, "utf8")))(parsed.file);
+    } catch (error) {
+      err(`Unable to read the server JSON: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+    const result = parseMcpJsonServer(text);
+    if ("error" in result) {
+      err(result.error);
+      return 1;
+    }
+    const load = io.loadConfig ?? loadStoredConfig;
+    const save = io.saveConfig ?? saveStoredConfig;
+    const existed = Boolean(load().mcp?.[parsed.name]);
+    save(withMcpServer(load(), parsed.name, result.server));
+    const target =
+      result.server.type === "local" ? result.server.command.join(" ") : result.server.url;
+    out(`${existed ? "Updated" : "Added"} MCP server "${parsed.name}" (${result.server.type}): ${target}`);
     return 0;
   }
 

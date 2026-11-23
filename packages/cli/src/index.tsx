@@ -63,6 +63,8 @@ Commands:
   mcp add <name> -- <command> [args]
                         add a local MCP server (--env KEY=VALUE before --)
   mcp add <name> <url>  add a remote MCP server (--header 'Name: value')
+  mcp add-json <name> '<json>'
+                        add a server from a JSON entry (--file <path> or -)
   mcp remove <name>     remove an MCP server from your config
   mcp status            connect to each MCP server and report status
   mcp inspect <name>    show prompts and resources exposed by a server

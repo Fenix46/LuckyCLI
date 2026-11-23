@@ -134,6 +134,57 @@ export const MCP_ADD_USAGE =
   "lucky mcp add <name> [--env KEY=VALUE]... [--] <command> [args...]\n" +
   "lucky mcp add <name> <https://url> [--header 'Name: value']...";
 
+export const MCP_ADD_JSON_USAGE =
+  "lucky mcp add-json <name> '<json>'\n" +
+  "lucky mcp add-json <name> --file <path>   (use - for stdin)";
+
+/** Arguments of `mcp add-json`: exactly one inline JSON string or one file. */
+export type McpAddJsonArgs =
+  | { name: string; json: string }
+  | { name: string; file: string };
+
+/** Parse `mcp add-json <name> '<json>' | --file <path>`. */
+export function parseMcpAddJsonArgs(
+  args: readonly string[],
+): McpAddJsonArgs | { error: string } {
+  const [name, ...rest] = args;
+  if (!name || name.startsWith("-")) return { error: `Usage: ${MCP_ADD_JSON_USAGE}` };
+  if (rest.length === 1 && (rest[0] === "--file" || rest[0] === "-f")) {
+    return { error: `--file expects a path. Usage: ${MCP_ADD_JSON_USAGE}` };
+  }
+  if (rest[0] === "--file" || rest[0] === "-f") {
+    const file = rest[1];
+    if (!file || rest.length > 2) return { error: `Usage: ${MCP_ADD_JSON_USAGE}` };
+    return { name, file };
+  }
+  if (rest.length !== 1) return { error: `Usage: ${MCP_ADD_JSON_USAGE}` };
+  return { name, json: rest[0]! };
+}
+
+/**
+ * Parse the JSON for one server entry and convert it with the same adapter as
+ * `.mcp.json`, so add-json accepts exactly the shapes a project file does.
+ */
+export function parseMcpJsonServer(
+  json: string,
+): { server: McpServerConfig } | { error: string } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json) as unknown;
+  } catch (error) {
+    return { error: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  const server = fromMcpJsonEntry(raw);
+  if (!server) {
+    return {
+      error:
+        "Unrecognized server entry. Expected something like " +
+        '{"command":"npx","args":["-y","pkg"]} or {"type":"http","url":"https://…"}.',
+    };
+  }
+  return { server };
+}
+
 /**
  * Parse `mcp add` arguments into a server entry. A URL makes a remote server,
  * anything else is the command line of a local one. Options come before the
