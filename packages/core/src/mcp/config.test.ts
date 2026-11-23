@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   fromMcpJsonEntry,
+  loadProjectMcpJson,
   normalizeMcpServers,
   parseMcpAddArgs,
+  parseMcpAddJsonArgs,
+  parseMcpJsonServer,
   withMcpServer,
   withoutMcpServer,
 } from "./config.js";
@@ -107,5 +113,111 @@ describe("fromMcpJsonEntry", () => {
     });
     expect(fromMcpJsonEntry({ type: "sse", url: "https://x/sse" })).toEqual({ type: "remote", url: "https://x/sse" });
     expect(fromMcpJsonEntry({ nothing: true })).toBeUndefined();
+  });
+
+  it("accepts explicit stdio, http and streamable-http types", () => {
+    expect(fromMcpJsonEntry({ type: "stdio", command: "node", args: ["s.js"], env: { A: "1" } })).toEqual({
+      type: "local",
+      command: ["node", "s.js"],
+      environment: { A: "1" },
+    });
+    expect(fromMcpJsonEntry({ type: "http", url: "https://x/mcp", headers: { A: "b" } })).toEqual({
+      type: "remote",
+      url: "https://x/mcp",
+      headers: { A: "b" },
+    });
+    expect(fromMcpJsonEntry({ type: "streamable-http", url: "https://x/mcp" })).toEqual({
+      type: "remote",
+      url: "https://x/mcp",
+    });
+  });
+
+  it("ignores transports it cannot speak", () => {
+    expect(fromMcpJsonEntry({ type: "websocket", url: "wss://x/mcp" })).toBeUndefined();
+    expect(fromMcpJsonEntry({ type: "sdk", command: "node" })).toBeUndefined();
+  });
+});
+
+describe("parseMcpAddJsonArgs", () => {
+  it("accepts inline JSON or a file", () => {
+    expect(parseMcpAddJsonArgs(["docs", '{"command":"npx","args":["-y","docs"]}'])).toEqual({
+      name: "docs",
+      json: '{"command":"npx","args":["-y","docs"]}',
+    });
+    expect(parseMcpAddJsonArgs(["docs", "--file", "server.json"])).toEqual({
+      name: "docs",
+      file: "server.json",
+    });
+    expect(parseMcpAddJsonArgs(["docs", "-f", "-"])).toEqual({ name: "docs", file: "-" });
+  });
+
+  it("explains missing or extra arguments", () => {
+    expect(parseMcpAddJsonArgs([])).toHaveProperty("error");
+    expect(parseMcpAddJsonArgs(["docs"])).toHaveProperty("error");
+    expect(parseMcpAddJsonArgs(["docs", "--file"])).toHaveProperty("error");
+    expect(parseMcpAddJsonArgs(["docs", "--file", "a", "b"])).toHaveProperty("error");
+    expect(parseMcpAddJsonArgs(["docs", "{}", "{}"])).toHaveProperty("error");
+  });
+});
+
+describe("parseMcpJsonServer", () => {
+  it("converts the same shapes as .mcp.json", () => {
+    expect(parseMcpJsonServer('{"command":"npx","args":["-y","x"]}')).toEqual({
+      server: { type: "local", command: ["npx", "-y", "x"] },
+    });
+    expect(parseMcpJsonServer('{"type":"http","url":"https://example.com/mcp"}')).toEqual({
+      server: { type: "remote", url: "https://example.com/mcp" },
+    });
+  });
+
+  it("rejects invalid JSON and unrecognized entries", () => {
+    expect(parseMcpJsonServer("{")).toHaveProperty("error");
+    expect(parseMcpJsonServer('{"nothing":true}')).toHaveProperty("error");
+  });
+});
+
+describe("loadProjectMcpJson", () => {
+  function withConfig(value: unknown): string {
+    const cwd = mkdtempSync(join(tmpdir(), "lucky-mcp-json-"));
+    writeFileSync(join(cwd, ".mcp.json"), JSON.stringify(value), "utf8");
+    return cwd;
+  }
+
+  it("reads the wrapped mcpServers shape", () => {
+    const cwd = withConfig({
+      mcpServers: { local: { command: "npx", args: ["-y", "server"] } },
+    });
+    try {
+      expect(loadProjectMcpJson(cwd)).toEqual({
+        local: { type: "local", command: ["npx", "-y", "server"] },
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("reads a bare map and ignores $schema", () => {
+    const cwd = withConfig({
+      $schema: "https://json.schemastore.org/mcp.json",
+      playwright: { command: "npx", args: ["@playwright/mcp@latest"] },
+      docs: { type: "http", url: "https://example.com/mcp" },
+    });
+    try {
+      expect(loadProjectMcpJson(cwd)).toEqual({
+        playwright: { type: "local", command: ["npx", "@playwright/mcp@latest"] },
+        docs: { type: "remote", url: "https://example.com/mcp" },
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an empty map for a missing or malformed file", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "lucky-mcp-json-"));
+    try {
+      expect(loadProjectMcpJson(cwd)).toEqual({});
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

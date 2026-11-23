@@ -1,4 +1,5 @@
 import { PROVIDER_CATALOG } from "../providers/catalog.js";
+import { expandMcpServers } from "../mcp/expand.js";
 import { loadProjectMcpJson, normalizeMcpServers } from "../mcp/config.js";
 import type { McpServerConfig } from "../mcp/types.js";
 import type { ProviderCredentials, ProviderId } from "../providers/types.js";
@@ -56,11 +57,12 @@ export interface ResolvedConfig {
 export function trustedProjectSettings(
   cwd: string,
   stored: StoredConfig = loadStoredConfig(),
+  env: NodeJS.ProcessEnv = process.env,
 ): { mcp: Record<string, McpServerConfig>; permissions: ToolPermissionPolicy } {
   if (!isProjectTrusted(stored, cwd)) return { mcp: {}, permissions: {} };
   const project = loadProjectConfig(cwd);
   return {
-    mcp: normalizeMcpServers({ ...loadProjectMcpJson(cwd), ...project.mcp }),
+    mcp: expandMcpServers(normalizeMcpServers({ ...loadProjectMcpJson(cwd), ...project.mcp }), env),
     permissions: project.permissions ?? {},
   };
 }
@@ -79,7 +81,7 @@ export function resolveConfig(
   const project = loadProjectConfig(cwd);
   // A repository's own config can start processes (MCP servers) and widen
   // tool permissions, so those parts only apply in a folder the user trusts.
-  const trustedProject = trustedProjectSettings(cwd, stored);
+  const trustedProject = trustedProjectSettings(cwd, stored, env);
   const providerRaw = overrides.provider ?? project.provider ?? stored.provider ?? env.LUCKY_PROVIDER;
   let provider: ProviderId | undefined;
   if (providerRaw) {
@@ -126,7 +128,7 @@ export function resolveConfig(
       : {}),
     ...(env.LUCKY_MAX_TOKENS ? { maxTokens: Number(env.LUCKY_MAX_TOKENS) } : {}),
     ...(credentials ? { credentials } : {}),
-    mcp: normalizeMcpServers({ ...stored.mcp, ...trustedProject.mcp }),
+    mcp: expandMcpServers(normalizeMcpServers({ ...stored.mcp, ...trustedProject.mcp }), env),
     ...(project.checks ? { checks: project.checks } : {}),
     ...(project.graphExclusions ? { graphExclusions: project.graphExclusions } : {}),
     ...(project.skills ? { skills: project.skills } : {}),

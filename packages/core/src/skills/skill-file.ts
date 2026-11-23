@@ -97,6 +97,8 @@ function splitFrontmatter(source: string): { frontmatterLines: string[]; body: s
  * - `key: [a, b, c]` inline arrays
  * - `key:` followed by `- item` block-list lines
  * - `key: >` / `key: |` folded or literal block scalars (indented lines)
+ * - quoted scalars that continue over several indented lines, including the
+ *   `key:`-then-indented form and YAML's `''` escape inside single quotes
  *
  * Any other indented block under a key (a nested map such as `metadata:`) is
  * skipped as a whole: lucky doesn't use those fields, and refusing the file
@@ -129,6 +131,14 @@ function parseFrontmatterLines(lines: string[]): Record<string, unknown> {
       }
       if (items.length > 0) {
         out[key] = items;
+      } else if (isIndented(lines[i]) && isQuoteStart(lines[i]!.trimStart())) {
+        // A quoted scalar written on the lines after the key:
+        //   description:
+        //     "line one
+        //     line two"
+        const parsed = parseQuotedScalar(lines, i + 1, lines[i]!.trimStart());
+        out[key] = parsed.value;
+        i = parsed.next;
       } else {
         // A nested map or other block: skip it.
         while (isIndented(lines[i]) || lines[i]?.trim() === "") i++;
@@ -141,6 +151,11 @@ function parseFrontmatterLines(lines: string[]): Record<string, unknown> {
         i++;
       }
       out[key] = rest.startsWith(">") ? block.join(" ").replace(/\s+/g, " ").trim() : block.join("\n").trim();
+    } else if (isQuoteStart(rest)) {
+      // A quoted scalar, possibly continued on the following lines.
+      const parsed = parseQuotedScalar(lines, i, rest);
+      out[key] = parsed.value;
+      i = parsed.next;
     } else if (rest.startsWith("[") && rest.endsWith("]")) {
       // Inline array.
       const inner = rest.slice(1, -1).trim();
@@ -152,10 +167,82 @@ function parseFrontmatterLines(lines: string[]): Record<string, unknown> {
   return out;
 }
 
+function isQuoteStart(value: string): boolean {
+  return value.startsWith('"') || value.startsWith("'");
+}
+
+/**
+ * Read a quoted scalar starting at `firstChunk`, which includes the opening
+ * quote. `nextIndex` is the index of the line after the one `firstChunk` came
+ * from; continuation lines are consumed until the closing quote. Line breaks
+ * fold to a single space, matching YAML's flow-scalar folding for the shapes
+ * skills actually use.
+ */
+function parseQuotedScalar(
+  lines: string[],
+  nextIndex: number,
+  firstChunk: string,
+): { value: string; next: number } {
+  const quote = firstChunk[0];
+  if (quote !== '"' && quote !== "'") throw new Error("expected a quoted value");
+  const chunks: string[] = [];
+  let current = firstChunk.slice(1);
+  let i = nextIndex;
+  for (;;) {
+    const close = findClosingQuote(current, quote);
+    if (close !== -1) {
+      chunks.push(current.slice(0, close));
+      break;
+    }
+    chunks.push(current);
+    const next = lines[i];
+    if (next === undefined) throw new Error("unterminated quoted frontmatter value");
+    current = next.trim();
+    i++;
+  }
+  const folded = chunks.join(" ").replace(/\s+/g, " ").trim();
+  return {
+    value: quote === "'" ? folded.replace(/''/g, "'") : unescapeDoubleQuoted(folded),
+    next: i,
+  };
+}
+
+/** Index of the closing quote, honoring the quote style's escape rules. */
+function findClosingQuote(value: string, quote: string): number {
+  for (let i = 0; i < value.length; i++) {
+    if (quote === '"' && value[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (value[i] !== quote) continue;
+    if (quote === "'" && value[i + 1] === "'") {
+      i++;
+      continue;
+    }
+    return i;
+  }
+  return -1;
+}
+
+/** Minimal YAML double-quoted escapes; unknown escapes keep the backslash. */
+function unescapeDoubleQuoted(value: string): string {
+  return value.replace(/\\(["\\/bfnrt])/g, (_match, code: string) => {
+    switch (code) {
+      case "n": return "\n";
+      case "r": return "\r";
+      case "t": return "\t";
+      case "b": return "\b";
+      case "f": return "\f";
+      default: return code;
+    }
+  });
+}
+
 /** Strip matching surrounding quotes from a scalar, if present. */
 function stripScalar(s: string): string {
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1);
+    const inner = s.slice(1, -1);
+    return s.startsWith("'") ? inner.replace(/''/g, "'") : unescapeDoubleQuoted(inner);
   }
   return s;
 }

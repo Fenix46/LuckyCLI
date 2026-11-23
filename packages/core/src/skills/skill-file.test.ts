@@ -114,6 +114,63 @@ b`;
     expect(parseSkillFile(src).frontmatter.description).toBe("line one\nline two");
   });
 
+  it("parses a description quoted over several lines after the key", () => {
+    const src = `---
+name: math-olympiad
+description:
+  "Solve competition math problems (IMO, Putnam, USAMO, AIME) with adversarial
+  verification that catches the errors self-verification misses. Uses pure
+  reasoning (no tools) and outputs calibrated confidence."
+version: 0.1.0
+---
+b`;
+    expect(parseSkillFile(src).frontmatter.description).toBe(
+      "Solve competition math problems (IMO, Putnam, USAMO, AIME) with adversarial " +
+        "verification that catches the errors self-verification misses. Uses pure " +
+        "reasoning (no tools) and outputs calibrated confidence.",
+    );
+  });
+
+  it("parses a quoted description that starts on the key line and continues", () => {
+    const src = `---
+name: x
+description: "line one
+  line two"
+---
+b`;
+    expect(parseSkillFile(src).frontmatter.description).toBe("line one line two");
+  });
+
+  it("unescapes YAML's doubled single quote", () => {
+    const src = `---
+name: docs
+description: 'a document''s primary skill'
+---
+b`;
+    expect(parseSkillFile(src).frontmatter.description).toBe("a document's primary skill");
+  });
+
+  it("parses a multi-line single-quoted value with escaped quotes", () => {
+    const src = `---
+name: x
+description:
+  'a document''s primary
+  skill'
+---
+b`;
+    expect(parseSkillFile(src).frontmatter.description).toBe("a document's primary skill");
+  });
+
+  it("rejects an unterminated quoted description", () => {
+    const src = `---
+name: x
+description:
+  "never closed
+---
+b`;
+    expect(() => parseSkillFile(src)).toThrow(/unterminated quoted/);
+  });
+
   it("rejects an empty name", () => {
     const src = `---
 name: "  "

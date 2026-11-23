@@ -4,8 +4,8 @@ import type { Command, CommandContext } from "./types.js";
 import type { Item } from "../lib/items.js";
 
 const installed = [
-  { name: "release-flow", description: "cut a release", keywords: ["release"], related: [], bodyPath: "release-flow/skill.md", enabled: true },
-  { name: "npm-publish", description: "publish", keywords: ["npm"], related: [], bodyPath: "npm-publish/skill.md", enabled: false },
+  { name: "release-flow", description: "cut a release", keywords: ["release"], related: [], bodyPath: "release-flow/skill.md", enabled: true, scope: "global", origin: "lucky" },
+  { name: "npm-publish", description: "publish", keywords: ["npm"], related: [], bodyPath: "npm-publish/skill.md", enabled: false, scope: "global", origin: "lucky" },
 ];
 
 const catalogResults = [
@@ -19,8 +19,8 @@ function fakeDeps(overrides: Partial<SkillCommandDeps> = {}): SkillCommandDeps {
       get: vi.fn(async () => catalogResults[0] ?? null),
       fetchBody: vi.fn(async () => "body"),
     }),
-    discover: vi.fn(async () => installed),
-    installFromPath: vi.fn(async () => ({ name: "from-path", dir: "/x" })),
+    listAvailable: vi.fn(() => installed),
+    installFromSource: vi.fn(async () => [{ name: "from-source", dir: "/x" }]),
     installFromCatalog: vi.fn(async () => ({ name: "docker-build", dir: "/x" })),
     uninstall: vi.fn(async () => true),
     setEnabled: vi.fn(async () => true),
@@ -94,11 +94,19 @@ describe("/skill", () => {
     const deps = fakeDeps();
     const h = harness(deps);
     await h.run("add ./my-skill");
-    expect(deps.installFromPath).toHaveBeenCalledWith("./my-skill");
+    expect(deps.installFromSource).toHaveBeenCalledWith("./my-skill");
     expect(deps.installFromCatalog).not.toHaveBeenCalled();
     const item = h.emitted[0]!;
     if (item.kind !== "command") throw new Error("expected command item");
     expect(item.title).toBe("Skill installed");
+  });
+
+  it("installs owner/repo as a source, not a catalog name", async () => {
+    const deps = fakeDeps();
+    const h = harness(deps);
+    await h.run("add prisma/skills");
+    expect(deps.installFromSource).toHaveBeenCalledWith("prisma/skills");
+    expect(deps.installFromCatalog).not.toHaveBeenCalled();
   });
 
   it("installs from the catalog when the arg is a bare name", async () => {
@@ -106,7 +114,7 @@ describe("/skill", () => {
     const h = harness(deps);
     await h.run("add docker-build");
     expect(deps.installFromCatalog).toHaveBeenCalledWith("docker-build");
-    expect(deps.installFromPath).not.toHaveBeenCalled();
+    expect(deps.installFromSource).not.toHaveBeenCalled();
   });
 
   it("surfaces install failures as error items", async () => {

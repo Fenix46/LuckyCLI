@@ -414,15 +414,34 @@ export {
   tryLoadSkillGraph,
 } from "./skills/graph.js";
 export type { DiscoveredSkill } from "./skills/graph.js";
-export { listAvailableSkills, projectSkillRoots, usableSkills } from "./skills/available.js";
-export type { AvailableSkill } from "./skills/available.js";
 export {
+  globalSkillRoots,
+  listAvailableSkills,
+  projectSkillRoots,
+  usableSkills,
+} from "./skills/available.js";
+export type { AvailableSkill, SkillOrigin } from "./skills/available.js";
+export {
+  expandHomePath,
   installSkillFromPath,
   setSkillEnabled,
   toggleSkillEnabled,
   uninstallSkill,
 } from "./skills/install.js";
 export type { InstallResult } from "./skills/install.js";
+export {
+  findSkillDirs,
+  gitClone,
+  installSkillFromSource,
+  parseSkillSource,
+} from "./skills/source.js";
+export type {
+  InstallFromSourceOptions,
+  SkillSource,
+  SkillSourceCandidate,
+  SkillSourceCloner,
+  SkillSourceOptions,
+} from "./skills/source.js";
 export {
   CatalogSkillSchema,
   SkillCatalog,
@@ -563,13 +582,39 @@ export {
 export {
   fromMcpJsonEntry,
   loadProjectMcpJson,
+  MCP_ADD_JSON_USAGE,
   MCP_ADD_USAGE,
   normalizeMcpServers,
   parseMcpAddArgs,
+  parseMcpAddJsonArgs,
+  parseMcpJsonServer,
   PROJECT_MCP_FILE,
   withMcpServer,
   withoutMcpServer,
 } from "./mcp/config.js";
+export type { McpAddJsonArgs } from "./mcp/config.js";
+export {
+  expandEnvString,
+  expandMcpServerConfig,
+  expandMcpServers,
+} from "./mcp/expand.js";
+export {
+  claudeDesktopConfigPath,
+  collectImportableServers,
+  readClaudeDesktopMcp,
+  readClaudeProjectMcp,
+  readClaudeUserMcp,
+  readCursorMcp,
+  readCursorProjectMcp,
+} from "./mcp/import.js";
+export { planMcpImport } from "./mcp/import.js";
+export type {
+  CollectImportOptions,
+  ImportableMcpServer,
+  McpImportPlan,
+  McpImportOrigin,
+  McpImportSource,
+} from "./mcp/import.js";
 export {
   adaptMcpTool,
   makeMcpToolName,

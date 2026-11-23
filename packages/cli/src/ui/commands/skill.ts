@@ -1,13 +1,13 @@
 import {
   SkillCatalog,
-  discoverSkills,
   installCatalogSkill,
-  installSkillFromPath,
+  installSkillFromSource,
+  listAvailableSkills,
   seedStarterSkills,
   setSkillEnabled,
   uninstallSkill,
+  type AvailableSkill,
   type CatalogSkill,
-  type DiscoveredSkill,
 } from "@luckycli/core";
 import { emitError, unknownCommand } from "./helpers.js";
 import type { Command, CommandContext } from "./types.js";
@@ -19,8 +19,8 @@ import type { Command, CommandContext } from "./types.js";
  */
 export interface SkillCommandDeps {
   createCatalog(): Pick<SkillCatalog, "search" | "get" | "fetchBody">;
-  discover: typeof discoverSkills;
-  installFromPath: typeof installSkillFromPath;
+  listAvailable: typeof listAvailableSkills;
+  installFromSource: typeof installSkillFromSource;
   installFromCatalog: typeof installCatalogSkill;
   uninstall: typeof uninstallSkill;
   setEnabled: typeof setSkillEnabled;
@@ -29,22 +29,26 @@ export interface SkillCommandDeps {
 
 const defaultDeps: SkillCommandDeps = {
   createCatalog: () => new SkillCatalog(),
-  discover: discoverSkills,
-  installFromPath: installSkillFromPath,
+  listAvailable: listAvailableSkills,
+  installFromSource: installSkillFromSource,
   installFromCatalog: installCatalogSkill,
   uninstall: uninstallSkill,
   setEnabled: setSkillEnabled,
   seedStarter: seedStarterSkills,
 };
 
-function skillRow(s: DiscoveredSkill): { label: string; value: string } {
+function skillRow(s: Pick<AvailableSkill, "name" | "description" | "keywords" | "enabled" | "scope" | "origin">): {
+  label: string;
+  value: string;
+} {
   const state = s.enabled ? "enabled" : "disabled";
   const kws = s.keywords.length > 0 ? ` · ${s.keywords.join(", ")}` : "";
-  return { label: s.name, value: `${state} — ${s.description}${kws}` };
+  const origin = s.origin === "lucky" ? "" : ` · ${s.origin}`;
+  return { label: s.name, value: `${state} — ${s.description}${kws} · ${s.scope}${origin}` };
 }
 
 async function listInstalled(ctx: CommandContext, deps: SkillCommandDeps): Promise<void> {
-  const skills = await deps.discover();
+  const skills = deps.listAvailable();
   if (skills.length === 0) {
     ctx.emit({
       kind: "command",
@@ -132,22 +136,27 @@ export function skillCommands(deps: SkillCommandDeps = defaultDeps): Command[] {
 
         if (sub === "add" || sub === "install") {
           if (!tail) {
-            ctx.emit({ kind: "error", text: "usage: /skill add <name-in-catalog | local-path>" });
+            ctx.emit({ kind: "error", text: "usage: /skill add <name-in-catalog | local-path | owner/repo>" });
             return;
           }
           try {
-            // A path-like argument installs from disk; otherwise treat it as a
-            // catalog name.
-            const looksLikePath = tail.includes("/") || tail.startsWith(".") || tail.startsWith("~");
-            const res = looksLikePath
-              ? await deps.installFromPath(tail)
-              : await deps.installFromCatalog(tail);
+            // A path-like argument (including owner/repo and git URLs) is a
+            // source; otherwise treat it as a catalog name.
+            const looksLikeSource =
+              tail.includes("/") ||
+              tail.startsWith(".") ||
+              tail.startsWith("~") ||
+              tail.includes("://") ||
+              tail.startsWith("git@");
+            const res = looksLikeSource
+              ? (await deps.installFromSource(tail)).map((r) => r.name)
+              : [(await deps.installFromCatalog(tail)).name];
             ctx.emit({
               kind: "command",
               title: "Skill installed",
               rows: [
-                { label: "skill", value: res.name },
-                { label: "source", value: looksLikePath ? "local path" : "catalog" },
+                { label: "skill", value: res.join(", ") },
+                { label: "source", value: looksLikeSource ? "path or git" : "catalog" },
               ],
             });
           } catch (error) {
@@ -182,12 +191,16 @@ export function skillCommands(deps: SkillCommandDeps = defaultDeps): Command[] {
             ctx.emit({ kind: "error", text: "usage: /skill remove <name>" });
             return;
           }
-          const ok = await deps.uninstall(tail);
-          ctx.emit(
-            ok
-              ? { kind: "command", title: "Skill removed", rows: [{ label: "skill", value: tail }] }
-              : { kind: "error", text: `no installed skill named "${tail}"` },
-          );
+          try {
+            const ok = await deps.uninstall(tail);
+            ctx.emit(
+              ok
+                ? { kind: "command", title: "Skill removed", rows: [{ label: "skill", value: tail }] }
+                : { kind: "error", text: `no installed skill named "${tail}"` },
+            );
+          } catch (error) {
+            emitError(ctx, error, "failed to remove the skill");
+          }
           return;
         }
 

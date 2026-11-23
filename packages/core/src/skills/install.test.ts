@@ -71,6 +71,21 @@ describe("installSkillFromPath", () => {
   it("throws on a missing source", async () => {
     await expect(installSkillFromPath(join(srcRoot, "nope"), { root })).rejects.toThrow(/No such path/);
   });
+
+  it("expands a leading ~ against the injected home", async () => {
+    await makeSource(".agents/skills/tilde", RELEASE);
+    const home = srcRoot;
+    const res = await installSkillFromPath("~/.agents/skills/tilde", { root, home });
+    expect(res.name).toBe("release-flow");
+    expect(res.dir).toBe(join(root, "release-flow"));
+  });
+
+  it("reports the resolved path for a missing ~ source", async () => {
+    const home = srcRoot;
+    await expect(installSkillFromPath("~/.agents/skills/ghost", { root, home })).rejects.toThrow(
+      new RegExp(join(home, ".agents", "skills", "ghost").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+  });
 });
 
 describe("uninstallSkill", () => {
@@ -83,6 +98,41 @@ describe("uninstallSkill", () => {
 
   it("returns false for an unknown skill", async () => {
     expect(await uninstallSkill("ghost", root)).toBe(false);
+  });
+
+  it("refuses to delete a skill that lives in a compatibility root", async () => {
+    const home = srcRoot;
+    const compatRoot = join(home, ".luckycli", "skills");
+    await makeSource(
+      ".agents/skills/rea",
+      `---\nname: rea\ndescription: reverse engineer\n---\nbody`,
+    );
+    await expect(uninstallSkill("rea", compatRoot, { home })).rejects.toThrow(
+      /outside lucky's skills root/,
+    );
+    expect((await stat(join(home, ".agents", "skills", "rea", "skill.md"))).isFile()).toBe(true);
+  });
+
+  it("disables a skill that lives in a compatibility root", async () => {
+    const home = srcRoot;
+    const compatRoot = join(home, ".luckycli", "skills");
+    await makeSource(
+      ".agents/skills/rea",
+      `---\nname: rea\ndescription: reverse engineer\n---\nbody`,
+    );
+    expect(await setSkillEnabled("rea", false, compatRoot, home, home)).toBe(true);
+    expect((await loadDisabledSet(compatRoot)).has("rea")).toBe(true);
+  });
+
+  it("toggles a skill that lives in a compatibility root", async () => {
+    const home = srcRoot;
+    const compatRoot = join(home, ".luckycli", "skills");
+    await makeSource(
+      ".agents/skills/rea",
+      `---\nname: rea\ndescription: reverse engineer\n---\nbody`,
+    );
+    expect(await toggleSkillEnabled("rea", compatRoot, home, home)).toBe(false);
+    expect(await toggleSkillEnabled("rea", compatRoot, home, home)).toBe(true);
   });
 
   it("clears a disabled entry on uninstall", async () => {

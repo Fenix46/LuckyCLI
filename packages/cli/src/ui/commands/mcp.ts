@@ -4,8 +4,10 @@ import {
   catalogDetailToPreset,
   loadStoredConfig,
   parseMcpAddArgs,
+  planMcpImport,
   saveStoredConfig,
   withMcpServer,
+  type ImportableMcpServer,
   type McpServerConfig,
 } from "@luckycli/core";
 import type { Item } from "../lib/items.js";
@@ -17,6 +19,8 @@ export interface McpCommandDeps {
   createCatalog(): Pick<CachedMcpCatalog, "get">;
   loadConfig: typeof loadStoredConfig;
   saveConfig: typeof saveStoredConfig;
+  /** Servers read from other clients, injectable for tests. */
+  importServers?: () => ImportableMcpServer[];
 }
 
 const defaultDeps: McpCommandDeps = {
@@ -137,6 +141,61 @@ export function mcpCommands(deps: McpCommandDeps = defaultDeps): Command[] {
             await installCatalogServer(name, ctx.ui.setMcpConfig, (item) => ctx.emit(item), deps);
           } catch (error) {
             emitError(ctx, error, "failed to add MCP server");
+          }
+          return;
+        }
+        if (args === "import" || args.startsWith("import ")) {
+          const tokens = args.slice("import".length).trim().split(/\s+/).filter(Boolean);
+          const enable = tokens.includes("--enable");
+          const force = tokens.includes("--force");
+          const unknown = tokens.filter(
+            (token) => token.startsWith("-") && token !== "--enable" && token !== "--force",
+          );
+          if (unknown.length > 0) {
+            ctx.emit({
+              kind: "error",
+              text: `usage: /mcp import [--enable] [--force] (unknown: ${unknown.join(" ")})`,
+            });
+            return;
+          }
+          try {
+            const cfg = deps.loadConfig();
+            const plan = planMcpImport(cfg.mcp ?? {}, {
+              enable,
+              force,
+              ...(deps.importServers ? { servers: deps.importServers() } : {}),
+            });
+            if (plan.imported.length === 0) {
+              ctx.emit({
+                kind: "command",
+                title: "MCP Import",
+                rows: [
+                  { label: "result", value: "no servers to import" },
+                  ...(plan.skipped.length > 0
+                    ? [{ label: "skipped", value: plan.skipped.join(", ") }]
+                    : []),
+                ],
+              });
+              return;
+            }
+            const next = { ...cfg, mcp: plan.mcp };
+            deps.saveConfig(next);
+            ctx.ui.setMcpConfig(next.mcp ?? {});
+            ctx.emit({
+              kind: "command",
+              title: "MCP Imported",
+              rows: [
+                ...plan.imported.map((server) => ({
+                  label: server.name,
+                  value: `${server.origin} · ${enable ? "enabled" : "disabled"}`,
+                })),
+                ...(plan.skipped.length > 0
+                  ? [{ label: "skipped", value: plan.skipped.join(", ") }]
+                  : []),
+              ],
+            });
+          } catch (error) {
+            emitError(ctx, error, "failed to import MCP servers");
           }
           return;
         }

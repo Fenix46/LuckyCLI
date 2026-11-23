@@ -12,6 +12,8 @@ export interface McpLocalServerConfig {
   environment?: Record<string, string>;
   enabled?: boolean;
   timeout?: number;
+  /** Set when the entry came from another client's config (see mcp/import.ts). */
+  importedFrom?: string;
 }
 
 export interface McpRemoteServerConfig {
@@ -20,6 +22,8 @@ export interface McpRemoteServerConfig {
   headers?: Record<string, string>;
   enabled?: boolean;
   timeout?: number;
+  /** Set when the entry came from another client's config (see mcp/import.ts). */
+  importedFrom?: string;
 }
 
 export type McpServerConfig = McpLocalServerConfig | McpRemoteServerConfig;

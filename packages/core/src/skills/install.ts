@@ -8,12 +8,12 @@
  * enable/disable flips membership in `disabled.json` without touching skill.md.
  */
 import { cp, mkdir, readFile, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { normalizeSkillName, parseSkillFile } from "./skill-file.js";
 import { listAvailableSkills } from "./available.js";
 import {
   SKILL_FILE_NAME,
-  discoverSkills,
   findSkillFile,
   loadDisabledSet,
   rebuildSkillGraph,
@@ -27,6 +27,18 @@ import {
 export interface InstallResult {
   name: string;
   dir: string;
+}
+
+/**
+ * Expand a leading `~` to the user's home (honoring an injected `home`, so
+ * tests never touch the real one). Only `~` and `~/...` are expanded; a `~user`
+ * form is left alone, matching the shells' stricter cases and keeping the
+ * behavior predictable.
+ */
+export function expandHomePath(path: string, home = homedir()): string {
+  if (path === "~") return home;
+  if (path.startsWith("~/") || path.startsWith("~\\")) return join(home, path.slice(2));
+  return path;
 }
 
 /**
@@ -47,16 +59,17 @@ async function resolveSkillSource(source: string): Promise<string> {
 /**
  * Install a skill from a local file or directory into the global skills dir.
  * The skill's name comes from its frontmatter (not the source path), so the
- * installed directory is always the canonical normalized name. Rejects a name
- * collision unless `overwrite` is set. Rebuilds the graph and returns the
- * install location.
+ * installed directory is always the canonical normalized name. A leading `~`
+ * is expanded against `home`. Rejects a name collision unless `overwrite` is
+ * set. Rebuilds the graph and returns the install location.
  */
 export async function installSkillFromPath(
   source: string,
-  options: { overwrite?: boolean; root?: string } = {},
+  options: { overwrite?: boolean; root?: string; home?: string } = {},
 ): Promise<InstallResult> {
   const root = options.root ?? skillsRootDir();
-  const filePath = await resolveSkillSource(source);
+  const resolvedSource = resolve(expandHomePath(source, options.home));
+  const filePath = await resolveSkillSource(resolvedSource);
   const { frontmatter } = parseSkillFile(await readFile(filePath, "utf8"));
   const name = frontmatter.name;
   const destDir = skillDirPath(name, root);
@@ -70,7 +83,7 @@ export async function installSkillFromPath(
   await mkdir(destDir, { recursive: true });
   // Copy the whole source directory (a skill may ship assets beside skill.md),
   // or just the single file when the source was a bare skill.md.
-  const srcIsDir = (await stat(source).catch(() => null))?.isDirectory() ?? false;
+  const srcIsDir = (await stat(resolvedSource).catch(() => null))?.isDirectory() ?? false;
   if (srcIsDir) {
     await cp(dirname(filePath), destDir, { recursive: true });
   } else {
@@ -85,15 +98,36 @@ export async function installSkillFromPath(
  * Remove an installed skill's directory entirely and rebuild the graph. Also
  * drops it from the disabled set so a later reinstall starts enabled. Returns
  * false if no such skill was installed.
+ *
+ * Only the canonical lucky root is writable: a skill that exists only in a
+ * compatibility root (`.agents/skills`, `.claude/skills`) or in a project root
+ * is never deleted. That throws with the path and the origin, so the caller can
+ * suggest `disable` instead.
  */
-export async function uninstallSkill(name: string, root = skillsRootDir()): Promise<boolean> {
-  const dir = skillDirPath(name, root);
+export async function uninstallSkill(
+  name: string,
+  root = skillsRootDir(),
+  options: { cwd?: string; home?: string } = {},
+): Promise<boolean> {
+  const normalized = normalizeSkillName(name);
+  const dir = skillDirPath(normalized, root);
   const exists = await stat(dir).catch(() => null);
-  if (!exists) return false;
+  if (!exists) {
+    const elsewhere = listAvailableSkills(options.cwd ?? process.cwd(), root, options.home).find(
+      (skill) => skill.name === normalized,
+    );
+    if (elsewhere) {
+      throw new Error(
+        `Skill "${normalized}" is installed in ${elsewhere.dir} (${elsewhere.scope}, ${elsewhere.origin}), ` +
+          "outside lucky's skills root. Disable it instead of removing it.",
+      );
+    }
+    return false;
+  }
   await rm(dir, { recursive: true, force: true });
 
   const disabled = await loadDisabledSet(root);
-  if (disabled.delete(normalizeSkillName(name))) await saveDisabledSet(disabled, root);
+  if (disabled.delete(normalized)) await saveDisabledSet(disabled, root);
 
   await rebuildSkillGraph(root);
   return true;
@@ -110,10 +144,11 @@ export async function setSkillEnabled(
   enabled: boolean,
   root = skillsRootDir(),
   cwd = process.cwd(),
+  home?: string,
 ): Promise<boolean> {
   const exists =
     findSkillFile(skillDirPath(name, root)) !== undefined ||
-    listAvailableSkills(cwd, root).some((skill) => skill.name === normalizeSkillName(name));
+    listAvailableSkills(cwd, root, home).some((skill) => skill.name === normalizeSkillName(name));
   if (!exists) return false;
 
   const normalized = normalizeSkillName(name);
@@ -132,12 +167,13 @@ export async function setSkillEnabled(
 export async function toggleSkillEnabled(
   name: string,
   root = skillsRootDir(),
+  cwd = process.cwd(),
+  home?: string,
 ): Promise<boolean | null> {
-  const skills = await discoverSkills(root);
   const normalized = normalizeSkillName(name);
-  const current = skills.find((s) => s.name === normalized);
+  const current = listAvailableSkills(cwd, root, home).find((s) => s.name === normalized);
   if (!current) return null;
   const next = !current.enabled;
-  await setSkillEnabled(normalized, next, root);
+  await setSkillEnabled(normalized, next, root, cwd, home);
   return next;
 }
