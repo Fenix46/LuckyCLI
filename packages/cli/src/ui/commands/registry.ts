@@ -66,9 +66,13 @@ function skillAliasCommands(skillNames: string[], reserved: Set<string>): Comman
 /**
  * The single source of truth for slash commands. The slash menu, /help and
  * dispatch all derive from this list; order here is menu order. Pass the names
- * of installed+enabled skills to expose them as direct `/<name>` commands.
+ * of installed+enabled skills to expose them as direct `/<name>` commands, plus
+ * any discovered extras (markdown commands, MCP prompts).
  */
-export function buildCommandRegistry(skillNames: string[] = []): Command[] {
+export function buildCommandRegistry(
+  skillNames: string[] = [],
+  extraCommands: Command[] = [],
+): Command[] {
   const base = [
     ...basicCommands(),
     ...providerCommands(),
@@ -78,8 +82,17 @@ export function buildCommandRegistry(skillNames: string[] = []): Command[] {
     ...workflowCommands(),
     ...rulesCommands(),
   ];
-  const reserved = new Set(base.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
-  const commands = [...base, ...skillAliasCommands(skillNames, reserved)];
+  const used = new Set(base.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
+  // Extras (markdown commands, MCP prompts) may not shadow a built-in or each
+  // other; markdown commands take precedence over a same-named skill alias.
+  const extras: Command[] = [];
+  for (const command of extraCommands) {
+    if (used.has(command.name)) continue;
+    used.add(command.name);
+    for (const alias of command.aliases ?? []) used.add(alias);
+    extras.push(command);
+  }
+  const commands = [...base, ...extras, ...skillAliasCommands(skillNames, used)];
   const rank = (c: Command) => {
     const i = MENU_ORDER.indexOf(c.name);
     return i === -1 ? MENU_ORDER.length : i;

@@ -247,14 +247,29 @@ function stripScalar(s: string): string {
   return s;
 }
 
+/** A parsed frontmatter block: the raw key/value map and the body after it. */
+export interface FrontmatterBlock {
+  data: Record<string, unknown>;
+  body: string;
+}
+
+/**
+ * Parse a leading `---` frontmatter block into a raw map plus the body.
+ * Throws when the delimiters are missing or malformed; callers that accept
+ * optional frontmatter (markdown commands) can fall back to the whole source.
+ */
+export function parseFrontmatter(source: string): FrontmatterBlock {
+  const { frontmatterLines, body } = splitFrontmatter(source);
+  return { data: parseFrontmatterLines(frontmatterLines), body };
+}
+
 /**
  * Parse and validate a `skill.md`'s text. Throws a descriptive Error on a
  * malformed frontmatter block and a ZodError on a shape/content violation
  * (empty name, no keywords, etc.).
  */
 export function parseSkillFile(source: string): SkillFile {
-  const { frontmatterLines, body } = splitFrontmatter(source);
-  const raw = parseFrontmatterLines(frontmatterLines);
-  const frontmatter = SkillFrontmatterSchema.parse(raw);
+  const { data, body } = parseFrontmatter(source);
+  const frontmatter = SkillFrontmatterSchema.parse(data);
   return { frontmatter, body };
 }

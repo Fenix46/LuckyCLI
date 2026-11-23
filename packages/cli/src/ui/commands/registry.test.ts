@@ -93,8 +93,22 @@ describe("dispatchCommand", () => {
   });
 });
 
-describe("skill alias commands", () => {
-  function ctxWithRunSkill(): { ctx: CommandContext; calls: string[]; emitted: Item[] } {
+describe("extra commands", () => {
+  it("shows discovered commands and lets them shadow a same-named skill", () => {
+    const brief = command("/deploy", { description: "markdown deploy" });
+    const reg = buildCommandRegistry(["deploy"], [brief]);
+    expect(reg.find((c) => c.name === "/deploy")?.description).toBe("markdown deploy");
+    expect(slashMenuEntries(reg).some((e) => e.name === "/deploy")).toBe(true);
+  });
+
+  it("never lets an extra shadow a built-in", () => {
+    const fake = command("/model", { description: "fake model" });
+    const reg = buildCommandRegistry([], [fake]);
+    expect(reg.find((c) => c.name === "/model")?.description).not.toBe("fake model");
+  });
+});
+
+describe("skill alias commands", () => {  function ctxWithRunSkill(): { ctx: CommandContext; calls: string[]; emitted: Item[] } {
     const calls: string[] = [];
     const emitted: Item[] = [];
     const ctx = {

@@ -20,6 +20,7 @@ import {
   claudeEffortLevelsForModel,
   createSessionId,
   createWorktree,
+  discoverMarkdownCommands,
   listWorktrees,
   removeWorktree,
   defaultEffortFor,
@@ -66,7 +67,8 @@ import {
   type AttachedImages,
 } from "./lib/image-input.js";
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
-import type { CommandContext } from "./commands/types.js";
+import { buildMarkdownCommands } from "./commands/markdown.js";
+import type { Command, CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
 import { useModelCatalogs } from "./hooks/useModelCatalogs.js";
 import { useUpdateCheck } from "./hooks/useUpdateCheck.js";
@@ -588,12 +590,23 @@ export function App({
     refreshSkillCommands();
   }, [refreshSkillCommands]);
 
-  // Slash commands: registry derived from the static set plus skill aliases;
-  // per-dispatch state travels in the CommandContext. The menu and /help derive
-  // from the same list.
+  // Markdown commands (.lucky/commands, .claude/commands). Discovered at mount;
+  // they are files on disk, so a session restart is enough to pick up edits.
+  const [markdownCommands, setMarkdownCommands] = useState<Command[]>([]);
+  useEffect(() => {
+    try {
+      setMarkdownCommands(buildMarkdownCommands(discoverMarkdownCommands({ cwd: process.cwd() })));
+    } catch {
+      /* no commands dir, or unreadable — leave the list empty */
+    }
+  }, []);
+
+  // Slash commands: registry derived from the static set plus skill aliases and
+  // discovered markdown commands; per-dispatch state travels in the
+  // CommandContext. The menu and /help derive from the same list.
   const commandRegistry = useMemo(
-    () => buildCommandRegistry(skillCommandNames),
-    [skillCommandNames],
+    () => buildCommandRegistry(skillCommandNames, markdownCommands),
+    [skillCommandNames, markdownCommands],
   );
   const menuEntries = useMemo(() => slashMenuEntries(commandRegistry), [commandRegistry]);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -1125,6 +1138,9 @@ export function App({
               ]);
               await runTurnAndDrain(block);
               return true;
+            },
+            runPrompt: async (text: string) => {
+              await runTurnAndDrain(text);
             },
             triggerSetup: onTriggerSetup,
             triggerResume: onTriggerResume,
