@@ -10,6 +10,7 @@ export function PromptBlock({
   active = false,
   theme,
   placeholder,
+  ghost,
 }: {
   text: string;
   width: number;
@@ -19,6 +20,8 @@ export function PromptBlock({
   theme?: Theme;
   /** Muted hint shown in an empty live input. */
   placeholder?: string;
+  /** Inline completion preview, shown after the cursor on the last line. */
+  ghost?: string;
 }): React.JSX.Element {
   const lineWidth = Math.max(18, width);
 
@@ -43,6 +46,11 @@ export function PromptBlock({
             {line.beforeCursor.slice(marker.length)}
             {line.cursor ? <Text inverse>{line.cursor}</Text> : null}
             {showPlaceholder ? <Text color={theme?.muted}>{placeholder}</Text> : line.afterCursor}
+            {!showPlaceholder && ghost && index === lines.length - 1 && cursorOffset === text.length ? (
+              <Text color={theme?.muted}>
+                {ghost.slice(0, Math.max(0, lineWidth - line.text.length))}
+              </Text>
+            ) : null}
           </Text>
         ))}
       </Box>

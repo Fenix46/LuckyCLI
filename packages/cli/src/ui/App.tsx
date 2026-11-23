@@ -45,7 +45,7 @@ import { THEMES, themeById, type Theme } from "./themes.js";
 import { contextWarning } from "./lib/context-warning.js";
 import type { Item, CommandRow } from "./lib/items.js";
 import { appendLiveOutput, collectDiffs, messagesToItems, patchLastTool, restartRunningTool } from "./lib/items.js";
-import { formatToolAction } from "./lib/format.js";
+import { activityDetail, activityVerbForTool } from "./lib/activity.js";
 import { formatUsageFooter } from "./lib/status.js";
 import {
   getAvailableModels,
@@ -59,6 +59,9 @@ import {
   type PastedContent,
   type PastedContents,
 } from "./lib/paste.js";
+import { clampSelection, slashMenuAction } from "./lib/slash-menu.js";
+import { filterCommands } from "./lib/fuzzy.js";
+import { argumentCompletions } from "./lib/completions.js";
 import {
   buildTurnContent,
   formatImageRef,
@@ -83,6 +86,7 @@ import { useTerminalStatus } from "./hooks/useTerminalStatus.js";
 import { ChatInput } from "./components/ChatInput.js";
 import { EffortPickerView, ModelPickerView, ThemePickerView } from "./components/Pickers.js";
 import { SlashMenu } from "./components/SlashMenu.js";
+import { CompletionMenu } from "./components/CompletionMenu.js";
 import { StatusFooter } from "./components/StatusFooter.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { AgentUsagePanel } from "./components/AgentUsagePanel.js";
@@ -490,7 +494,7 @@ export function App({
     (id: string, chunk: string) => setItems((prev) => appendLiveOutput(prev, id, chunk)),
     [],
   );
-  const { busy, startedAt, streaming, reasoning, abort, runTurn } = useTurnRunner({
+  const { busy, startedAt, streaming, reasoning, retry, abort, runTurn } = useTurnRunner({
     agent,
     appendItems,
     patchTool,
@@ -576,15 +580,21 @@ export function App({
   // mount, when the skill panel changes the set, and after `/skill …` runs, so
   // a skill installed in-session gets its alias without a restart.
   const [skillCommandNames, setSkillCommandNames] = useState<string[]>([]);
+  const [installedSkillNames, setInstalledSkillNames] = useState<string[]>([]);
   const refreshSkillCommands = useCallback(() => {
     try {
-      const names = listAvailableSkills(process.cwd())
-        .filter((s) => s.enabled)
-        .map((s) => s.name);
+      const skills = listAvailableSkills(process.cwd());
+      const names = skills.filter((s) => s.enabled).map((s) => s.name);
       setSkillCommandNames((previous) =>
         previous.length === names.length && previous.every((name, index) => name === names[index])
           ? previous
           : names,
+      );
+      const all = skills.map((s) => s.name);
+      setInstalledSkillNames((previous) =>
+        previous.length === all.length && previous.every((name, index) => name === all[index])
+          ? previous
+          : all,
       );
     } catch {
       /* no skills dir, or unreadable — leave the list unchanged */
@@ -633,16 +643,81 @@ export function App({
     };
   }, [mcpReady, refreshMcpPrompts]);
 
+  // Footer MCP summary: enabled servers only, so a deliberately disabled one
+  // does not look like a pending connection.
+  const [mcpConnecting, setMcpConnecting] = useState(false);
+  useEffect(() => {
+    if (!mcpReady) {
+      setMcpConnecting(false);
+      return;
+    }
+    let cancelled = false;
+    setMcpConnecting(true);
+    void mcpReady.finally(() => {
+      if (!cancelled) setMcpConnecting(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mcpReady]);
+  const mcpServerNames = Object.entries(mcpConfig)
+    .filter(([, config]) => config.enabled !== false)
+    .map(([name]) => name);
+  const mcpStatus = mcpManager?.status() ?? {};
+  const mcpFooter =
+    mcpServerNames.length > 0
+      ? {
+          connected: mcpServerNames.filter((name) => mcpStatus[name]?.status === "connected").length,
+          total: mcpServerNames.length,
+          pending: mcpConnecting,
+        }
+      : undefined;
+
   const commandRegistry = useMemo(
     () => buildCommandRegistry(skillCommandNames, [...markdownCommands, ...mcpPromptCommands]),
     [skillCommandNames, markdownCommands, mcpPromptCommands],
   );
   const menuEntries = useMemo(() => slashMenuEntries(commandRegistry), [commandRegistry]);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
-  const showSlashMenu = input.startsWith("/");
-  const filteredCommands = menuEntries.filter((cmd) =>
-    cmd.name.startsWith(input)
+  const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [recentCommands, setRecentCommands] = useState<string[]>([]);
+  const rememberCommand = useCallback((name: string) => {
+    setRecentCommands((previous) => [name, ...previous.filter((entry) => entry !== name)].slice(0, 5));
+  }, []);
+  const slashInputActive = input.startsWith("/");
+  const commandQuery = slashInputActive ? input.slice(1) : "";
+  const filteredCommands = filterCommands(menuEntries, commandQuery, recentCommands).map(
+    ({ item, positions }) => ({ ...item, matchPositions: positions }),
   );
+  const showSlashMenu =
+    slashInputActive && !slashMenuDismissed && filteredCommands.length > 0;
+  const selectedCommandIndexClamped = clampSelection(
+    filteredCommands.length,
+    selectedCommandIndex,
+  );
+  const highlightedCommand = filteredCommands[selectedCommandIndexClamped];
+  const ghost =
+    showSlashMenu &&
+    !input.includes(" ") &&
+    highlightedCommand?.name.startsWith(input)
+      ? highlightedCommand.name.slice(input.length)
+      : undefined;
+
+  // Argument completions: only for commands whose value set the App already
+  // knows. The menu is dismissed on Esc and recomputed on every input change.
+  const [completionIndex, setCompletionIndex] = useState(0);
+  const [completionDismissed, setCompletionDismissed] = useState(false);
+
+  // A new query invalidates the old selection: reset to the first row so the
+  // highlight always matches what Enter would run. Arrow navigation does not
+  // change the input, so it is unaffected.
+  useEffect(() => {
+    setSelectedCommandIndex(0);
+    setSlashMenuDismissed(false);
+    setCompletionIndex(0);
+    setCompletionDismissed(false);
+  }, [input]);
   // Panel state machines (state + keys + actions) live in their hooks; App
   // keeps the open() calls, the modal-chain slots and the render slots.
   const mcpPanel = useMcpPanel({
@@ -664,6 +739,21 @@ export function App({
     input,
     emit: useCallback((item: Item) => setItems((prev) => [...prev, item]), []),
   });
+
+  // Argument completions: only for commands whose value set the App already
+  // knows. The menu is dismissed on Esc and recomputed on every input change.
+  const completion = argumentCompletions(input, {
+    themes: THEMES.map((theme) => ({ id: theme.id, name: theme.name })),
+    models: [
+      ...new Set([...(liveModels ?? []), ...getAvailableModels(meta.provider, meta.model)]),
+    ],
+    providers: Object.keys(PROVIDER_CATALOG),
+    skills: installedSkillNames,
+    enabledSkills: skillCommandNames,
+    mcpServers: Object.keys(mcpConfig),
+  });
+  const showCompletionMenu = completion !== null && !completionDismissed;
+  const completionIndexClamped = clampSelection(completion?.items.length ?? 0, completionIndex);
 
   const modelPicker = getModelPickerState(input, meta.provider, meta.model, liveModels);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
@@ -899,35 +989,70 @@ export function App({
         return false;
       },
     },
-    // 4. Slash commands menu (suppressed while a picker refines the command)
+    // 3.9 Argument completion menu (values for the current token)
     {
-      active: showSlashMenu && !modelPicker.open && !themePicker.open,
+      active: showCompletionMenu && !modelPicker.open && !themePicker.open,
       onInput(_in, key) {
+        if (!completion || completion.items.length === 0) return false;
         if (key.escape) {
-          setInput("");
-          setSelectedCommandIndex(0);
+          setCompletionDismissed(true);
           return true;
         }
-        if (filteredCommands.length === 0) return true;
+        if (key.return && (key.ctrl || key.meta)) return false;
+        const count = completion.items.length;
         if (key.downArrow) {
-          setSelectedCommandIndex((prev) => (prev + 1) % filteredCommands.length);
+          setCompletionIndex((prev) => (prev + 1) % count);
           return true;
         }
         if (key.upArrow) {
-          setSelectedCommandIndex(
-            (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length,
-          );
+          setCompletionIndex((prev) => (prev - 1 + count) % count);
           return true;
         }
-        if (key.tab || (key.return && input !== filteredCommands[selectedCommandIndex]?.name)) {
-          const completed = filteredCommands[selectedCommandIndex]?.name;
-          if (completed) {
-            setInput(completed);
-            setSelectedCommandIndex(0);
-          }
+        if (key.tab || key.return) {
+          const item = completion.items[clampSelection(count, completionIndex)];
+          if (item) setInput(input.slice(0, completion.replaceFrom) + item.value);
           return true;
         }
         return false;
+      },
+    },
+    // 4. Slash commands menu (suppressed while a picker refines the command)
+    {
+      active: slashInputActive && !modelPicker.open && !themePicker.open,
+      onInput(_in, key) {
+        const action = slashMenuAction({
+          input,
+          names: filteredCommands.map((command) => command.name),
+          selectedIndex: selectedCommandIndex,
+          dismissed: slashMenuDismissed,
+          key,
+        });
+        switch (action.type) {
+          case "move":
+            setSelectedCommandIndex(action.index);
+            return true;
+          case "dismiss":
+            setSlashMenuDismissed(true);
+            return true;
+          case "clear":
+            setInput("");
+            setSelectedCommandIndex(0);
+            setSlashMenuDismissed(false);
+            return true;
+          case "complete":
+            setInput(action.name);
+            setSelectedCommandIndex(0);
+            return true;
+          case "execute":
+            setInput(action.name);
+            setSelectedCommandIndex(0);
+            setPendingCommand(action.name);
+            return true;
+          default:
+            // Not a menu key (or the input already is the command): let
+            // ChatInput handle typing and submit.
+            return false;
+        }
       },
     },
   ];
@@ -1213,6 +1338,8 @@ export function App({
           },
         };
         await dispatchCommand(text, commandRegistry, ctx);
+        const commandName = text.split(/\s+/)[0] ?? "";
+        if (commandName) rememberCommand(commandName);
         if (/^\/(skill|skills)(\s|$)/.test(text)) refreshSkillCommands();
         return;
       }
@@ -1238,25 +1365,39 @@ export function App({
       setItems((prev) => [...prev, { kind: "user", text: expanded }]);
       await runTurnAndDrain(content);
     },
-    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands, mcpManager],
+    [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands, mcpManager, rememberCommand],
   );
+
+  // Enter on a highlighted completion completes *and* runs it, while ChatInput
+  // suppresses submit for that same key press (the input was not exact yet).
+  useEffect(() => {
+    if (pendingCommand === null) return;
+    setPendingCommand(null);
+    void submit(pendingCommand);
+  }, [pendingCommand, submit]);
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in
   // a turn (a tool call committing the narration block, a silent pause between
   // deltas) don't make the "lucky thinking" header flicker or appear to stall.
   const { phase: activityPhase } = useStableActivity(busy, streamingPreview.length > 0);
   const messageWidth = Math.max(32, terminalSize.width - 4);
-  // The tool call in flight, for the activity line ("working · Run npm test").
-  const runningToolAction = useMemo(() => {
+  // The tool call in flight: its name picks the verb ("Reading…") and its
+  // input picks the target, so the activity line never says a generic
+  // "Working" when the tool is known.
+  const runningTool = useMemo(() => {
     if (!busy) return undefined;
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i];
       if (item?.kind === "tool" && item.output === undefined) {
-        return formatToolAction(item.name, item.input, true);
+        return { name: item.name, input: item.input };
       }
     }
     return undefined;
   }, [busy, items]);
+  const toolVerb = runningTool ? activityVerbForTool(runningTool.name) : undefined;
+  const toolDetail = runningTool
+    ? activityDetail({ toolName: runningTool.name, toolInput: runningTool.input })
+    : undefined;
   // Content width inside the bordered input frame: the frame consumes 4 more
   // columns (left/right border + paddingX) on top of the root's paddingX.
   // Sizing the inner content to messageWidth instead pushes the right border
@@ -1364,6 +1505,7 @@ export function App({
       history={promptHistory}
       historyEnabled={historyEnabled}
       theme={activeTheme}
+      {...(ghost ? { ghost } : {})}
       placeholder={
         userQuestionRequest
           ? "Type your answer…"
@@ -1385,6 +1527,7 @@ export function App({
           filteredCommands.length > 0 &&
           !filteredCommands.some((cmd) => cmd.name === input)
         ) &&
+        !showCompletionMenu &&
         !approvalRequest &&
         !compacting
       }
@@ -1454,7 +1597,7 @@ export function App({
           elapsedSeconds={elapsedSeconds}
           frame={activityFrame}
           phase={
-            runningToolAction
+            runningTool
               ? "working"
               : activityPhase === "streaming"
                 ? "responding"
@@ -1462,9 +1605,11 @@ export function App({
                   ? "reasoning"
                   : "thinking"
           }
-          {...(runningToolAction && !compacting ? { detail: runningToolAction } : {})}
+          verb={toolVerb}
+          {...(retry ? { retry } : {})}
+          {...(toolDetail && !compacting ? { detail: toolDetail } : {})}
           width={messageWidth}
-          {...(compacting ? { label: "compacting" } : {})}
+          {...(compacting ? { label: "summarizing" } : {})}
         />
       ) : null}
 
@@ -1522,12 +1667,26 @@ export function App({
         )}
       </Box>
 
+      {/* Argument completion sits directly under the prompt; the command menu
+          takes its place when the input has no known value set. */}
+      {showCompletionMenu && completion ? (
+        <CompletionMenu
+          theme={activeTheme}
+          items={completion.items}
+          selectedIndex={completionIndexClamped}
+          width={messageWidth}
+          hint="↑↓ move · tab insert · enter insert · esc close"
+        />
+      ) : null}
       {/* Slash-command menu sits just below the prompt (Claude Code style). */}
-      {showSlashMenu && filteredCommands.length > 0 ? (
+      {showSlashMenu && !showCompletionMenu ? (
         <SlashMenu
           theme={activeTheme}
           commands={filteredCommands}
-          selectedIndex={selectedCommandIndex}
+          selectedIndex={selectedCommandIndexClamped}
+          query={input.slice(1)}
+          width={messageWidth}
+          hint="↑↓ move · tab complete · enter run · esc close"
         />
       ) : null}
 
@@ -1545,6 +1704,8 @@ export function App({
           tokenCosts?.[`${meta.provider}/${meta.model}`],
           PROVIDER_CATALOG[meta.provider].usageTokensIncludeCache === true,
         )}
+        {...(queuedPrompts.length > 0 ? { queued: queuedPrompts.length } : {})}
+        {...(mcpFooter ? { mcp: mcpFooter } : {})}
       />
       </Box>
     </Box>

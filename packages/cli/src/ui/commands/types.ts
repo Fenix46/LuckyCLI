@@ -81,6 +81,9 @@ export interface CommandContext {
   };
 }
 
+/** Where a slash command comes from; drives the menu badge and colour. */
+export type CommandCategory = "builtin" | "skill" | "command" | "mcp";
+
 export interface Command {
   /** Primary name, e.g. "/model". */
   name: string;
@@ -90,5 +93,7 @@ export interface Command {
   aliases?: string[];
   /** Excluded from the slash menu and /help (still dispatchable). */
   hidden?: boolean;
+  /** Origin of the command; defaults to builtin in the slash menu. */
+  category?: CommandCategory;
   run(args: string, ctx: CommandContext): Promise<void> | void;
 }

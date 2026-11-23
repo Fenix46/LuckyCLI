@@ -37,6 +37,7 @@ describe("buildMarkdownCommands", () => {
     const [command] = buildMarkdownCommands([source]);
     expect(command?.name).toBe("/db:migrate");
     expect(command?.description).toBe("Run a migration");
+    expect(command?.category).toBe("command");
     expect(command?.hidden).toBeFalsy();
   });
 

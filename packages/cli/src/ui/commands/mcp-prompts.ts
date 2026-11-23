@@ -61,6 +61,7 @@ export function buildMcpPromptCommands(entries: McpPromptCommand[]): Command[] {
   return entries.map(({ server, prompt }) => ({
     name: mcpPromptSlashName(server, prompt.name),
     description: prompt.description || `MCP prompt "${prompt.name}" from ${server}`,
+    category: "mcp",
     async run(args, ctx) {
       const parsed = parseMcpPromptArgs(args, prompt.arguments);
       ctx.emit({

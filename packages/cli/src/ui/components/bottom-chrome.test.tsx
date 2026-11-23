@@ -9,6 +9,8 @@ import { renderToScreen, scanPositions } from "../../vendor/ink/render-to-screen
 import { THEMES, type Theme } from "../themes.js";
 import { EffortPickerView, ModelPickerView, ThemePickerView } from "./Pickers.js";
 import { SlashMenu } from "./SlashMenu.js";
+import { CompletionMenu } from "./CompletionMenu.js";
+import { PromptBlock } from "./PromptBlock.js";
 import { StatusFooter } from "./StatusFooter.js";
 
 const theme = THEMES[0] as Theme;
@@ -106,9 +108,140 @@ describe("SlashMenu", () => {
     expect(scanPositions(screen, "↓ 7 more")).toHaveLength(1);
     expect(scanPositions(screen, "11/20")).toHaveLength(1);
   });
+
+  it("renders the key hint under the list", () => {
+    const { screen } = renderToScreen(
+      <SlashMenu
+        theme={theme}
+        commands={[{ name: "/help", desc: "show commands" }]}
+        selectedIndex={0}
+        hint="↑↓ move · tab complete · enter run · esc close"
+      />,
+      80,
+    );
+    expect(scanPositions(screen, "tab complete")).toHaveLength(1);
+    expect(scanPositions(screen, "enter run")).toHaveLength(1);
+  });
+
+  it("marks the category and highlights the typed prefix", () => {
+    const { screen } = renderToScreen(
+      <SlashMenu
+        theme={theme}
+        commands={[
+          { name: "/skill", desc: "manage skills", category: "skill" },
+          { name: "/mcp", desc: "manage servers", category: "mcp" },
+        ]}
+        selectedIndex={0}
+        query="ski"
+        width={80}
+      />,
+      80,
+    );
+    expect(scanPositions(screen, "/skill")).toHaveLength(1);
+    expect(scanPositions(screen, "[skill]")).toHaveLength(1);
+    expect(scanPositions(screen, "[mcp]")).toHaveLength(1);
+  });
+
+  it("truncates a long description to the available width", () => {
+    const long = "x".repeat(120);
+    const { screen } = renderToScreen(
+      <SlashMenu
+        theme={theme}
+        commands={[{ name: "/help", desc: long }]}
+        selectedIndex={0}
+        width={40}
+      />,
+      40,
+    );
+    expect(scanPositions(screen, "…").length).toBeGreaterThan(0);
+    expect(scanPositions(screen, long)).toHaveLength(0);
+  });
 });
 
-describe("StatusFooter", () => {
+describe("PromptBlock", () => {
+  it("shows a ghost suffix only when the cursor is at the end", () => {
+    const atEnd = renderToScreen(
+      <PromptBlock theme={theme} text="/mo" cursorOffset={3} active width={60} ghost="del" />,
+      60,
+    );
+    expect(scanPositions(atEnd.screen, "del")).toHaveLength(1);
+
+    const mid = renderToScreen(
+      <PromptBlock theme={theme} text="/mo" cursorOffset={1} active width={60} ghost="del" />,
+      60,
+    );
+    expect(scanPositions(mid.screen, "del")).toHaveLength(0);
+  });
+});
+
+describe("CompletionMenu", () => {
+  it("renders values and descriptions with the cursor on the selection", () => {
+    const { screen } = renderToScreen(
+      <CompletionMenu
+        theme={theme}
+        items={[
+          { value: "lucky-dark", description: "Lucky Dark" },
+          { value: "lucky-light", description: "Lucky Light" },
+        ]}
+        selectedIndex={1}
+        width={80}
+        hint="↑↓ move · tab insert · esc close"
+      />,
+      80,
+    );
+    expect(scanPositions(screen, "❯ lucky-light")).toHaveLength(1);
+    expect(scanPositions(screen, "Lucky Dark")).toHaveLength(1);
+    expect(scanPositions(screen, "tab insert")).toHaveLength(1);
+  });
+});
+
+describe("StatusFooter", () => {  it("shows the queued prompts and the MCP summary", () => {
+    const { screen } = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={100}
+        permissionMode="normal"
+        showScrollHint={false}
+        contextStatus={null}
+        queued={2}
+        mcp={{ connected: 1, total: 3, pending: false }}
+      />,
+      100,
+    );
+    expect(scanPositions(screen, "2 queued")).toHaveLength(1);
+    expect(scanPositions(screen, "mcp 1/3")).toHaveLength(1);
+  });
+
+  it("shows the pending MCP state", () => {
+    const { screen } = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={100}
+        permissionMode="normal"
+        showScrollHint={false}
+        contextStatus={null}
+        mcp={{ connected: 0, total: 1, pending: true }}
+      />,
+      100,
+    );
+    expect(scanPositions(screen, "mcp connecting")).toHaveLength(1);
+  });
+
+  it("stays quiet when there is no queue or MCP server", () => {
+    const { screen } = renderToScreen(
+      <StatusFooter
+        theme={theme}
+        width={100}
+        permissionMode="normal"
+        showScrollHint={false}
+        contextStatus={null}
+      />,
+      100,
+    );
+    expect(scanPositions(screen, "queued")).toHaveLength(0);
+    expect(scanPositions(screen, "mcp ")).toHaveLength(0);
+  });
+
   it("shows the accept-edits banner when the mode is on", () => {
     const { screen } = renderToScreen(
       <StatusFooter

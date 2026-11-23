@@ -10,12 +10,14 @@ export interface KeyboardShortcut {
 
 export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { keys: "shift+tab", what: "cycle permission mode (ask, accept edits, auto, plan)" },
-  { keys: "esc", what: "interrupt the turn or close a dialog" },
+  { keys: "esc", what: "close the menu, clear the input, or interrupt the turn" },
   { keys: "ctrl+c", what: "press twice to quit while a turn is running" },
   { keys: "/", what: "open the command menu" },
-  { keys: "up/down", what: "recall previous prompts" },
+  { keys: "↑/↓", what: "move in the menu; recall prompts when it is closed" },
+  { keys: "tab", what: "complete the highlighted command or argument" },
+  { keys: "enter", what: "run the highlighted command, or send the prompt" },
   { keys: "pgup/pgdn", what: "scroll the terminal" },
 ] as const;
 
 /** One compact line for the welcome card. */
-export const SHORTCUT_HINT = "shift+tab mode · / commands · esc interrupt";
+export const SHORTCUT_HINT = "shift+tab mode · / commands · tab complete · esc interrupt";

@@ -93,8 +93,16 @@ describe("dispatchCommand", () => {
   });
 });
 
-describe("extra commands", () => {
-  it("shows discovered commands and lets them shadow a same-named skill", () => {
+describe("slash menu categories", () => {
+  it("tags skill aliases and defaults built-ins", () => {
+    const reg = buildCommandRegistry(["deploy"]);
+    const entries = slashMenuEntries(reg);
+    expect(entries.find((e) => e.name === "/deploy")?.category).toBe("skill");
+    expect(entries.find((e) => e.name === "/model")?.category).toBe("builtin");
+  });
+});
+
+describe("extra commands", () => {  it("shows discovered commands and lets them shadow a same-named skill", () => {
     const brief = command("/deploy", { description: "markdown deploy" });
     const reg = buildCommandRegistry(["deploy"], [brief]);
     expect(reg.find((c) => c.name === "/deploy")?.description).toBe("markdown deploy");

@@ -13,6 +13,7 @@ export function buildMarkdownCommands(commands: MarkdownCommand[]): Command[] {
   return commands.map((source) => ({
     name: `/${source.name}`,
     description: source.description || `Run the /${source.name} command`,
+    category: "command",
     async run(args, ctx) {
       ctx.emit({
         kind: "command",

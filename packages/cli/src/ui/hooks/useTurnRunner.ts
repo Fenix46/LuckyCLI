@@ -75,6 +75,8 @@ export interface TurnRunner {
   streaming: string;
   /** The model is in a silent reasoning phase (no text yet, e.g. Codex). */
   reasoning: boolean;
+  /** A transient provider error is being retried. */
+  retry: { attempt: number; maxAttempts: number } | null;
   /** Abort the active turn, if any. */
   abort: () => void;
   /** Run one agent turn for the given user input (text, or multimodal parts). */
@@ -102,6 +104,7 @@ export function useTurnRunner({
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [streaming, setStreaming] = useState("");
   const [reasoning, setReasoning] = useState(false);
+  const [retry, setRetry] = useState<{ attempt: number; maxAttempts: number } | null>(null);
 
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef("");
@@ -188,14 +191,19 @@ export function useTurnRunner({
           handleEvent(event, {
             onText: (delta) => {
               setReasoning(false);
+              setRetry(null);
               assistantBuf += delta;
               scheduleStreaming();
             },
-            onReasoning: () => setReasoning(true),
+            onReasoning: () => {
+              setRetry(null);
+              setReasoning(true);
+            },
             onToolStart: (name, rawInput, id) => {
               // A tool call ends the current narration block — commit any text
               // the model wrote before the tool (and clear the live preview).
               setReasoning(false);
+              setRetry(null);
               flushAssistant();
               if (HIDDEN_TOOLS.has(name)) return;
               toolCount += 1;
@@ -242,6 +250,7 @@ export function useTurnRunner({
               ]);
             },
             onRetry: (attempt, maxAttempts, delayMs) => {
+              setRetry({ attempt, maxAttempts });
               flushAssistant();
               appendItems([
                 {
@@ -260,6 +269,8 @@ export function useTurnRunner({
             },
             onAborted: () => {
               aborted = true;
+              setRetry(null);
+              setReasoning(false);
               flushAssistant();
               appendItems([{ kind: "notice", text: "Interrupted · tell lucky what to do instead" }]);
             },
@@ -290,6 +301,7 @@ export function useTurnRunner({
         }
         setStreaming("");
         setReasoning(false);
+        setRetry(null);
         setBusy(false);
         setStartedAt(null);
         persist();
@@ -299,5 +311,5 @@ export function useTurnRunner({
     [agent, appendItems, patchTool, onContext, onUsage, onToolOutput, persist, skills, graphEnricher],
   );
 
-  return { busy, startedAt, streaming, reasoning, abort, runTurn };
+  return { busy, startedAt, streaming, reasoning, retry, abort, runTurn };
 }
