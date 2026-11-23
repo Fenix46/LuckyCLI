@@ -106,6 +106,20 @@ describe("SlashMenu", () => {
     expect(scanPositions(screen, "↓ 7 more")).toHaveLength(1);
     expect(scanPositions(screen, "11/20")).toHaveLength(1);
   });
+
+  it("renders the key hint under the list", () => {
+    const { screen } = renderToScreen(
+      <SlashMenu
+        theme={theme}
+        commands={[{ name: "/help", desc: "show commands" }]}
+        selectedIndex={0}
+        hint="↑↓ move · tab complete · enter run · esc close"
+      />,
+      80,
+    );
+    expect(scanPositions(screen, "tab complete")).toHaveLength(1);
+    expect(scanPositions(screen, "enter run")).toHaveLength(1);
+  });
 });
 
 describe("StatusFooter", () => {

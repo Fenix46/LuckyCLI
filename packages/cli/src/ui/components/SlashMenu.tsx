@@ -5,7 +5,7 @@
  * window that follows the selection, so the menu never floods the screen.
  */
 import React from "react";
-import { Box } from "../../vendor/ink-compat.js";
+import { Box, Text } from "../../vendor/ink-compat.js";
 import type { Theme } from "../themes.js";
 import { OptionRow } from "./kit.js";
 import { ScrollList, SCROLL_LIST_MAX_ROWS } from "./ScrollList.js";
@@ -14,11 +14,14 @@ export function SlashMenu({
   theme,
   commands,
   selectedIndex,
+  hint,
   maxRows = SCROLL_LIST_MAX_ROWS,
 }: {
   theme: Theme;
   commands: Array<{ name: string; desc: string }>;
   selectedIndex: number;
+  /** Key legend shown under the list. */
+  hint?: string;
   maxRows?: number;
 }): React.JSX.Element {
   const labelWidth = Math.max(12, ...commands.map((cmd) => cmd.name.length + 2));
@@ -43,6 +46,9 @@ export function SlashMenu({
           );
         }}
       />
+      {hint ? (
+        <Text color={theme.subtle}>{`  ${hint}`}</Text>
+      ) : null}
     </Box>
   );
 }

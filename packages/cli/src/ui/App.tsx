@@ -59,6 +59,7 @@ import {
   type PastedContent,
   type PastedContents,
 } from "./lib/paste.js";
+import { clampSelection, slashMenuAction } from "./lib/slash-menu.js";
 import {
   buildTurnContent,
   formatImageRef,
@@ -639,10 +640,26 @@ export function App({
   );
   const menuEntries = useMemo(() => slashMenuEntries(commandRegistry), [commandRegistry]);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
-  const showSlashMenu = input.startsWith("/");
+  const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const slashInputActive = input.startsWith("/");
   const filteredCommands = menuEntries.filter((cmd) =>
     cmd.name.startsWith(input)
   );
+  const showSlashMenu =
+    slashInputActive && !slashMenuDismissed && filteredCommands.length > 0;
+  const selectedCommandIndexClamped = clampSelection(
+    filteredCommands.length,
+    selectedCommandIndex,
+  );
+
+  // A new query invalidates the old selection: reset to the first row so the
+  // highlight always matches what Enter would run. Arrow navigation does not
+  // change the input, so it is unaffected.
+  useEffect(() => {
+    setSelectedCommandIndex(0);
+    setSlashMenuDismissed(false);
+  }, [input]);
   // Panel state machines (state + keys + actions) live in their hooks; App
   // keeps the open() calls, the modal-chain slots and the render slots.
   const mcpPanel = useMcpPanel({
@@ -901,33 +918,41 @@ export function App({
     },
     // 4. Slash commands menu (suppressed while a picker refines the command)
     {
-      active: showSlashMenu && !modelPicker.open && !themePicker.open,
+      active: slashInputActive && !modelPicker.open && !themePicker.open,
       onInput(_in, key) {
-        if (key.escape) {
-          setInput("");
-          setSelectedCommandIndex(0);
-          return true;
-        }
-        if (filteredCommands.length === 0) return true;
-        if (key.downArrow) {
-          setSelectedCommandIndex((prev) => (prev + 1) % filteredCommands.length);
-          return true;
-        }
-        if (key.upArrow) {
-          setSelectedCommandIndex(
-            (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length,
-          );
-          return true;
-        }
-        if (key.tab || (key.return && input !== filteredCommands[selectedCommandIndex]?.name)) {
-          const completed = filteredCommands[selectedCommandIndex]?.name;
-          if (completed) {
-            setInput(completed);
+        const action = slashMenuAction({
+          input,
+          names: filteredCommands.map((command) => command.name),
+          selectedIndex: selectedCommandIndex,
+          dismissed: slashMenuDismissed,
+          key,
+        });
+        switch (action.type) {
+          case "move":
+            setSelectedCommandIndex(action.index);
+            return true;
+          case "dismiss":
+            setSlashMenuDismissed(true);
+            return true;
+          case "clear":
+            setInput("");
             setSelectedCommandIndex(0);
-          }
-          return true;
+            setSlashMenuDismissed(false);
+            return true;
+          case "complete":
+            setInput(action.name);
+            setSelectedCommandIndex(0);
+            return true;
+          case "execute":
+            setInput(action.name);
+            setSelectedCommandIndex(0);
+            setPendingCommand(action.name);
+            return true;
+          default:
+            // Not a menu key (or the input already is the command): let
+            // ChatInput handle typing and submit.
+            return false;
         }
-        return false;
       },
     },
   ];
@@ -1240,6 +1265,14 @@ export function App({
     },
     [busy, compacting, items, exit, activeTheme.id, onTriggerSetup, onTriggerResume, selectModel, selectTheme, runTurnAndDrain, syncQueue, userQuestionRequest, selectedQuestionOptionIndex, setUserQuestionRequest, agent, meta, contextStatus, taskListId, mcpPanel.open, skillPanel.open, agentsPanel.open, commandRegistry, onChangeModel, onMcpConfigChange, persistSession, skillActivator, graphEnricher, forkSession, worktreeSession, showBrowserInfo, refreshSkillCommands, mcpManager],
   );
+
+  // Enter on a highlighted completion completes *and* runs it, while ChatInput
+  // suppresses submit for that same key press (the input was not exact yet).
+  useEffect(() => {
+    if (pendingCommand === null) return;
+    setPendingCommand(null);
+    void submit(pendingCommand);
+  }, [pendingCommand, submit]);
   const streamingPreview = streaming;
   // Hold the streaming/thinking phase for a minimum window so the brief gaps in
   // a turn (a tool call committing the narration block, a silent pause between
@@ -1523,11 +1556,12 @@ export function App({
       </Box>
 
       {/* Slash-command menu sits just below the prompt (Claude Code style). */}
-      {showSlashMenu && filteredCommands.length > 0 ? (
+      {showSlashMenu ? (
         <SlashMenu
           theme={activeTheme}
           commands={filteredCommands}
-          selectedIndex={selectedCommandIndex}
+          selectedIndex={selectedCommandIndexClamped}
+          hint="↑↓ move · tab complete · enter run · esc close"
         />
       ) : null}
 
