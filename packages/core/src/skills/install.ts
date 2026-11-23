@@ -14,7 +14,6 @@ import { normalizeSkillName, parseSkillFile } from "./skill-file.js";
 import { listAvailableSkills } from "./available.js";
 import {
   SKILL_FILE_NAME,
-  discoverSkills,
   findSkillFile,
   loadDisabledSet,
   rebuildSkillGraph,
@@ -168,12 +167,13 @@ export async function setSkillEnabled(
 export async function toggleSkillEnabled(
   name: string,
   root = skillsRootDir(),
+  cwd = process.cwd(),
+  home?: string,
 ): Promise<boolean | null> {
-  const skills = await discoverSkills(root);
   const normalized = normalizeSkillName(name);
-  const current = skills.find((s) => s.name === normalized);
+  const current = listAvailableSkills(cwd, root, home).find((s) => s.name === normalized);
   if (!current) return null;
   const next = !current.enabled;
-  await setSkillEnabled(normalized, next, root);
+  await setSkillEnabled(normalized, next, root, cwd, home);
   return next;
 }
