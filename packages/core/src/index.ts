@@ -414,8 +414,13 @@ export {
   tryLoadSkillGraph,
 } from "./skills/graph.js";
 export type { DiscoveredSkill } from "./skills/graph.js";
-export { listAvailableSkills, projectSkillRoots, usableSkills } from "./skills/available.js";
-export type { AvailableSkill } from "./skills/available.js";
+export {
+  globalSkillRoots,
+  listAvailableSkills,
+  projectSkillRoots,
+  usableSkills,
+} from "./skills/available.js";
+export type { AvailableSkill, SkillOrigin } from "./skills/available.js";
 export {
   installSkillFromPath,
   setSkillEnabled,

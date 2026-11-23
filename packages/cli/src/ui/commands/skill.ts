@@ -1,13 +1,13 @@
 import {
   SkillCatalog,
-  discoverSkills,
   installCatalogSkill,
   installSkillFromPath,
+  listAvailableSkills,
   seedStarterSkills,
   setSkillEnabled,
   uninstallSkill,
+  type AvailableSkill,
   type CatalogSkill,
-  type DiscoveredSkill,
 } from "@luckycli/core";
 import { emitError, unknownCommand } from "./helpers.js";
 import type { Command, CommandContext } from "./types.js";
@@ -19,7 +19,7 @@ import type { Command, CommandContext } from "./types.js";
  */
 export interface SkillCommandDeps {
   createCatalog(): Pick<SkillCatalog, "search" | "get" | "fetchBody">;
-  discover: typeof discoverSkills;
+  listAvailable: typeof listAvailableSkills;
   installFromPath: typeof installSkillFromPath;
   installFromCatalog: typeof installCatalogSkill;
   uninstall: typeof uninstallSkill;
@@ -29,7 +29,7 @@ export interface SkillCommandDeps {
 
 const defaultDeps: SkillCommandDeps = {
   createCatalog: () => new SkillCatalog(),
-  discover: discoverSkills,
+  listAvailable: listAvailableSkills,
   installFromPath: installSkillFromPath,
   installFromCatalog: installCatalogSkill,
   uninstall: uninstallSkill,
@@ -37,14 +37,18 @@ const defaultDeps: SkillCommandDeps = {
   seedStarter: seedStarterSkills,
 };
 
-function skillRow(s: DiscoveredSkill): { label: string; value: string } {
+function skillRow(s: Pick<AvailableSkill, "name" | "description" | "keywords" | "enabled" | "scope" | "origin">): {
+  label: string;
+  value: string;
+} {
   const state = s.enabled ? "enabled" : "disabled";
   const kws = s.keywords.length > 0 ? ` · ${s.keywords.join(", ")}` : "";
-  return { label: s.name, value: `${state} — ${s.description}${kws}` };
+  const origin = s.origin === "lucky" ? "" : ` · ${s.origin}`;
+  return { label: s.name, value: `${state} — ${s.description}${kws} · ${s.scope}${origin}` };
 }
 
 async function listInstalled(ctx: CommandContext, deps: SkillCommandDeps): Promise<void> {
-  const skills = await deps.discover();
+  const skills = deps.listAvailable();
   if (skills.length === 0) {
     ctx.emit({
       kind: "command",

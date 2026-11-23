@@ -4,8 +4,8 @@ import type { Command, CommandContext } from "./types.js";
 import type { Item } from "../lib/items.js";
 
 const installed = [
-  { name: "release-flow", description: "cut a release", keywords: ["release"], related: [], bodyPath: "release-flow/skill.md", enabled: true },
-  { name: "npm-publish", description: "publish", keywords: ["npm"], related: [], bodyPath: "npm-publish/skill.md", enabled: false },
+  { name: "release-flow", description: "cut a release", keywords: ["release"], related: [], bodyPath: "release-flow/skill.md", enabled: true, scope: "global", origin: "lucky" },
+  { name: "npm-publish", description: "publish", keywords: ["npm"], related: [], bodyPath: "npm-publish/skill.md", enabled: false, scope: "global", origin: "lucky" },
 ];
 
 const catalogResults = [
@@ -19,7 +19,7 @@ function fakeDeps(overrides: Partial<SkillCommandDeps> = {}): SkillCommandDeps {
       get: vi.fn(async () => catalogResults[0] ?? null),
       fetchBody: vi.fn(async () => "body"),
     }),
-    discover: vi.fn(async () => installed),
+    listAvailable: vi.fn(() => installed),
     installFromPath: vi.fn(async () => ({ name: "from-path", dir: "/x" })),
     installFromCatalog: vi.fn(async () => ({ name: "docker-build", dir: "/x" })),
     uninstall: vi.fn(async () => true),
