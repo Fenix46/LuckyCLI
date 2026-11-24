@@ -18,6 +18,8 @@ import { join } from "node:path";
 import { browserBridgeDir, browserBridgeSocketPath, pidAlive } from "@luckycli/core";
 import { CORE_VERSION } from "@luckycli/core";
 import { encodeFrame, FrameDecoder } from "./frames.js";
+import { BrowserChat } from "./chat.js";
+import { writeBrowserChatCwd } from "./chat-cwd.js";
 
 const MAX_CLIENTS = 8;
 
@@ -28,6 +30,8 @@ interface NativeHostOptions {
   socketDir?: string;
   log?: (line: string) => void;
   version?: string;
+  /** Injectable for tests; defaults to a lazily created BrowserChat. */
+  chat?: BrowserChat;
 }
 
 interface ClientState {
@@ -52,6 +56,7 @@ export async function runBrowserNativeHost(options: NativeHostOptions = {}): Pro
   const clients = new Map<number, ClientState>();
   let nextClientId = 1;
   let closed = false;
+  const chat = options.chat;
 
   const write = (message: Message): void => {
     if (closed) return;
@@ -74,8 +79,43 @@ export async function runBrowserNativeHost(options: NativeHostOptions = {}): Pro
     }
   };
 
+  let browserChat: BrowserChat | undefined = chat;
+  const getChat = (): BrowserChat => {
+    browserChat ??= new BrowserChat({ sink: { send: (event) => write(event as Message) }, log });
+    return browserChat;
+  };
+
   const handleExtensionMessage = (message: Message): void => {
     switch (message.type) {
+      case "chat_request": {
+        if (typeof message.text !== "string" || !message.text.trim()) {
+          write({ type: "chat_error", error: "chat_request needs text." });
+          return;
+        }
+        void getChat().send(message.text).catch((error) => {
+          write({ type: "chat_error", error: error instanceof Error ? error.message : String(error) });
+        });
+        return;
+      }
+      case "chat_cancel":
+        void getChat().cancel();
+        return;
+      case "approval_response": {
+        if (typeof message.id !== "string") return;
+        const optionId = typeof message.optionId === "string" ? message.optionId : undefined;
+        getChat().resolveApproval(message.id, optionId);
+        return;
+      }
+      case "chat_set_cwd":
+        if (typeof message.cwd === "string" && message.cwd.startsWith("/")) {
+          void writeBrowserChatCwd(message.cwd);
+          getChat().setCwd(message.cwd);
+          write({ type: "chat_status", ...getChat().status() });
+        }
+        return;
+      case "chat_status":
+        write({ type: "chat_status", ...getChat().status() });
+        return;
       case "ping":
         write({ type: "pong", timestamp: Date.now() });
         return;
@@ -84,6 +124,7 @@ export async function runBrowserNativeHost(options: NativeHostOptions = {}): Pro
           type: "status_response",
           native_host_version: version,
           computer_name: hostname(),
+          ...(browserChat ? { chat: browserChat.status() } : {}),
         });
         return;
       case "tool_response":
@@ -167,6 +208,7 @@ export async function runBrowserNativeHost(options: NativeHostOptions = {}): Pro
   const cleanup = async (): Promise<void> => {
     if (closed) return;
     closed = true;
+    browserChat?.close();
     for (const client of clients.values()) client.socket.destroy();
     clients.clear();
     await new Promise<void>((resolve) => server.close(() => resolve()));

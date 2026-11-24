@@ -510,6 +510,13 @@ through the normal `ask` permission. `/browser` shows the host, the socket, the
 MCP connection and the tool count; `lucky browser status` does the same from the
 CLI.
 
+Clicking the extension icon opens a **side-panel chat**. It runs its own headless
+Lucky session (ACP) using the stored provider/model and the project directory
+the TUI remembers in `~/.luckycli/browser-chat.json` — it is a separate
+conversation, not a mirror of the terminal. Streaming replies, tool lines and
+approval buttons (Allow / Allow always / Reject) are handled in the panel; browser
+tools are the same `mcp__lucky_browser__*` set.
+
 Mutation tools require a **fresh read** of an existing file: editing or
 overwriting a file the model has not read, or that changed since that read, is
 refused with a clear message. New files need no prior read; a successful write
