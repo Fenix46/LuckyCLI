@@ -30,6 +30,7 @@ import { runAcpCommand } from "./acp/acp-cli.js";
 import { runMcpCommand } from "./mcp-cli.js";
 import { runSkillCommand } from "./skill-cli.js";
 import { runBrowserNativeHost } from "./browser/native-host.js";
+import { runBrowserCommand } from "./browser/browser-cli.js";
 import { runUpdateCommand } from "./update-cli.js";
 import { runCommand } from "./run-cli.js";
 import { runReviewCommand, runVerifyCommand } from "./workflow-cli.js";
@@ -80,6 +81,9 @@ Commands:
   skill remove <name>   remove a skill installed in ~/.luckycli/skills
   skill enable|disable <name>
   skill search <query>  search the catalog
+  browser install       install the Chrome native messaging host
+  browser status        show the host, browser manifests and live bridge
+  browser uninstall     remove the host and manifests
   update                check for a newer release
   update --apply        download, verify, and install the latest release
   update --auto <mode>  set auto-update: off | notify | auto (default auto)
@@ -232,6 +236,18 @@ function main(): void {
       })
       .catch((err) => {
         process.stderr.write(`browser host failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
+    return;
+  }
+
+  if (rawArgs[0] === "browser") {
+    runBrowserCommand(rawArgs.slice(1))
+      .then((code) => {
+        if (code !== 0) process.exit(code);
+      })
+      .catch((err) => {
+        process.stderr.write(`browser command failed: ${err instanceof Error ? err.message : err}\n`);
         process.exit(1);
       });
     return;
