@@ -21,6 +21,30 @@ describe("withBrowserBridge", () => {
   });
 });
 
+describe("buildAgentRuntime", () => {
+  it("always exposes an MCP manager so a late browser host can attach", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { buildAgentRuntime } = await import("./runtime.js");
+    const cwd = await mkdtemp(join(tmpdir(), "lucky-runtime-mcp-"));
+    try {
+      const built = await buildAgentRuntime({
+        provider: "openai",
+        model: "gpt-4o",
+        credentials: { type: "openai", apiKey: "test" },
+        system: "test",
+        permissions: {},
+        cwd,
+      });
+      expect(built.mcpManager).toBeDefined();
+      await built.mcpManager?.close();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("createRuntimeToolRegistry", () => {
   it("composes built-in tools with extra runtime tools", () => {
     const extra = defineTool({

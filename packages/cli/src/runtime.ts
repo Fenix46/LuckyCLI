@@ -348,8 +348,9 @@ export async function buildAgentRuntime(
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
   const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator, graphEnricher });
 
-  if (Object.keys(mcp).length === 0) return { agent, skillActivator, graphEnricher };
-
+  // Always create the manager, even with no servers configured: the browser
+  // host may start after Lucky, and Root's watcher needs a manager to attach
+  // the `lucky_browser` MCP server on the fly.
   const mcpManager = new McpManager({
     cwd,
     clientName: "lucky",
