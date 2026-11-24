@@ -130,7 +130,10 @@ export async function installNativeHost(
   }
   const exists = options.exists ?? defaultExists;
   const execPath = options.execPath ?? process.execPath;
-  const entryPath = options.entryPath ?? process.argv[1];
+  // A compiled Lucky binary is launched directly; Node (dev) needs the script
+  // entry between the executable and the subcommand.
+  const isNode = /(^|[\\/])node(\.exe)?$/i.test(execPath);
+  const entryPath = options.entryPath ?? (isNode ? process.argv[1] : undefined);
 
   const wrapper = wrapperPath(home);
   await mkdir(dirname(wrapper), { recursive: true, mode: 0o700 });

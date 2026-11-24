@@ -79,6 +79,17 @@ describe("installNativeHost", () => {
     expect(statSync(wrapper).mode & 0o777).toBe(0o700);
     expect(readFileSync(installed[0]!.manifest, "utf8")).toContain(EXTENSION_ID);
   });
+
+  it("does not add a script entry for a compiled Lucky binary", async () => {
+    const home = temp();
+    await installNativeHost({
+      home,
+      platform: "linux",
+      execPath: "/opt/lucky",
+      exists: async (path) => path === "/usr/bin/google-chrome",
+    });
+    expect(readFileSync(wrapperPath(home), "utf8")).toContain('exec "/opt/lucky" browser host');
+  });
 });
 
 describe("browserStatus / uninstall", () => {
