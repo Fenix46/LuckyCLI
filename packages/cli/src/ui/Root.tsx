@@ -35,6 +35,7 @@ import {
   type SkillActivator,
 } from "@luckycli/core";
 import { projectNeedsTrustPrompt } from "@luckycli/core";
+import { discoverBrowserBridge } from "@luckycli/core";
 import {
   AUTO_ACCEPT_EDIT_TOOLS,
   approvalScope,
@@ -339,6 +340,24 @@ export function Root({
   useEffect(() => {
     runtimeRef.current = runtime;
   }, [runtime]);
+
+  // A browser host can start after Lucky (Chrome opens later). Poll for its
+  // socket and attach on the fly; the manager's onToolsChanged callback puts
+  // the new tools into the live registry.
+  useEffect(() => {
+    const manager = runtime?.mcpManager;
+    if (!manager) return;
+    const tick = () => {
+      const socket = discoverBrowserBridge();
+      if (!socket) return;
+      const status = manager.status()["lucky_browser"];
+      if (status?.status === "connected") return;
+      void manager.reconnect("lucky_browser", { type: "unix", path: socket });
+    };
+    tick();
+    const timer = setInterval(tick, 3000);
+    return () => clearInterval(timer);
+  }, [runtime?.mcpManager]);
 
   useEffect(() => {
     return () => {

@@ -354,6 +354,11 @@ export async function buildAgentRuntime(
     cwd,
     clientName: "lucky",
     clientVersion: APP_VERSION,
+    // Late connections (a browser host that starts after Lucky) still add
+    // their tools to the live registry.
+    onToolsChanged: (tools) => {
+      registerExtraTools(registry, tools);
+    },
     // Use stored OAuth tokens (and let the SDK refresh them) for remote servers,
     // but never pop a browser mid-session: a server needing fresh login fails
     // with a clear "run lucky mcp login" message instead.

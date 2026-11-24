@@ -26,6 +26,8 @@ export interface McpManagerOptions extends McpLocalClientOptions {
   ) => OAuthClientProvider | undefined;
   /** Maximum flattened prompt/resource content returned to callers. */
   maxContentChars?: number;
+  /** Called after a server connects, with the current tool list. */
+  onToolsChanged?: (tools: Tool[]) => void;
 }
 
 export const DEFAULT_MCP_CONTENT_CHARS = 64 * 1024;
@@ -99,6 +101,7 @@ export class McpManager {
       }
       await this.teardown(name);
       this.servers.set(name, { config, client, tools });
+      this.options.onToolsChanged?.(this.tools());
       return this.setStatus(name, { status: "connected" });
     } catch (error) {
       await this.teardown(name);
