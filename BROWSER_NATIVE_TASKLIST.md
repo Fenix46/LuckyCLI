@@ -124,6 +124,11 @@ struttura MCP li accoglie senza cambiare il trasporto.
 | T7 | Estensione: native messaging + MCP server | `feat: connect Lucky through native messaging` |
 | T8 | Docs: README e migrazione | `docs: document the native browser bridge` |
 
+T0–T8 sono implementati su `feat/browser-native` (Lucky) e
+`feat/native-messaging` (estensione). E2E verificato: Chrome 158, estensione
+`lcliakcldefkkiegbfchoifkconomego`, native host, socket MCP,
+`tools/list` e `tabs_list`.
+
 ---
 
 ### T0 — Piano
