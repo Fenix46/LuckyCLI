@@ -630,6 +630,8 @@ export {
 } from "./mcp/tool-adapter.js";
 export { McpLocalClient } from "./mcp/local-client.js";
 export { McpRemoteClient } from "./mcp/remote-client.js";
+export { MAX_FRAME_BYTES, McpUnixClient, UnixClientTransport, frameJson } from "./mcp/unix-client.js";
+export type { McpUnixClientOptions } from "./mcp/unix-client.js";
 export type { McpClient } from "./mcp/client.js";
 export { DEFAULT_MCP_CONTENT_CHARS, McpManager } from "./mcp/manager.js";
 export type { McpManagerOptions } from "./mcp/manager.js";
@@ -650,6 +652,7 @@ export {
 export type { McpAuthEntry, McpAuthStore } from "./mcp/auth-store.js";
 export {
   isMcpServerConfig,
+  mcpServerTarget,
 } from "./mcp/types.js";
 export type {
   McpConnectionStatus,
@@ -659,7 +662,17 @@ export type {
   McpResourceDescriptor,
   McpServerConfig,
   McpToolDescriptor,
+  McpUnixServerConfig,
 } from "./mcp/types.js";
+
+export {
+  browserBridgeDir,
+  browserBridgeSocketPath,
+  discoverBrowserBridge,
+  listBrowserBridgeSockets,
+  pidAlive,
+} from "./browser-bridge.js";
+export type { DiscoverBrowserBridgeOptions } from "./browser-bridge.js";
 
 // MCP catalog.
 export { OfficialMcpRegistryCatalog } from "./mcp-catalog/official.js";
