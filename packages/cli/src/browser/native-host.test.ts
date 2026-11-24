@@ -91,6 +91,44 @@ describe("runBrowserNativeHost", () => {
     expect(existsSync(socketPath)).toBe(false);
   });
 
+  it("routes chat and approval messages to the chat controller", async () => {
+    const dir = temp();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    stdout.resume();
+    const calls: string[] = [];
+    const fakeChat = {
+      send: async (text: string) => {
+        calls.push(`send:${text}`);
+      },
+      cancel: async () => {
+        calls.push("cancel");
+      },
+      resolveApproval: (id: string, optionId: string | undefined) => {
+        calls.push(`approval:${id}:${optionId ?? "cancelled"}`);
+        return true;
+      },
+      status: () => ({ busy: false }),
+      setCwd: () => {},
+      close: () => {},
+    };
+    const finished = runBrowserNativeHost({
+      stdin,
+      stdout,
+      socketDir: dir,
+      log: () => {},
+      chat: fakeChat as never,
+    });
+    await waitFor(() => (existsSync(join(dir, `${process.pid}.sock`)) ? true : undefined));
+    stdin.write(encodeFrame({ type: "chat_request", text: "hello" }));
+    stdin.write(encodeFrame({ type: "approval_response", id: "approval-1", optionId: "allow" }));
+    stdin.write(encodeFrame({ type: "chat_cancel" }));
+    await waitFor(() => (calls.length >= 3 ? true : undefined));
+    expect(calls).toEqual(["send:hello", "approval:approval-1:allow", "cancel"]);
+    stdin.end();
+    await finished;
+  });
+
   it("removes stale sockets for dead pids", async () => {
     const dir = temp();
     const stale = join(dir, "999999999.sock");

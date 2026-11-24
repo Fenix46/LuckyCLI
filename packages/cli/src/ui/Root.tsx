@@ -45,6 +45,7 @@ import {
 } from "../approval.js";
 import { modeAfterPlanAccept, nextPermissionMode, QUESTION_SKIPPED, verificationModeFor } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
+import { writeBrowserChatCwd } from "../browser/chat-cwd.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
@@ -340,6 +341,12 @@ export function Root({
   useEffect(() => {
     runtimeRef.current = runtime;
   }, [runtime]);
+
+  // The browser side panel chats about this project. Chrome spawns the native
+  // host elsewhere, so remember the TUI cwd for it.
+  useEffect(() => {
+    void writeBrowserChatCwd(runtime?.agent.workingDirectory ?? process.cwd());
+  }, [runtime?.agent]);
 
   // A browser host can start after Lucky (Chrome opens later). Poll for its
   // socket and attach on the fly; the manager's onToolsChanged callback puts
