@@ -1,7 +1,6 @@
 import { ToolRegistry } from "../registry.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { askUserTool } from "./ask-user.js";
-import { browserTool } from "./browser.js";
 import { computerTool } from "./computer.js";
 import { editFileTool } from "./edit-file.js";
 import { execTool } from "./exec.js";
@@ -50,7 +49,6 @@ export function defaultToolRegistry(platform: NodeJS.Platform = process.platform
     .register(grepTool)
     .register(httpFetchTool)
     .register(webSearchTool)
-    .register(browserTool)
     .register(lspTool)
     .register(taskCreateTool)
     .register(taskListTool)
@@ -85,7 +83,6 @@ export {
   grepTool,
   httpFetchTool,
   webSearchTool,
-  browserTool,
   lspTool,
   taskCreateTool,
   taskListTool,

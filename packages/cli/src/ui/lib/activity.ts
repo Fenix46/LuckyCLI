@@ -31,7 +31,6 @@ const TOOL_VERBS: Record<string, string> = {
   spawn_agent: "Delegating",
   verify: "Checking",
   lsp: "Inspecting code",
-  browser: "Driving browser",
   web_search: "Searching the web",
 };
 

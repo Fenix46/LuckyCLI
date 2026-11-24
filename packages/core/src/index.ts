@@ -52,7 +52,6 @@ export type {
   ToolContext,
   ToolResult,
   ToolResultMetadata,
-  BrowserBridge,
 } from "./tools/types.js";
 export { diffLines, fileDiff } from "./diff.js";
 export type { DiffHunk, DiffLine, FileDiff } from "./diff.js";
@@ -71,7 +70,6 @@ export {
   grepTool,
   httpFetchTool,
   webSearchTool,
-  browserTool,
   lspTool,
   taskCreateTool,
   taskListTool,

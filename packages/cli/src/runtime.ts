@@ -29,7 +29,6 @@ import {
   type SpawnAgentRequest,
   type SpawnAgentResult,
   type Message,
-  type BrowserBridge,
   type McpServerConfig,
   type ProviderCredentials,
   type ProviderId,
@@ -143,7 +142,6 @@ export interface BuildAgentOptions {
   ) => Promise<SpawnAgentResult>;
   extraTools?: Tool[];
   /** Browser bridge for the Lucky Chrome extension (see AgentConfig.browser). */
-  browser?: BrowserBridge;
   /** Host-backed file access for the file tools (see AgentConfig). */
   readTextFile?: (absPath: string) => Promise<string | null>;
   writeTextFile?: (absPath: string, content: string) => Promise<void>;
@@ -308,7 +306,6 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
       await refreshGraphBeforeTurn(cwd);
       return graphEnricher.enrich(text);
     },
-    ...(opts.browser ? { browser: opts.browser } : {}),
     hooks,
     ...(opts.readTextFile ? { readTextFile: opts.readTextFile } : {}),
     ...(opts.writeTextFile ? { writeTextFile: opts.writeTextFile } : {}),

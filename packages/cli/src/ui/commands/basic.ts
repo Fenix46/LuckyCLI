@@ -108,7 +108,7 @@ export function basicCommands(deps: BasicCommandDeps = defaultDeps): Command[] {
     },
     {
       name: "/browser",
-      description: "Show the Lucky Chrome extension port and token",
+      description: "Show the Lucky browser bridge (native host, extension, tools)",
       async run(_args, ctx) {
         await ctx.ui.browserInfo();
       },

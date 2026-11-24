@@ -44,7 +44,6 @@ import {
 } from "../approval.js";
 import { modeAfterPlanAccept, nextPermissionMode, QUESTION_SKIPPED, verificationModeFor } from "./lib/requests.js";
 import { buildAgentRuntime } from "../runtime.js";
-import { BrowserBridge } from "../browser/bridge.js";
 import { App, type AgentUsageMap, type ApprovalRequest, type PermissionMode, type PlanRequest, type UserQuestionRequest } from "./App.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { Setup, type SetupResult } from "./Setup.js";
@@ -341,15 +340,11 @@ export function Root({
     runtimeRef.current = runtime;
   }, [runtime]);
 
-  const browserRef = useRef<BrowserBridge | null>(null);
-  if (!browserRef.current) browserRef.current = new BrowserBridge();
-
   useEffect(() => {
     return () => {
       void runtimeRef.current?.agent.endSession();
       void disposeLspManagers();
       void runtimeRef.current?.mcpManager?.close();
-      void browserRef.current?.close();
     };
   }, []);
 
@@ -386,7 +381,6 @@ export function Root({
       permissions: permissionsRef.current,
       planMode: permissionModeRef.current === "plan",
       cwd: next.cwd ?? process.cwd(),
-      ...(browserRef.current ? { browser: browserRef.current } : {}),
       ...(config.skills ? { allowedSkills: config.skills } : {}),
       approveTool,
       askUser,
