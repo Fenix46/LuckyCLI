@@ -26,7 +26,17 @@ export interface McpRemoteServerConfig {
   importedFrom?: string;
 }
 
-export type McpServerConfig = McpLocalServerConfig | McpRemoteServerConfig;
+/** A server reachable over a local Unix domain socket (the browser bridge). */
+export interface McpUnixServerConfig {
+  type: "unix";
+  path: string;
+  enabled?: boolean;
+  timeout?: number;
+  /** Set when the entry came from another client's config (see mcp/import.ts). */
+  importedFrom?: string;
+}
+
+export type McpServerConfig = McpLocalServerConfig | McpRemoteServerConfig | McpUnixServerConfig;
 
 export type McpConnectionStatus =
   | { status: "connected" }
@@ -65,6 +75,13 @@ export interface McpResourceDescriptor {
   mimeType?: string;
 }
 
+/** Human-readable endpoint of a server, for lists and logs. */
+export function mcpServerTarget(config: McpServerConfig): string {
+  if (config.type === "local") return config.command.join(" ");
+  if (config.type === "unix") return config.path;
+  return config.url;
+}
+
 export function isMcpServerConfig(value: unknown): value is McpServerConfig {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<McpServerConfig>;
@@ -73,6 +90,9 @@ export function isMcpServerConfig(value: unknown): value is McpServerConfig {
   }
   if (candidate.type === "remote") {
     return typeof candidate.url === "string";
+  }
+  if (candidate.type === "unix") {
+    return typeof candidate.path === "string" && candidate.path.length > 0;
   }
   return false;
 }

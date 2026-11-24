@@ -4,6 +4,7 @@ import { adaptMcpTool, uniqueMcpToolName } from "./tool-adapter.js";
 import type { McpClient } from "./client.js";
 import { McpLocalClient, type McpLocalClientOptions } from "./local-client.js";
 import { McpRemoteClient } from "./remote-client.js";
+import { McpUnixClient } from "./unix-client.js";
 import type {
   McpConnectionStatus,
   McpPromptDescriptor,
@@ -77,7 +78,12 @@ export class McpManager {
       const client =
         config.type === "local"
           ? await McpLocalClient.connect(config, this.options)
-          : await McpRemoteClient.connect(config, {
+          : config.type === "unix"
+            ? await McpUnixClient.connect(config, {
+                ...(this.options.clientName ? { clientName: this.options.clientName } : {}),
+                ...(this.options.clientVersion ? { clientVersion: this.options.clientVersion } : {}),
+              })
+            : await McpRemoteClient.connect(config, {
               ...(this.options.clientName ? { clientName: this.options.clientName } : {}),
               ...(this.options.clientVersion ? { clientVersion: this.options.clientVersion } : {}),
               ...(this.options.authProviderFor?.(name, config)

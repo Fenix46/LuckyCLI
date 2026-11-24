@@ -3,6 +3,7 @@ import {
   OfficialMcpRegistryCatalog,
   catalogDetailToPreset,
   loadStoredConfig,
+  mcpServerTarget,
   parseMcpAddArgs,
   planMcpImport,
   saveStoredConfig,
@@ -92,9 +93,7 @@ export function mcpCommands(deps: McpCommandDeps = defaultDeps): Command[] {
                 {
                   label: "preset",
                   value:
-                    preset.config.type === "local"
-                      ? preset.config.command.join(" ")
-                      : preset.config.url,
+                    mcpServerTarget(preset.config),
                 },
               ],
             });
@@ -130,8 +129,13 @@ export function mcpCommands(deps: McpCommandDeps = defaultDeps): Command[] {
                 { label: "server", value: parsed.name },
                 { label: "type", value: parsed.server.type },
                 {
-                  label: parsed.server.type === "local" ? "command" : "url",
-                  value: parsed.server.type === "local" ? parsed.server.command.join(" ") : parsed.server.url,
+                  label:
+                    parsed.server.type === "local"
+                      ? "command"
+                      : parsed.server.type === "unix"
+                        ? "socket"
+                        : "url",
+                  value: mcpServerTarget(parsed.server),
                 },
               ],
             });

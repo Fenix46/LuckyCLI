@@ -10,6 +10,7 @@ import {
   authorizeMcpServer,
   clearMcpAuthEntry,
   loadStoredConfig,
+  mcpServerTarget,
   parseMcpAddArgs,
   parseMcpAddJsonArgs,
   parseMcpJsonServer,
@@ -51,7 +52,7 @@ export function mcpListLines(mcp: Record<string, McpServerConfig>): string[] {
   return names.map((name) => {
     const config = mcp[name]!;
     const enabled = config.enabled === false ? "disabled" : "enabled";
-    const target = config.type === "local" ? config.command.join(" ") : config.url;
+    const target = mcpServerTarget(config);
     return `${name.padEnd(width)}  ${config.type.padEnd(6)}  ${enabled.padEnd(8)}  ${target}`;
   });
 }
@@ -168,7 +169,7 @@ export function mcpImportLines(plan: McpImportPlan, args: Pick<McpImportArgs, "d
     lines.push(`${args.dryRun ? "Would import" : "Imported"} ${count}${state}`);
     for (const server of plan.imported) {
       const target =
-        server.config.type === "local" ? server.config.command.join(" ") : server.config.url;
+        mcpServerTarget(server.config);
       lines.push(`  ${server.name}  ${server.origin}  ${target}`);
     }
   }
@@ -204,7 +205,7 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
     const save = io.saveConfig ?? saveStoredConfig;
     const existed = Boolean(load().mcp?.[parsed.name]);
     save(withMcpServer(load(), parsed.name, parsed.server));
-    const target = parsed.server.type === "local" ? parsed.server.command.join(" ") : parsed.server.url;
+    const target = mcpServerTarget(parsed.server);
     out(`${existed ? "Updated" : "Added"} MCP server "${parsed.name}" (${parsed.server.type}): ${target}`);
     out(`Check it with: lucky mcp status`);
     return 0;
@@ -238,7 +239,7 @@ export async function runMcpCommand(args: string[], io: McpCommandIO = {}): Prom
     const existed = Boolean(load().mcp?.[parsed.name]);
     save(withMcpServer(load(), parsed.name, result.server));
     const target =
-      result.server.type === "local" ? result.server.command.join(" ") : result.server.url;
+      mcpServerTarget(result.server);
     out(`${existed ? "Updated" : "Added"} MCP server "${parsed.name}" (${result.server.type}): ${target}`);
     return 0;
   }
