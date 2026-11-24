@@ -4,6 +4,7 @@ import { adaptMcpTool, uniqueMcpToolName } from "./tool-adapter.js";
 import type { McpClient } from "./client.js";
 import { McpLocalClient, type McpLocalClientOptions } from "./local-client.js";
 import { McpRemoteClient } from "./remote-client.js";
+import { McpUnixClient } from "./unix-client.js";
 import type {
   McpConnectionStatus,
   McpPromptDescriptor,
@@ -25,6 +26,8 @@ export interface McpManagerOptions extends McpLocalClientOptions {
   ) => OAuthClientProvider | undefined;
   /** Maximum flattened prompt/resource content returned to callers. */
   maxContentChars?: number;
+  /** Called after a server connects, with the current tool list. */
+  onToolsChanged?: (tools: Tool[]) => void;
 }
 
 export const DEFAULT_MCP_CONTENT_CHARS = 64 * 1024;
@@ -77,7 +80,12 @@ export class McpManager {
       const client =
         config.type === "local"
           ? await McpLocalClient.connect(config, this.options)
-          : await McpRemoteClient.connect(config, {
+          : config.type === "unix"
+            ? await McpUnixClient.connect(config, {
+                ...(this.options.clientName ? { clientName: this.options.clientName } : {}),
+                ...(this.options.clientVersion ? { clientVersion: this.options.clientVersion } : {}),
+              })
+            : await McpRemoteClient.connect(config, {
               ...(this.options.clientName ? { clientName: this.options.clientName } : {}),
               ...(this.options.clientVersion ? { clientVersion: this.options.clientVersion } : {}),
               ...(this.options.authProviderFor?.(name, config)
@@ -93,6 +101,7 @@ export class McpManager {
       }
       await this.teardown(name);
       this.servers.set(name, { config, client, tools });
+      this.options.onToolsChanged?.(this.tools());
       return this.setStatus(name, { status: "connected" });
     } catch (error) {
       await this.teardown(name);

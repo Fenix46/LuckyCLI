@@ -44,6 +44,9 @@ export function expandMcpServerConfig(
       ...(config.environment ? { environment: expandRecord(config.environment, env) } : {}),
     };
   }
+  if (config.type === "unix") {
+    return { ...config, path: expandEnvString(config.path, env) };
+  }
   return {
     ...config,
     url: expandEnvString(config.url, env),

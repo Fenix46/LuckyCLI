@@ -29,13 +29,13 @@ import {
   type SpawnAgentRequest,
   type SpawnAgentResult,
   type Message,
-  type BrowserBridge,
   type McpServerConfig,
   type ProviderCredentials,
   type ProviderId,
   type ToolApproval,
   type Tool,
   type ToolPermissionPolicy,
+  discoverBrowserBridge,
 } from "@luckycli/core";
 import { APP_VERSION } from "./ui/components/constants.js";
 
@@ -142,7 +142,6 @@ export interface BuildAgentOptions {
   ) => Promise<SpawnAgentResult>;
   extraTools?: Tool[];
   /** Browser bridge for the Lucky Chrome extension (see AgentConfig.browser). */
-  browser?: BrowserBridge;
   /** Host-backed file access for the file tools (see AgentConfig). */
   readTextFile?: (absPath: string) => Promise<string | null>;
   writeTextFile?: (absPath: string, content: string) => Promise<void>;
@@ -307,7 +306,6 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
       await refreshGraphBeforeTurn(cwd);
       return graphEnricher.enrich(text);
     },
-    ...(opts.browser ? { browser: opts.browser } : {}),
     hooks,
     ...(opts.readTextFile ? { readTextFile: opts.readTextFile } : {}),
     ...(opts.writeTextFile ? { writeTextFile: opts.writeTextFile } : {}),
@@ -321,11 +319,24 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   });
 }
 
+/**
+ * Merge the auto-discovered browser bridge into the configured MCP servers.
+ * An explicitly configured `lucky_browser` always wins, so a user can pin a
+ * different socket (tests, custom native host).
+ */
+export function withBrowserBridge(
+  mcp: Record<string, McpServerConfig>,
+  socket: string | undefined,
+): Record<string, McpServerConfig> {
+  if (!socket || mcp.lucky_browser) return mcp;
+  return { ...mcp, lucky_browser: { type: "unix", path: socket } };
+}
+
 export async function buildAgentRuntime(
   opts: BuildAgentRuntimeOptions,
 ): Promise<BuiltAgentRuntime> {
   const cwd = opts.cwd ?? process.cwd();
-  const mcp = opts.mcp ?? {};
+  const mcp = withBrowserBridge(opts.mcp ?? {}, discoverBrowserBridge());
 
   // Build the agent immediately against a registry we own. MCP servers connect
   // in the background and register their tools into this same registry as they
@@ -343,6 +354,11 @@ export async function buildAgentRuntime(
     cwd,
     clientName: "lucky",
     clientVersion: APP_VERSION,
+    // Late connections (a browser host that starts after Lucky) still add
+    // their tools to the live registry.
+    onToolsChanged: (tools) => {
+      registerExtraTools(registry, tools);
+    },
     // Use stored OAuth tokens (and let the SDK refresh them) for remote servers,
     // but never pop a browser mid-session: a server needing fresh login fails
     // with a clear "run lucky mcp login" message instead.

@@ -41,6 +41,18 @@ describe("McpManager", () => {
     });
   });
 
+  it("reports the connected tool list through onToolsChanged", async () => {
+    const seen: string[][] = [];
+    const manager = new McpManager({
+      onToolsChanged: (tools) => seen.push(tools.map((tool) => tool.name)),
+    });
+    managers.push(manager);
+    await manager.connectAll({
+      docs: { type: "local", command: ["node", fixtureServer], timeout: 5_000 },
+    });
+    expect(seen.at(-1)?.length).toBeGreaterThan(0);
+  });
+
   it("reports a failed status for an unreachable remote server", async () => {
     const manager = new McpManager();
     managers.push(manager);

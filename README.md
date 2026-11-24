@@ -199,6 +199,7 @@ lucky -c                                # continue this project's latest session
 | `lucky graph build\|rebuild\|view\|impact` | Build, render or query the knowledge graph |
 | `lucky mcp list\|add\|add-json\|import\|remove\|status\|inspect\|login\|logout` | Manage MCP servers ([MCP servers](#mcp-servers)) |
 | `lucky skill list\|search\|add\|import\|remove\|enable\|disable` | Manage skills ([Skills](#skills)) |
+| `lucky browser install\|status\|uninstall` | Install and inspect the Chrome native messaging host |
 | `lucky update` | Check for and install updates |
 | `lucky acp` | Serve the Agent Client Protocol on stdio, for editors |
 
@@ -337,7 +338,7 @@ into a `[Pasted text #N]` placeholder, and dropping an image file attaches it.
 | `/rules` | Allow, ask for or block specific shell commands |
 | `/graph` | Build or refresh the knowledge graph |
 | `/worktree [list\|enter [name]\|exit]` | Work in an isolated Lucky git worktree |
-| `/browser` | Show the Lucky Chrome extension's bridge port and token |
+| `/browser` | Show the Lucky browser bridge: host, extension, socket and MCP tools |
 | `/hooks` | List configured lifecycle hooks and config errors |
 | `/skill` | Skills panel; `/skill use <name>` runs one (alias `/skills`) |
 | `/mcp` | MCP panel; `/mcp add` installs from the registry or adds your own server |
@@ -381,7 +382,7 @@ tools run without asking; side-effecting ones ask, according to the approval mod
 | `http_fetch` | allow | Fetch a public URL (private and metadata addresses are blocked) |
 | `web_search` | allow | Search the web through Brave, Tavily or a custom endpoint |
 | `computer` | ask | macOS Accessibility: list apps/windows, read a UI tree, click, type, key, screenshot |
-| `browser` | ask | Use the user's Chrome through the Lucky extension |
+| `mcp__lucky_browser__*` | ask | Chrome tabs and page actions through the native messaging bridge |
 | `lsp` | allow | Language server: diagnostics, hover, definition, references, symbols |
 | `task_create` · `task_update` · `task_list` · `task_get` | allow | A structured task list the user can follow |
 | `present_plan` | allow | Present a plan for approval before implementing |
@@ -480,14 +481,34 @@ pull model when the server advertises `diagnosticProvider`, otherwise the push
 a different config file. When a file's extension has no server, the tool reports
 exactly which extensions are configured.
 
-`browser` needs the Lucky extension, kept in the separate
+`browser` tools come from the Lucky extension, kept in the separate
 [`lucky-chrome-extension`](../lucky-chrome-extension) repository (a sibling
-checkout by default). Run `/browser` to start the loopback bridge and print its
-port and token, load that repository's root as an unpacked extension in
-`chrome://extensions`, then paste both values into the extension's options. The
-bridge listens on `127.0.0.1` only, stores its token in `~/.lucky/browser.json`
-(`0600`), and every browser action still goes through the normal `ask`
-permission.
+checkout by default). Install the native messaging host once:
+
+```bash
+lucky browser install
+```
+
+Then load that repository's root as an unpacked extension in
+`chrome://extensions` (Developer mode → Load unpacked) and reload it. Chrome
+starts the native host itself; there is no port or token to copy.
+
+If you had the previous version loaded, remove it and load the folder again: the
+extension ID is now pinned by a manifest `key` (`lcliakcldefkkiegbfchoifkconomego`),
+so `allowed_origins` can name it exactly.
+
+```
+extension  ↔ native messaging  ↔  lucky browser host
+                                      ↕ Unix socket (0600)
+                                   Lucky (MCP client)
+```
+
+The host listens on `/tmp/lucky-mcp-browser-bridge-<user>/<pid>.sock`, accepts
+only the Lucky extension's fixed ID, and exposes browser actions as MCP tools
+(`mcp__lucky_browser__tabs_list`, `page_snapshot`, …). Every action still goes
+through the normal `ask` permission. `/browser` shows the host, the socket, the
+MCP connection and the tool count; `lucky browser status` does the same from the
+CLI.
 
 Mutation tools require a **fresh read** of an existing file: editing or
 overwriting a file the model has not read, or that changed since that read, is

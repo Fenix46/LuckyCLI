@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "@luckycli/core";
+import { mcpServerTarget, type McpServerConfig } from "@luckycli/core";
 import type { CommandRow } from "./items.js";
 
 export interface InstalledMcpRow {
@@ -38,7 +38,7 @@ export function buildInstalledMcpRows(
       status?.status === "failed"
         ? `failed · ${status.error}`
         : status?.status ?? "not_loaded";
-    const target = config.type === "local" ? config.command.join(" ") : config.url;
+    const target = mcpServerTarget(config);
     return {
       name,
       summary: `${enabled} · ${runtime} · ${target}`,

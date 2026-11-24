@@ -72,6 +72,7 @@ import {
 import { buildCommandRegistry, dispatchCommand, slashMenuEntries } from "./commands/registry.js";
 import { buildMarkdownCommands } from "./commands/markdown.js";
 import { buildMcpPromptCommands, type McpPromptCommand } from "./commands/mcp-prompts.js";
+import { browserStatus } from "../browser/install.js";
 import type { Command, CommandContext } from "./commands/types.js";
 import { useAgentsPanel } from "./hooks/useAgentsPanel.js";
 import { useModelCatalogs } from "./hooks/useModelCatalogs.js";
@@ -146,8 +147,6 @@ interface AppProps {
   onForkSession: (messages: Message[]) => Promise<void> | void;
   /** Rebuild the agent in another directory (worktree enter/exit). */
   onSwitchWorktree: (cwd: string) => Promise<void> | void;
-  /** Start the local bridge and return the port/token the extension needs. */
-  requestBrowserInfo: () => Promise<{ port: number; token: string }>;
   /** Current tool-approval mode, displayed in the footer. */
   permissionMode: PermissionMode;
   /** Cycle the tool-approval mode (Shift+Tab). */
@@ -178,7 +177,6 @@ export function App({
   onTriggerResume,
   onForkSession,
   onSwitchWorktree,
-  requestBrowserInfo,
   permissionMode,
   onCyclePermissionMode,
   resumed,
@@ -380,21 +378,43 @@ export function App({
   );
   const showBrowserInfo = useCallback(async () => {
     try {
-      const info = await requestBrowserInfo();
+      const status = await browserStatus();
+      const bridge = mcpManager?.status()["lucky_browser"];
+      const tools = mcpManager?.toolCount("lucky_browser") ?? 0;
+      const installed = status.hosts.filter((host) => host.manifestPresent);
+      const socket = status.sockets[0];
+      const bridgeState =
+        bridge?.status === "connected"
+          ? `connected · ${tools} tool${tools === 1 ? "" : "s"}`
+          : bridge?.status === "failed"
+            ? `failed · ${bridge.error}`
+            : (bridge?.status ?? "not connected");
       setItems((prev) => [
         ...prev,
         {
           kind: "command",
           title: "Lucky browser bridge",
           rows: [
-            { label: "port", value: String(info.port) },
-            { label: "token", value: info.token },
+            { label: "host", value: status.wrapperPresent ? "installed" : "missing" },
+            {
+              label: "browsers",
+              value: installed.length > 0 ? installed.map((host) => host.target.name).join(", ") : "no manifest",
+            },
+            { label: "socket", value: socket ?? "none" },
+            { label: "mcp", value: bridgeState },
           ],
         },
         {
           kind: "notice",
           tone: "info",
-          text: "Load the Lucky extension, open its options, and enter this port and token. The bridge only listens on 127.0.0.1.",
+          text:
+            installed.length === 0
+              ? "Run `lucky browser install`, then reload the Lucky extension from chrome://extensions."
+              : !socket
+                ? "Host installed. Open Chrome and reload the Lucky extension so Chrome starts the native host."
+                : bridge?.status === "connected"
+                  ? "Browser tools are available as mcp__lucky_browser__*."
+                  : "Native host is running; reload the Lucky extension if the bridge stays disconnected.",
         },
       ]);
     } catch (error) {
@@ -402,11 +422,11 @@ export function App({
         ...prev,
         {
           kind: "error",
-          text: `Could not start the browser bridge: ${error instanceof Error ? error.message : String(error)}`,
+          text: `Could not read the browser bridge status: ${error instanceof Error ? error.message : String(error)}`,
         },
       ]);
     }
-  }, [requestBrowserInfo]);
+  }, [mcpManager]);
   const [input, setInput] = useState("");
   // Large pastes are held out of the visible input behind a `[Pasted text #N]`
   // placeholder and spliced back in at submit time (see lib/paste.ts). Kept in
