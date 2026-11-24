@@ -29,6 +29,7 @@ import { Root } from "./ui/Root.js";
 import { runAcpCommand } from "./acp/acp-cli.js";
 import { runMcpCommand } from "./mcp-cli.js";
 import { runSkillCommand } from "./skill-cli.js";
+import { runBrowserNativeHost } from "./browser/native-host.js";
 import { runUpdateCommand } from "./update-cli.js";
 import { runCommand } from "./run-cli.js";
 import { runReviewCommand, runVerifyCommand } from "./workflow-cli.js";
@@ -217,6 +218,20 @@ function main(): void {
       })
       .catch((err) => {
         process.stderr.write(`acp server failed: ${err instanceof Error ? err.message : err}\n`);
+        process.exit(1);
+      });
+    return;
+  }
+
+  if (rawArgs[0] === "browser" && rawArgs[1] === "host") {
+    // Hidden: Chrome spawns this as the native messaging host. stdout is the
+    // protocol, so every human-facing line goes to stderr.
+    runBrowserNativeHost()
+      .then(() => {
+        process.exit(0);
+      })
+      .catch((err) => {
+        process.stderr.write(`browser host failed: ${err instanceof Error ? err.message : err}\n`);
         process.exit(1);
       });
     return;
