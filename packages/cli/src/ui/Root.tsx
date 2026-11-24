@@ -676,7 +676,6 @@ export function Root({
       onTriggerResume={() => setPicking(true)}
       onForkSession={forkConversation}
       onSwitchWorktree={switchWorktree}
-      requestBrowserInfo={() => browserRef.current!.info()}
       permissionMode={permissionMode}
       onCyclePermissionMode={cyclePermissionMode}
       resumed={resumeSession}

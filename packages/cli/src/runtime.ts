@@ -36,6 +36,7 @@ import {
   type ToolApproval,
   type Tool,
   type ToolPermissionPolicy,
+  discoverBrowserBridge,
 } from "@luckycli/core";
 import { APP_VERSION } from "./ui/components/constants.js";
 
@@ -321,11 +322,24 @@ export function buildAgent(opts: BuildAgentOptions): Agent {
   });
 }
 
+/**
+ * Merge the auto-discovered browser bridge into the configured MCP servers.
+ * An explicitly configured `lucky_browser` always wins, so a user can pin a
+ * different socket (tests, custom native host).
+ */
+export function withBrowserBridge(
+  mcp: Record<string, McpServerConfig>,
+  socket: string | undefined,
+): Record<string, McpServerConfig> {
+  if (!socket || mcp.lucky_browser) return mcp;
+  return { ...mcp, lucky_browser: { type: "unix", path: socket } };
+}
+
 export async function buildAgentRuntime(
   opts: BuildAgentRuntimeOptions,
 ): Promise<BuiltAgentRuntime> {
   const cwd = opts.cwd ?? process.cwd();
-  const mcp = opts.mcp ?? {};
+  const mcp = withBrowserBridge(opts.mcp ?? {}, discoverBrowserBridge());
 
   // Build the agent immediately against a registry we own. MCP servers connect
   // in the background and register their tools into this same registry as they

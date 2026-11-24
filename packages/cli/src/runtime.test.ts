@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineTool, ToolRegistry } from "@luckycli/core";
-import { createRuntimeToolRegistry, registerExtraTools } from "./runtime.js";
+import { createRuntimeToolRegistry, registerExtraTools, withBrowserBridge } from "./runtime.js";
+
+describe("withBrowserBridge", () => {
+  it("adds the discovered bridge as an MCP server", () => {
+    expect(withBrowserBridge({}, "/tmp/bridge.sock")).toEqual({
+      lucky_browser: { type: "unix", path: "/tmp/bridge.sock" },
+    });
+  });
+
+  it("does not override an explicitly configured bridge", () => {
+    const configured = { lucky_browser: { type: "unix" as const, path: "/custom.sock" } };
+    expect(withBrowserBridge(configured, "/tmp/bridge.sock")).toBe(configured);
+  });
+
+  it("leaves the map untouched when no socket was found", () => {
+    const mcp = { docs: { type: "remote" as const, url: "https://example.com/mcp" } };
+    expect(withBrowserBridge(mcp, undefined)).toBe(mcp);
+  });
+});
 
 describe("createRuntimeToolRegistry", () => {
   it("composes built-in tools with extra runtime tools", () => {
