@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSideConnection } from "@zed-industries/agent-client-protocol";
 import type { ResolvedConfig } from "@luckycli/core";
-import { BrowserChat, chatEventFromUpdate, composePrompt } from "./chat.js";
+import {
+  BROWSER_SYSTEM_PROMPT,
+  BrowserChat,
+  browserRuntimeBuilder,
+  browserWorkspaceDir,
+  chatEventFromUpdate,
+  composePrompt,
+} from "./chat.js";
 import { readBrowserChatCwd, writeBrowserChatCwd } from "./chat-cwd.js";
 
 const temps: string[] = [];
@@ -77,16 +84,38 @@ describe("chatEventFromUpdate", () => {
 });
 
 describe("composePrompt", () => {
-  it("adds the browser preamble only on the first turn and the tab on every turn", () => {
+  it("prefixes the active tab and leaves the text alone without one", () => {
     const tab = { tab: { title: "Example", url: "https://example.com/" } };
-    const first = composePrompt("summarize", tab, true);
-    expect(first).toContain("<browser-chat>");
-    expect(first).toContain('url="https://example.com/"');
-    expect(first.endsWith("summarize")).toBe(true);
-    const later = composePrompt("and now?", tab, false);
-    expect(later).not.toContain("<browser-chat>");
-    expect(later).toContain("<current-tab");
-    expect(composePrompt("hi", undefined, false)).toBe("hi");
+    const prompt = composePrompt("summarize", tab);
+    expect(prompt).toContain('<current-tab title="Example" url="https://example.com/" />');
+    expect(prompt.endsWith("summarize")).toBe(true);
+    expect(composePrompt("hi", undefined)).toBe("hi");
+  });
+});
+
+describe("browser chat runtime", () => {
+  it("is a browser agent: no shell or file tools, browser prompt, neutral workspace", async () => {
+    let seen: Record<string, unknown> | undefined;
+    const build = browserRuntimeBuilder((async (opts: Record<string, unknown>) => {
+      seen = opts;
+      return {} as never;
+    }) as never);
+    await build({ system: "coding agent", composeSystemFromContext: true, permissions: { exec: "allow" } } as never);
+    const registry = seen!.toolRegistry as { has(name: string): boolean };
+    for (const name of ["exec", "process", "write_file", "edit_file", "apply_patch", "computer", "read_file", "spawn_agent"]) {
+      expect(registry.has(name), name).toBe(false);
+    }
+    expect(seen!.system).toBe(BROWSER_SYSTEM_PROMPT);
+    expect(seen!.composeSystemFromContext).toBe(false);
+    expect((seen!.permissions as Record<string, string>)["mcp__lucky_browser__read_page"]).toBe("allow");
+    expect((seen!.permissions as Record<string, string>)["mcp__lucky_browser__click"]).toBeUndefined();
+  });
+
+  it("uses a dedicated workspace instead of the home or launch directory", () => {
+    const home = temp();
+    const dir = browserWorkspaceDir(home);
+    expect(dir).toBe(join(home, ".luckycli", "browser-workspace"));
+    expect(dir).not.toBe(home);
   });
 });
 

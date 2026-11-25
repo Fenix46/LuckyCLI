@@ -343,7 +343,9 @@ export async function buildAgentRuntime(
   // come up — the agent reads tool definitions live each turn, so late arrivals
   // are picked up without rebuilding. This keeps session startup instant even
   // when a server is slow (e.g. first-run `npx` downloads) or wedged.
-  const registry = createRuntimeToolRegistry(opts.extraTools);
+  // A caller can hand in its own (reduced) registry, e.g. the browser chat,
+  // which must not expose shell or file tools.
+  const registry = opts.toolRegistry ?? createRuntimeToolRegistry(opts.extraTools);
   const skillActivator = opts.skillActivator ?? new SkillActivator(undefined, opts.allowedSkills, cwd);
   const graphEnricher = opts.graphEnricher ?? new GraphContextEnricher(cwd);
   const agent = buildAgent({ ...opts, toolRegistry: registry, skillActivator, graphEnricher });
