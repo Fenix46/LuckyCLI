@@ -1,12 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSideConnection } from "@zed-industries/agent-client-protocol";
 import type { ResolvedConfig } from "@luckycli/core";
 import {
   BROWSER_SYSTEM_PROMPT,
   BrowserChat,
+  BrowserToolRegistry,
   browserRuntimeBuilder,
   browserWorkspaceDir,
   chatEventFromUpdate,
@@ -107,8 +109,23 @@ describe("browser chat runtime", () => {
     }
     expect(seen!.system).toBe(BROWSER_SYSTEM_PROMPT);
     expect(seen!.composeSystemFromContext).toBe(false);
-    expect((seen!.permissions as Record<string, string>)["mcp__lucky_browser__read_page"]).toBe("allow");
-    expect((seen!.permissions as Record<string, string>)["mcp__lucky_browser__click"]).toBeUndefined();
+    expect((seen!.permissions as Record<string, string>)["lucky_browser_read_page"]).toBe("allow");
+    expect((seen!.permissions as Record<string, string>)["lucky_browser_click"]).toBeUndefined();
+  });
+
+  it("never hides MCP browser tools behind tool_search", () => {
+    const registry = new BrowserToolRegistry();
+    for (let i = 0; i < 20; i++) {
+      registry.register({
+        name: `mcp__lucky_browser__tool_${i}`,
+        description: "x".repeat(400),
+        schema: z.object({}),
+        defer: true,
+        execute: async () => ({ content: "" }),
+      } as never);
+    }
+    expect(registry.hasDeferredTools()).toBe(false);
+    expect(registry.definitions()).toHaveLength(20);
   });
 
   it("uses a dedicated workspace instead of the home or launch directory", () => {
