@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { browserBridgeDir, browserBridgeSocketPath, pidAlive } from "@luckycli/core";
 import { CORE_VERSION } from "@luckycli/core";
 import { encodeFrame, FrameDecoder } from "./frames.js";
-import { BrowserChat } from "./chat.js";
+import { BrowserChat, type ChatContext } from "./chat.js";
 import { writeBrowserChatCwd } from "./chat-cwd.js";
 
 const MAX_CLIENTS = 8;
@@ -43,6 +43,19 @@ type Message = { type: string; [key: string]: unknown };
 
 function isMessage(value: unknown): value is Message {
   return typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string";
+}
+
+function parseChatContext(value: unknown): ChatContext | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const tab = (value as { tab?: unknown }).tab;
+  if (!tab || typeof tab !== "object") return undefined;
+  const { title, url } = tab as { title?: unknown; url?: unknown };
+  return {
+    tab: {
+      ...(typeof title === "string" ? { title } : {}),
+      ...(typeof url === "string" ? { url } : {}),
+    },
+  };
 }
 
 export async function runBrowserNativeHost(options: NativeHostOptions = {}): Promise<void> {
@@ -92,13 +105,17 @@ export async function runBrowserNativeHost(options: NativeHostOptions = {}): Pro
           write({ type: "chat_error", error: "chat_request needs text." });
           return;
         }
-        void getChat().send(message.text).catch((error) => {
+        const context = parseChatContext(message.context);
+        void getChat().send(message.text, context).catch((error) => {
           write({ type: "chat_error", error: error instanceof Error ? error.message : String(error) });
         });
         return;
       }
       case "chat_cancel":
         void getChat().cancel();
+        return;
+      case "chat_reset":
+        getChat().newChat();
         return;
       case "approval_response": {
         if (typeof message.id !== "string") return;

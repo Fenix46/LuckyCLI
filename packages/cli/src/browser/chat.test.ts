@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSideConnection } from "@zed-industries/agent-client-protocol";
 import type { ResolvedConfig } from "@luckycli/core";
-import { BrowserChat, chatEventFromUpdate } from "./chat.js";
+import { BrowserChat, chatEventFromUpdate, composePrompt } from "./chat.js";
 import { readBrowserChatCwd, writeBrowserChatCwd } from "./chat-cwd.js";
 
 const temps: string[] = [];
@@ -47,10 +47,46 @@ describe("chatEventFromUpdate", () => {
     expect(chatEventFromUpdate({ sessionUpdate: "plan", entries: [] })).toMatchObject({ kind: "plan" });
   });
 
+  it("carries the tool call id, kind, input and output for the panel row", () => {
+    expect(
+      chatEventFromUpdate({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "t9",
+        title: "read_page",
+        status: "completed",
+        kind: "fetch",
+        rawInput: { tabId: 3 },
+        content: [{ type: "content", content: { type: "text", text: "tree" } }],
+      }),
+    ).toEqual({
+      kind: "tool",
+      title: "read_page",
+      status: "completed",
+      id: "t9",
+      toolKind: "fetch",
+      input: '{"tabId":3}',
+      output: "tree",
+    });
+  });
+
   it("ignores bookkeeping updates and non-text chunks", () => {
     expect(chatEventFromUpdate({ sessionUpdate: "available_commands_update" })).toBeUndefined();
     expect(chatEventFromUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "image" } })).toBeUndefined();
     expect(chatEventFromUpdate(null)).toBeUndefined();
+  });
+});
+
+describe("composePrompt", () => {
+  it("adds the browser preamble only on the first turn and the tab on every turn", () => {
+    const tab = { tab: { title: "Example", url: "https://example.com/" } };
+    const first = composePrompt("summarize", tab, true);
+    expect(first).toContain("<browser-chat>");
+    expect(first).toContain('url="https://example.com/"');
+    expect(first.endsWith("summarize")).toBe(true);
+    const later = composePrompt("and now?", tab, false);
+    expect(later).not.toContain("<browser-chat>");
+    expect(later).toContain("<current-tab");
+    expect(composePrompt("hi", undefined, false)).toBe("hi");
   });
 });
 

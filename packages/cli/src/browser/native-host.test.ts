@@ -98,8 +98,11 @@ describe("runBrowserNativeHost", () => {
     stdout.resume();
     const calls: string[] = [];
     const fakeChat = {
-      send: async (text: string) => {
-        calls.push(`send:${text}`);
+      send: async (text: string, context?: { tab?: { url?: string } }) => {
+        calls.push(`send:${text}:${context?.tab?.url ?? "-"}`);
+      },
+      newChat: () => {
+        calls.push("reset");
       },
       cancel: async () => {
         calls.push("cancel");
@@ -120,11 +123,14 @@ describe("runBrowserNativeHost", () => {
       chat: fakeChat as never,
     });
     await waitFor(() => (existsSync(join(dir, `${process.pid}.sock`)) ? true : undefined));
-    stdin.write(encodeFrame({ type: "chat_request", text: "hello" }));
+    stdin.write(
+      encodeFrame({ type: "chat_request", text: "hello", context: { tab: { url: "https://a.test/" } } }),
+    );
     stdin.write(encodeFrame({ type: "approval_response", id: "approval-1", optionId: "allow" }));
     stdin.write(encodeFrame({ type: "chat_cancel" }));
-    await waitFor(() => (calls.length >= 3 ? true : undefined));
-    expect(calls).toEqual(["send:hello", "approval:approval-1:allow", "cancel"]);
+    stdin.write(encodeFrame({ type: "chat_reset" }));
+    await waitFor(() => (calls.length >= 4 ? true : undefined));
+    expect(calls).toEqual(["send:hello:https://a.test/", "approval:approval-1:allow", "cancel", "reset"]);
     stdin.end();
     await finished;
   });
